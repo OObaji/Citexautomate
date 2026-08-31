@@ -1,18 +1,15 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) {
-	exit; // Disallow direct access.
+	exit;
 }
 
 /**
  * Question Bank page.
  *
- * Renders search/filter controls and the question-records table, sourced
- * from the most recent Citex_Scanner scan of the real WordPress question
- * records (see includes/class-citex-scanner.php), joined with each
- * question's current validation status/result from Citex_Validator (see
- * includes/class-citex-validator.php). Read-only: filtering and
- * pagination operate on the cached scan + stored validation results only
- * — nothing here reads or writes question posts directly.
+ * The table is sourced from the latest Citex scan and joined with validation
+ * results. Pagination is only a display concern: the page also computes the
+ * complete filtered set so Citex bulk actions can target all 200+ matching
+ * questions rather than only the 20 rows currently visible.
  */
 class Citex_Questions {
 
@@ -21,8 +18,7 @@ class Citex_Questions {
 	public function render() {
 		$scan              = Citex_Scanner::get_last_scan();
 		$question_list_url = Citex_Scanner::get_question_list_url();
-
-		$search = isset( $_GET['citex_search'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_search'] ) ) : '';
+		$search            = isset( $_GET['citex_search'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_search'] ) ) : '';
 
 		$filters = array(
 			'source'   => isset( $_GET['citex_filter_source'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_source'] ) ) : 'all',
@@ -32,33 +28,39 @@ class Citex_Questions {
 		);
 
 		$all_questions = self::attach_validation( $scan['questions'] ?? array() );
+		$sources        = $scan['breakdowns']['sources'] ?? array();
+		$categories     = $scan['breakdowns']['categories'] ?? array();
+		$types          = $scan['breakdowns']['types'] ?? array();
 
-		$sources    = $scan['breakdowns']['sources'] ?? array();
-		$categories = $scan['breakdowns']['categories'] ?? array();
-		$types      = $scan['breakdowns']['types'] ?? array();
-
-		$filtered = self::filter_questions( $all_questions, $search, $filters );
+		$filtered       = self::filter_questions( $all_questions, $search, $filters );
 		$total_filtered = count( $filtered );
 		$total_pages    = max( 1, (int) ceil( $total_filtered / self::PER_PAGE ) );
+
+		// All matching real WordPress post IDs, regardless of Citex pagination.
+		// The bulk editor uses this array for "All filtered questions".
+		$filtered_post_ids = array_values(
+			array_unique(
+				array_filter(
+					array_map(
+						function ( $question ) {
+							return absint( $question['wpPostId'] ?? 0 );
+						},
+						$filtered
+					)
+				)
+			)
+		);
 
 		$paged  = isset( $_GET['citex_paged'] ) ? max( 1, absint( $_GET['citex_paged'] ) ) : 1;
 		$paged  = min( $paged, $total_pages );
 		$offset = ( $paged - 1 ) * self::PER_PAGE;
-
 		$questions = array_slice( $filtered, $offset, self::PER_PAGE );
+
+		$wordpress_statuses = Citex_Bulk_Editor::status_choices();
 
 		require CITEX_TOOLS_PATH . 'admin/views/questions.php';
 	}
 
-	/**
-	 * Joins each scanned question with its current validation status,
-	 * result, and routed validator id (Citex_Validator::effective_status()
-	 * — 'unsupported' when nothing is routed, 'not_validated' when routed
-	 * but never run, otherwise the stored result's own status).
-	 *
-	 * @param array[] $questions Cached scan records.
-	 * @return array[] Same records, each with 'validationStatus', 'validationResult', 'validatorId' added.
-	 */
 	private static function attach_validation( $questions ) {
 		$results = Citex_Validator::get_results();
 
@@ -76,15 +78,6 @@ class Citex_Questions {
 		return $questions;
 	}
 
-	/**
-	 * Filters the joined scan+validation records by search text and the
-	 * four filter dropdowns.
-	 *
-	 * @param array[] $questions Records from attach_validation().
-	 * @param string  $search    Free-text search (matched against the title and question ID).
-	 * @param array   $filters   source/category/type/status filter values ('all' = no filter).
-	 * @return array[] Filtered records.
-	 */
 	private static function filter_questions( $questions, $search, $filters ) {
 		$search = strtolower( $search );
 
@@ -93,7 +86,14 @@ class Citex_Questions {
 				$questions,
 				function ( $question ) use ( $search, $filters ) {
 					if ( '' !== $search ) {
-						$haystack = strtolower( ( $question['original'] ?? '' ) . ' ' . ( $question['questionId'] ?? '' ) );
+						$haystack = strtolower(
+							( $question['original'] ?? '' ) . ' ' .
+							( $question['questionId'] ?? '' ) . ' ' .
+							( $question['source'] ?? '' ) . ' ' .
+							( $question['group'] ?? '' ) . ' ' .
+							( $question['category'] ?? '' ) . ' ' .
+							( $question['type'] ?? '' )
+						);
 						if ( false === strpos( $haystack, $search ) ) {
 							return false;
 						}
@@ -102,15 +102,12 @@ class Citex_Questions {
 					if ( 'all' !== $filters['source'] && ( $question['source'] ?? '' ) !== $filters['source'] ) {
 						return false;
 					}
-
 					if ( 'all' !== $filters['category'] && ( $question['category'] ?? '' ) !== $filters['category'] ) {
 						return false;
 					}
-
 					if ( 'all' !== $filters['type'] && ( $question['type'] ?? '' ) !== $filters['type'] ) {
 						return false;
 					}
-
 					if ( 'all' !== $filters['status'] && $question['validationStatus'] !== $filters['status'] ) {
 						return false;
 					}
