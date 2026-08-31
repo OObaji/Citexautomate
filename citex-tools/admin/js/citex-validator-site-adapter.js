@@ -2,14 +2,14 @@
  * Citex Tools — live-site DragDrop reconstruction adapter.
  *
  * Confirmed Citex Fixed Text placeholder grammar:
- *   - `|`  = one draggable placeholder ONLY when it is at the beginning
- *            or the end of Fixed Text.
+ *   - `|`  = one draggable placeholder at the beginning, or in the final
+ *            placeholder position at the end of the reference. Terminal
+ *            punctuation such as the final full stop may follow it.
  *   - `||` = one draggable placeholder at any internal position.
  *
- * Example from live BK02:
- *   Fixed Text:     |, || (||) ||. Oxford: Oxford University Press.
- *   Question Parts: Lopez / M. / 2019 / Global Health
- *   Reconstructed:  Lopez, M. (2019) Global Health. Oxford: Oxford University Press.
+ * Live examples:
+ *   BK02: |, || (||) ||. Oxford: Oxford University Press.
+ *   BK04: |, || (||) Urban Planning. Berlin: |.
  *
  * Read-only: this adapter only GETs the WordPress edit screen and POSTs the
  * validation result to Citex's own result store. It never updates a question.
@@ -32,7 +32,7 @@
 		if ( 'MALFORMED_PLACEHOLDER_ENCODING' === code ) {
 			return {
 				code: code,
-				message: 'Fixed Text contains a single "|" in an internal position. Internal draggable placeholders must use "||"; a single "|" is only valid at the beginning or end.',
+				message: 'Fixed Text contains a single "|" in an invalid internal position. Internal draggable placeholders must use "||"; a single "|" is reserved for the first or final draggable position.',
 			};
 		}
 		return {
@@ -43,16 +43,28 @@
 	}
 
 	/**
+	 * A single pipe can represent the final draggable item even when fixed
+	 * terminal punctuation follows it. BK04 proves this with `Berlin: |.`.
+	 * It is terminal only when everything after the pipe is whitespace and/or
+	 * punctuation — never when ordinary reference text follows it.
+	 */
+	function isTerminalSinglePipe( fixedText, index ) {
+		if ( '|' !== fixedText.charAt( index ) ) {
+			return false;
+		}
+		return /^\s*[.,;:!?)]*\s*$/.test( fixedText.slice( index + 1 ) );
+	}
+
+	/**
 	 * Find placeholders using Citex's confirmed positional grammar.
 	 *
 	 * A placeholder token is:
 	 *   - one pipe at string position 0;
-	 *   - one pipe at the final string position; or
+	 *   - one pipe in the final draggable position (only punctuation/space may
+	 *     follow it, e.g. `|.`);
 	 *   - two consecutive pipes anywhere internally.
 	 *
-	 * A lone internal pipe is malformed and is deliberately not counted as a
-	 * draggable slot. This prevents the old bug where seven raw pipe characters
-	 * in BK02 were incorrectly treated as seven Question Parts.
+	 * A lone internal pipe followed by normal text is malformed.
 	 */
 	function findPlaceholderTokens( fixedText ) {
 		var tokens = [];
@@ -66,15 +78,15 @@
 				continue;
 			}
 
-			if ( i === fixedText.length - 1 && '|' === fixedText.charAt( i ) ) {
-				tokens.push( { start: i, length: 1, kind: 'end' } );
-				i += 1;
-				continue;
-			}
-
 			if ( '||' === fixedText.slice( i, i + 2 ) ) {
 				tokens.push( { start: i, length: 2, kind: 'internal' } );
 				i += 2;
+				continue;
+			}
+
+			if ( isTerminalSinglePipe( fixedText, i ) ) {
+				tokens.push( { start: i, length: 1, kind: 'end' } );
+				i += 1;
 				continue;
 			}
 
@@ -99,24 +111,15 @@
 		var tokens = parsed.tokens;
 
 		if ( parsed.malformed.length ) {
-			return {
-				reference: null,
-				placeholderCount: tokens.length,
-				error: 'MALFORMED_PLACEHOLDER_ENCODING',
-			};
+			return { reference: null, placeholderCount: tokens.length, error: 'MALFORMED_PLACEHOLDER_ENCODING' };
 		}
 
 		if ( tokens.length !== questionParts.length ) {
-			return {
-				reference: null,
-				placeholderCount: tokens.length,
-				error: 'PLACEHOLDER_COUNT_MISMATCH',
-			};
+			return { reference: null, placeholderCount: tokens.length, error: 'PLACEHOLDER_COUNT_MISMATCH' };
 		}
 
 		var reference = '';
 		var cursor = 0;
-
 		tokens.forEach( function ( token, index ) {
 			reference += fixedText.slice( cursor, token.start );
 			reference += questionParts[ index ];
@@ -124,22 +127,9 @@
 		} );
 		reference += fixedText.slice( cursor );
 
-		return {
-			reference: reference,
-			placeholderCount: tokens.length,
-			error: null,
-		};
+		return { reference: reference, placeholderCount: tokens.length, error: null };
 	}
 
-	/* ---- Live Book-format checks ----
-	 *
-	 * The first BK03 run exposed a diagnostic flaw in the v0.5 base checker:
-	 * a reconstructed year such as "( 2018 )" was reported as "no publication
-	 * year found in parentheses". The year plainly exists; the real defect is
-	 * spacing inside the parentheses. These checks distinguish presence from
-	 * formatting so Citex reports the actual problem instead of a misleading
-	 * BOOK_FORMAT_MISMATCH.
-	 */
 	function findLooseYear( reference ) {
 		return /\(\s*(\d{4})\s*\)/.exec( reference );
 	}
@@ -175,14 +165,6 @@
 		return null;
 	}
 
-	/**
-	 * Detects extra whitespace immediately before punctuation. Live BK02
-	 * reconstructed as "Lopez , M. ( 2019 ) Global Health . Oxford: ...",
-	 * proving that this defect can live in Fixed Text independently of the
-	 * draggable values. One structured error is enough even if the reference
-	 * contains more than one occurrence; the correction phase can repair each
-	 * occurrence deterministically later.
-	 */
 	function checkSpaceBeforePunctuation( reference ) {
 		if ( /\s+[.,;:]/.test( reference ) ) {
 			return {
@@ -201,7 +183,6 @@
 				message: 'Citation does not match the Liverpool Hope Book format (no four-digit publication year found in parentheses).',
 			};
 		}
-
 		var afterYear = reference.slice( yearMatch.index + yearMatch[ 0 ].length );
 		if ( ! /:\s*\S/.test( afterYear ) ) {
 			return {
@@ -215,7 +196,6 @@
 	async function validateHarvardBookDragdrop( question, doc ) {
 		var extraction = base.extractQuestionFields( doc );
 		var reconstruction = reconstructReference( extraction.fixedText, extraction.questionParts );
-
 		var diagnostics = {
 			fixedText: extraction.fixedText,
 			fixedTextFound: extraction.fixedTextFound,
@@ -287,7 +267,6 @@
 		if ( validatorId !== base.ROUTES.id ) {
 			return base.runValidatorFor( question );
 		}
-
 		var doc;
 		try {
 			doc = await base.fetchQuestionDocument( question.editUrl );
@@ -300,7 +279,6 @@
 				diagnostics: { ruleEngineExecuted: false },
 			} );
 		}
-
 		return finalizeResult( question, validatorId, await validateHarvardBookDragdrop( question, doc ) );
 	}
 
@@ -310,7 +288,6 @@
 		body.set( 'nonce', citexTools.validator.nonce );
 		body.set( 'key', key );
 		body.set( 'result', JSON.stringify( result ) );
-
 		var response = await fetch( citexTools.ajaxUrl, {
 			method: 'POST',
 			credentials: 'same-origin',
@@ -351,6 +328,7 @@
 	}
 
 	window.CitexValidator = Object.assign( {}, base, {
+		isTerminalSinglePipe: isTerminalSinglePipe,
 		findPlaceholderTokens: findPlaceholderTokens,
 		reconstructReference: reconstructReference,
 		findLooseYear: findLooseYear,
