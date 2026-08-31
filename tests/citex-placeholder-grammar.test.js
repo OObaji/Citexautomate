@@ -22,7 +22,7 @@ function reconstruct( fixedText, parts ) {
 	return validator.reconstructReference( fixedText, parts );
 }
 
-// Live BK02 — the decisive regression case.
+// Live BK02 — the decisive placeholder regression case.
 let result = reconstruct(
 	'|, || (||) ||. Oxford: Oxford University Press.',
 	[ 'Lopez', 'M.', '2019', 'Global Health' ]
@@ -60,4 +60,16 @@ result = reconstruct( '|, || after', [ 'A' ] );
 assert.strictEqual( result.placeholderCount, 2 );
 assert.strictEqual( result.error, 'PLACEHOLDER_COUNT_MISMATCH' );
 
-console.log( 'All confirmed Citex placeholder-grammar tests passed.' );
+// Live BK03: the year exists, but spacing inside the parentheses is wrong.
+const bk03 = 'Smith, J. ( 2018 ) Modern Economics. New York:Pearson.';
+assert.ok( validator.findLooseYear( bk03 ), 'BK03 year must be recognised as present' );
+assert.strictEqual( validator.checkBookFormat( bk03 ), null, 'BK03 must not be misreported as missing its year' );
+assert.strictEqual( validator.checkYearParenthesesSpacing( bk03 ).code, 'YEAR_PARENTHESES_SPACING' );
+assert.strictEqual( validator.checkColonSpacing( bk03 ).code, 'MISSING_SPACE_AFTER_COLON' );
+
+const wellSpaced = 'Smith, J. (2018) Modern Economics. New York: Pearson.';
+assert.strictEqual( validator.checkYearParenthesesSpacing( wellSpaced ), null );
+assert.strictEqual( validator.checkColonSpacing( wellSpaced ), null );
+assert.strictEqual( validator.checkBookFormat( wellSpaced ), null );
+
+console.log( 'All confirmed Citex placeholder and live Book diagnostic tests passed.' );
