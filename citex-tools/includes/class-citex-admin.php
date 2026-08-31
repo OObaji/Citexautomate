@@ -17,6 +17,7 @@ class Citex_Admin {
 	private $questions;
 	private $validator;
 	private $populator;
+	private $scanner;
 
 	/**
 	 * Hook suffixes for the registered Citex pages, used to scope
@@ -25,11 +26,12 @@ class Citex_Admin {
 	private $page_hooks = array();
 
 	public function __construct() {
-		$this->dashboard = new Citex_Dashboard();
-		$this->generator = new Citex_Generator();
-		$this->questions = new Citex_Questions();
-		$this->validator = new Citex_Validator();
-		$this->populator = new Citex_Populator();
+		$this->scanner    = new Citex_Scanner();
+		$this->dashboard  = new Citex_Dashboard();
+		$this->generator  = new Citex_Generator();
+		$this->questions  = new Citex_Questions();
+		$this->validator  = new Citex_Validator();
+		$this->populator  = new Citex_Populator();
 
 		add_action( 'admin_menu', array( $this, 'register_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
@@ -114,11 +116,40 @@ class Citex_Admin {
 		);
 
 		wp_enqueue_script(
-			'citex-admin',
-			CITEX_TOOLS_URL . 'admin/js/citex-admin.js',
+			'citex-scanner',
+			CITEX_TOOLS_URL . 'admin/js/citex-scanner.js',
 			array(),
 			CITEX_TOOLS_VERSION,
 			true
+		);
+
+		wp_enqueue_script(
+			'citex-admin',
+			CITEX_TOOLS_URL . 'admin/js/citex-admin.js',
+			array( 'citex-scanner' ),
+			CITEX_TOOLS_VERSION,
+			true
+		);
+
+		wp_localize_script(
+			'citex-admin',
+			'citexTools',
+			array(
+				'ajaxUrl'            => admin_url( 'admin-ajax.php' ),
+				'nonce'              => wp_create_nonce( Citex_Scanner::NONCE_ACTION ),
+				'questionListUrl'    => Citex_Scanner::get_question_list_url(),
+				'saveSettingsAction' => Citex_Scanner::AJAX_SAVE_SETTINGS,
+				'saveScanAction'     => Citex_Scanner::AJAX_SAVE_SCAN,
+				'strings'            => array(
+					'savingSettings' => __( 'Saving…', 'citex-tools' ),
+					'settingsSaved'  => __( 'Saved.', 'citex-tools' ),
+					'settingsFailed' => __( 'Could not save the setting.', 'citex-tools' ),
+					'noUrl'          => __( 'Set the Question List URL first (Dashboard).', 'citex-tools' ),
+					'scanningPage'   => __( 'Scanning page {page} of {total}...', 'citex-tools' ),
+					'scanComplete'   => __( 'Scan complete — {total} questions found.', 'citex-tools' ),
+					'scanFailed'     => __( 'Scan failed:', 'citex-tools' ),
+				),
+			)
 		);
 	}
 

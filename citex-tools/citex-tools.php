@@ -7,11 +7,14 @@
  * Author:      Citex
  * Text Domain: citex-tools
  *
- * Phase 1 MVP: this plugin ships the admin interface and plugin
- * architecture shell only. Question generation, validation, WordPress
- * population and record counting are not yet implemented — see the
- * includes/class-citex-*.php modules those features will be plugged
- * into later without rewriting the plugin.
+ * Phase 1 shipped the admin interface and plugin architecture shell.
+ * Phase 2 connects the Dashboard and Questions page to the real
+ * WordPress question records via a read-only browser-side scanner (see
+ * includes/class-citex-scanner.php and admin/js/citex-scanner.js).
+ * Question generation, validation and WordPress population are still
+ * not implemented — see the remaining includes/class-citex-*.php
+ * modules those features will be plugged into later without rewriting
+ * the plugin.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -23,6 +26,7 @@ define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
 
+require_once CITEX_TOOLS_PATH . 'includes/class-citex-scanner.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-dashboard.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-generator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-questions.php';
