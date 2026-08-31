@@ -3,7 +3,7 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — question generation, validation, population and the question bank overview.
- * Version:     0.4.0
+ * Version:     0.5.0
  * Author:      Citex
  * Text Domain: citex-tools
  *
@@ -15,23 +15,32 @@
  * and admin/js/citex-validator.js): each indexed question is routed to a
  * validator id or left unsupported, results persist across refresh, and
  * the Dashboard/Questions page reflect them. The Harvard/ReferenceList/
- * Book/DragDrop rule engine itself is routed but not yet implemented —
- * see includes/validators/class-citex-harvard-book-dragdrop-validator.php.
+ * Book/DragDrop validator (see
+ * includes/validators/class-citex-harvard-book-dragdrop-validator.php) has
+ * a real v1 rule engine, ported from recovered details of the original QA
+ * Checker v0.3: Fixed Text + "|" placeholder + Question Parts
+ * reconstruction, the YEAR_TRAILING_PERIOD / MISSING_FINAL_PERIOD
+ * punctuation checks, and the Liverpool Hope Book structural check.
  * Question generation and WordPress population are still not implemented
  * — see the remaining includes/class-citex-*.php modules those features
  * will be plugged into later without rewriting the plugin.
  *
- * v0.4.0 adds live routing diagnostics to the Validation page's Details
+ * v0.4.0 added live routing diagnostics to the Validation page's Details
  * panel (Citex_Validator::diagnose_routing()) and displays the installed
  * plugin version on the Dashboard, for diagnosing why a question isn't
  * routing as expected on a given install without guesswork.
+ *
+ * v0.5.0 replaces the Harvard/ReferenceList/Book/DragDrop routing stub
+ * with that real v1 rule engine and extends the Details panel with the
+ * extracted fields, reconstructed reference, and rule-engine-executed
+ * flag for the last validation run.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Disallow direct access.
 }
 
-define( 'CITEX_TOOLS_VERSION', '0.4.0' );
+define( 'CITEX_TOOLS_VERSION', '0.5.0' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );

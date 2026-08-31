@@ -163,6 +163,69 @@ $status_labels = array(
 							<p class="description"><strong><?php esc_html_e( 'Stored result reason:', 'citex-tools' ); ?></strong> <?php echo esc_html( $result['reason'] ); ?></p>
 						<?php endif; ?>
 
+						<?php if ( $result ) : ?>
+							<?php $rule_diag = $result['diagnostics'] ?? array(); ?>
+							<div class="citex-diagnostics">
+								<strong><?php esc_html_e( 'Rule engine diagnostics (from the last validation run):', 'citex-tools' ); ?></strong>
+								<table class="citex-diagnostics-table">
+									<tbody>
+										<tr>
+											<td><?php esc_html_e( 'Validator', 'citex-tools' ); ?></td>
+											<td colspan="3"><code><?php echo esc_html( $result['validator'] ?: '(none)' ); ?></code></td>
+										</tr>
+										<tr>
+											<td><?php esc_html_e( 'Rule engine executed', 'citex-tools' ); ?></td>
+											<td colspan="3"><code><?php echo ! empty( $rule_diag['ruleEngineExecuted'] ) ? 'true' : 'false'; ?></code></td>
+										</tr>
+										<?php if ( ! empty( $rule_diag['ruleEngineExecuted'] ) ) : ?>
+											<tr>
+												<td><?php esc_html_e( 'Fixed Text', 'citex-tools' ); ?></td>
+												<td colspan="3">
+													<code><?php echo esc_html( $rule_diag['fixedText'] !== '' ? $rule_diag['fixedText'] : '(empty)' ); ?></code>
+													<span class="citex-error-code">
+														(<?php echo $rule_diag['fixedTextFound'] ? esc_html__( 'field found', 'citex-tools' ) : esc_html__( 'field NOT found', 'citex-tools' ); ?>,
+														<?php esc_html_e( 'strategy:', 'citex-tools' ); ?> <?php echo esc_html( $rule_diag['fixedTextStrategy'] ?: '—' ); ?>)
+													</span>
+												</td>
+											</tr>
+											<tr>
+												<td><?php esc_html_e( 'Question Parts', 'citex-tools' ); ?></td>
+												<td colspan="3">
+													<code><?php echo esc_html( ! empty( $rule_diag['questionParts'] ) ? implode( ', ', $rule_diag['questionParts'] ) : '(empty)' ); ?></code>
+													<span class="citex-error-code">
+														(<?php echo $rule_diag['questionPartsFound'] ? esc_html__( 'field found', 'citex-tools' ) : esc_html__( 'field NOT found', 'citex-tools' ); ?>,
+														<?php esc_html_e( 'strategy:', 'citex-tools' ); ?> <?php echo esc_html( $rule_diag['questionPartsStrategy'] ?: '—' ); ?>)
+													</span>
+												</td>
+											</tr>
+											<tr>
+												<td><?php esc_html_e( 'Confusing Words', 'citex-tools' ); ?></td>
+												<td colspan="3">
+													<code><?php echo esc_html( ! empty( $rule_diag['confusingWords'] ) ? implode( ', ', $rule_diag['confusingWords'] ) : '(empty)' ); ?></code>
+													<span class="citex-error-code">
+														(<?php echo $rule_diag['confusingWordsFound'] ? esc_html__( 'field found', 'citex-tools' ) : esc_html__( 'field NOT found', 'citex-tools' ); ?>,
+														<?php esc_html_e( 'strategy:', 'citex-tools' ); ?> <?php echo esc_html( $rule_diag['confusingWordsStrategy'] ?: '—' ); ?>)
+													</span>
+												</td>
+											</tr>
+											<tr>
+												<td><?php esc_html_e( '| placeholder count', 'citex-tools' ); ?></td>
+												<td colspan="3"><code><?php echo esc_html( $rule_diag['placeholderCount'] ?? 0 ); ?></code></td>
+											</tr>
+											<tr>
+												<td><?php esc_html_e( 'Reconstructed reference', 'citex-tools' ); ?></td>
+												<td colspan="3"><code><?php echo esc_html( $result['reconstructedReference'] ?: '(not produced)' ); ?></code></td>
+											</tr>
+										<?php endif; ?>
+										<tr>
+											<td><?php esc_html_e( 'Validation result', 'citex-tools' ); ?></td>
+											<td colspan="3"><code><?php echo esc_html( $status_labels[ $status ] ?? $status ); ?></code></td>
+										</tr>
+									</tbody>
+								</table>
+							</div>
+						<?php endif; ?>
+
 						<div class="citex-diagnostics">
 							<strong><?php esc_html_e( 'Routing diagnostics (live, recomputed on every page load):', 'citex-tools' ); ?></strong>
 							<table class="citex-diagnostics-table">

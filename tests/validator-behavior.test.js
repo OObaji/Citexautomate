@@ -1,19 +1,15 @@
 /**
- * Tests for admin/js/citex-validator.js (Phase 3). Repo-level only, run
- * with plain `node tests/validator-behavior.test.js` — not shipped in
- * citex-tools.zip. Covers what's honestly testable given the routing +
- * fetch/save pipeline is implemented but the Harvard/ReferenceList/Book/
- * DragDrop rule engine itself is not yet ported (see the docblocks in
- * admin/js/citex-validator.js and
- * includes/validators/class-citex-harvard-book-dragdrop-validator.php).
+ * Tests for admin/js/citex-validator.js's routing/dispatch/persistence
+ * pipeline (Phase 3). Repo-level only, run with plain
+ * `node tests/validator-behavior.test.js` — not shipped in citex-tools.zip.
  *
- * Covers acceptance-test items #7 and #9 from the Phase 3 brief directly;
- * #1-6 (the actual rule content: valid Book/DragDrop passes, trailing
- * year period detected, missing final period detected, bad Book format
- * detected, missing draggable part detected, fixed text not required as
- * a draggable part) cannot be honestly tested until the real QA Checker
- * rules are supplied — see the "PENDING" section at the bottom rather
- * than fabricated assertions for those.
+ * This file covers routing, the save pipeline, and the never-writes-to-
+ * WordPress structural guarantee (acceptance items #7 and #9). The actual
+ * Harvard/ReferenceList/Book/DragDrop rule content — reconstruction,
+ * punctuation checks, Book-format check, field extraction — is now
+ * implemented (ported from recovered QA Checker v0.3 details) and is
+ * tested separately and in depth in
+ * tests/harvard-book-dragdrop-rules.test.js.
  */
 'use strict';
 
@@ -99,23 +95,22 @@ async function testUnsupportedRouting() {
 	console.log( 'PASS: unsupported result carries a reason: "' + result.reason + '"' );
 }
 
-// Regression guard: until the real rule engine is ported, the routed
-// Harvard/ReferenceList/Book/DragDrop validator must NEVER report passed
-// or failed for any input — only unsupported. This directly enforces the
-// brief's "do not produce false validation results for formats that have
-// not yet been implemented" for the one combination that IS routed.
-async function testNoFalseResultsYet() {
+// Regression guard, updated now the real rule engine exists: a routed
+// Book/DragDrop question whose fields cannot be extracted (this file's
+// mock DOMParser returns a document with no ACF markup at all) must FAIL
+// honestly with a real, diagnosable error — never silently PASS just
+// because nothing could be read. This is the still-live half of "do not
+// produce false validation results"; the never-fabricate-PASS guarantee
+// now applies to missing/unextractable data rather than to an
+// unimplemented rule engine (see tests/harvard-book-dragdrop-rules.test.js
+// for the full rule-content coverage, including the passing case).
+async function testMissingFieldsNeverProduceAFalsePass() {
 	const question = { source: 'Harvard', group: 'ReferenceList', category: 'Book', type: 'DragDrop', questionId: 'BK99', editUrl: 'http://example.test/wp-admin/post.php?post=999&action=edit' };
 	const result = await CitexValidator.runValidatorFor( question );
-	check( 'routed Book/DragDrop question currently always reports unsupported (rule engine pending)', result.status, 'unsupported' );
-	check( 'the result carries the routed validator id', result.validator, 'harvard-reference-list-book-dragdrop' );
-	// The reason text is what actually distinguishes "the routed function
-	// ran and honestly said unsupported" from a registry mismatch (see
-	// testRegistryMismatchIsDetected below) — both populate `validator`.
-	assert.ok( /rule engine has not been ported/.test( result.reason ), 'reason indicates the routed function ran (rule engine pending), not a registry mismatch' );
-	check( 'no errors are fabricated', result.errors, [] );
-	check( 'no warnings are fabricated', result.warnings, [] );
-	console.log( 'PASS: no false pass/fail possible before the real rule engine is ported' );
+	check( 'a routed question with no extractable ACF fields fails (never passes)', result.status, 'failed' );
+	check( 'the result carries the routed validator id (proves the routed function actually ran)', result.validator, 'harvard-reference-list-book-dragdrop' );
+	check( 'reports a real, diagnosable error code, not a generic one', result.errors[ 0 ].code, 'FIXED_TEXT_MISSING' );
+	console.log( 'PASS: no false PASS when fields cannot be extracted, even with the real rule engine running' );
 }
 
 // Regression guard for the exact bug class already found once while fixing
@@ -151,7 +146,7 @@ async function testRegistryMismatchIsDetected() {
 async function main() {
 	testExactReportedCase();
 	await testUnsupportedRouting();
-	await testNoFalseResultsYet();
+	await testMissingFieldsNeverProduceAFalsePass();
 	await testRegistryMismatchIsDetected();
 	console.log( '\nAll implemented Phase 3 validator tests passed.' );
 }
@@ -160,20 +155,3 @@ main().catch( function ( error ) {
 	console.error( 'FAIL: ' + error.message );
 	process.exit( 1 );
 } );
-
-/* ============================================================================
- * PENDING — cannot be implemented until the existing QA Checker's source
- * (ACF field selectors, expected Liverpool Hope Harvard Book reference
- * format, exact rule logic, and the DragDrop fixed-text-vs-draggable-part
- * distinction) is supplied. Writing these now would mean inventing the
- * exact rules the Phase 3 brief says not to invent. Once supplied, these
- * become real assertions against CitexValidator.runValidatorFor():
- *
- * 1. A known-valid Harvard/ReferenceList/Book/DragDrop question -> status 'passed'.
- * 2. A publication-year trailing full stop -> an error with code YEAR_TRAILING_PERIOD.
- * 3. A missing final full stop -> an error with code MISSING_FINAL_PERIOD.
- * 4. An incorrect Book reference format -> a format-mismatch error.
- * 5. A missing required draggable Question Part -> a missing-part error.
- * 6. Fixed scenario text is NOT flagged as a missing draggable part
- *    (the DragDrop false-positive fix — see the Phase 3 brief).
- * ==========================================================================*/

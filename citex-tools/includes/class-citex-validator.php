@@ -349,15 +349,19 @@ class Citex_Validator {
 		}
 
 		$result = array(
-			'questionId'  => sanitize_text_field( (string) ( $data['questionId'] ?? ( $question['questionId'] ?? '' ) ) ),
-			'wpPostId'    => isset( $data['wpPostId'] ) && is_numeric( $data['wpPostId'] ) ? absint( $data['wpPostId'] ) : null,
-			'title'       => sanitize_text_field( (string) ( $data['title'] ?? ( $question['original'] ?? '' ) ) ),
-			'validator'   => $expected_validator_id ? sanitize_key( $expected_validator_id ) : '',
-			'status'      => $status,
-			'reason'      => sanitize_text_field( (string) ( $data['reason'] ?? '' ) ),
-			'errors'      => self::sanitize_issue_list( $data['errors'] ?? array() ),
-			'warnings'    => self::sanitize_issue_list( $data['warnings'] ?? array() ),
-			'validatedAt' => sanitize_text_field( (string) ( $data['validatedAt'] ?? gmdate( 'c' ) ) ),
+			'questionId'             => sanitize_text_field( (string) ( $data['questionId'] ?? ( $question['questionId'] ?? '' ) ) ),
+			'wpPostId'               => isset( $data['wpPostId'] ) && is_numeric( $data['wpPostId'] ) ? absint( $data['wpPostId'] ) : null,
+			'title'                  => sanitize_text_field( (string) ( $data['title'] ?? ( $question['original'] ?? '' ) ) ),
+			'validator'              => $expected_validator_id ? sanitize_key( $expected_validator_id ) : '',
+			'status'                 => $status,
+			'reason'                 => sanitize_text_field( (string) ( $data['reason'] ?? '' ) ),
+			'reconstructedReference' => isset( $data['reconstructedReference'] ) && null !== $data['reconstructedReference']
+				? sanitize_text_field( (string) $data['reconstructedReference'] )
+				: null,
+			'errors'                 => self::sanitize_issue_list( $data['errors'] ?? array() ),
+			'warnings'               => self::sanitize_issue_list( $data['warnings'] ?? array() ),
+			'diagnostics'            => self::sanitize_diagnostics( $data['diagnostics'] ?? array() ),
+			'validatedAt'            => sanitize_text_field( (string) ( $data['validatedAt'] ?? gmdate( 'c' ) ) ),
 		);
 
 		// Revalidation: this simply overwrites the previous entry for the
@@ -411,5 +415,54 @@ class Citex_Validator {
 	 */
 	private static function sanitize_error_code( $code ) {
 		return preg_replace( '/[^A-Za-z0-9_]/', '', (string) $code );
+	}
+
+	/**
+	 * Sanitizes the diagnostics block a validator's result carries (raw
+	 * Fixed Text / Question Parts / Confusing Words as extracted, which
+	 * field-extraction strategy fired, placeholder count, and whether the
+	 * rule engine actually ran) — this is exactly what the Validation
+	 * page's Details panel displays for a validated question, so it must
+	 * survive storage intact rather than being silently dropped.
+	 *
+	 * @param mixed $diagnostics Raw diagnostics object from the client payload.
+	 * @return array
+	 */
+	private static function sanitize_diagnostics( $diagnostics ) {
+		if ( ! is_array( $diagnostics ) ) {
+			return array( 'ruleEngineExecuted' => false );
+		}
+
+		return array(
+			'fixedText'              => sanitize_text_field( (string) ( $diagnostics['fixedText'] ?? '' ) ),
+			'fixedTextFound'         => ! empty( $diagnostics['fixedTextFound'] ),
+			'fixedTextStrategy'      => sanitize_text_field( (string) ( $diagnostics['fixedTextStrategy'] ?? '' ) ),
+			'questionParts'          => self::sanitize_string_list( $diagnostics['questionParts'] ?? array() ),
+			'questionPartsFound'     => ! empty( $diagnostics['questionPartsFound'] ),
+			'questionPartsStrategy'  => sanitize_text_field( (string) ( $diagnostics['questionPartsStrategy'] ?? '' ) ),
+			'confusingWords'         => self::sanitize_string_list( $diagnostics['confusingWords'] ?? array() ),
+			'confusingWordsFound'    => ! empty( $diagnostics['confusingWordsFound'] ),
+			'confusingWordsStrategy' => sanitize_text_field( (string) ( $diagnostics['confusingWordsStrategy'] ?? '' ) ),
+			'placeholderCount'       => isset( $diagnostics['placeholderCount'] ) ? absint( $diagnostics['placeholderCount'] ) : 0,
+			'ruleEngineExecuted'     => ! empty( $diagnostics['ruleEngineExecuted'] ),
+		);
+	}
+
+	/**
+	 * @param mixed $list Raw array of strings from the client payload.
+	 * @return string[] Sanitized strings.
+	 */
+	private static function sanitize_string_list( $list ) {
+		$out = array();
+
+		if ( ! is_array( $list ) ) {
+			return $out;
+		}
+
+		foreach ( $list as $item ) {
+			$out[] = sanitize_text_field( (string) $item );
+		}
+
+		return $out;
 	}
 }

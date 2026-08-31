@@ -7,34 +7,33 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Validator registration for: Harvard / ReferenceList / Book / DragDrop.
  *
  * ============================================================================
- * STATUS: ROUTING ONLY — rule engine not yet implemented.
+ * STATUS: IMPLEMENTED (v1) — ported from recovered details of the original
+ * Citex Harvard QA Checker v0.3, not invented.
  * ============================================================================
  *
- * Phase 3 requires this validator to reuse the *existing* Citex Harvard QA
- * Checker prototype rather than invent a new interpretation of Harvard
- * referencing (its ACF field selectors, its expected-reference
- * reconstruction, its exact error checks, and its DragDrop fixed-text
- * false-positive fix). That prototype's source was not supplied with the
- * Phase 3 brief, and a full search of this repository and its git history
- * turned up nothing matching it (no prior QA-checker code has ever existed
- * in this codebase — Phase 1/2 were built from scratch in this project).
+ * The actual fetch-the-edit-page / extract-fields / reconstruct-reference /
+ * run-checks logic lives client-side in admin/js/citex-validator.js — same
+ * pattern as the Phase 2 scanner and the original DevTools QA Checker. This
+ * PHP class is the routing + field-map registry only.
  *
- * Rather than guess ACF field names or invent rule logic — both explicitly
- * disallowed by the brief, and both capable of producing false pass/fail
- * results on real academic content — this class only registers the
- * validator's identity and routing key. Citex_Validator::resolve_validator_id()
- * routes Harvard + ReferenceList + Book + DragDrop questions here, and
- * self::run() honestly reports every one of them as `unsupported` (never a
- * fabricated pass or fail) until the real field map and rule set are
- * supplied.
+ * Ported from the user-supplied recovered implementation details:
+ *  - FIELD_MAP's three ACF field keys (confirmed values from QA Checker v0.3).
+ *  - The Fixed-Text + "|" placeholder + Question Parts reconstruction
+ *    algorithm (verified against the supplied worked example — see the test
+ *    in tests/harvard-book-dragdrop-rules.test.js).
+ *  - The two named punctuation checks (YEAR_TRAILING_PERIOD,
+ *    MISSING_FINAL_PERIOD) and their exact messages.
+ *  - The Liverpool Hope Book structural shape ("Author (Year) Title. Place:
+ *    Publisher.") for the format-mismatch check.
  *
- * FIELD_MAP below is the single place those ACF/form field selectors will
- * go once known (per the Phase 3 brief: "Create the validator so field
- * selectors are kept in one clearly documented place"). The matching
- * client-side copy — because the actual fetch-the-edit-page-and-parse-it
- * logic runs in the browser, same as the Phase 2 scanner and the original
- * DevTools QA Checker — lives in admin/js/citex-validator.js under the same
- * FIELD_MAP name; keep the two in sync.
+ * One genuine gap remains and is NOT invented around: the exact HTML markup
+ * ACF renders these three fields as on this site's edit screen has not been
+ * seen directly (no live network access from this environment). Extraction
+ * in citex-validator.js therefore relies on ACF's standard, version-spanning
+ * DOM convention (`.acf-field[data-key="..."]`, and `.acf-row` for repeater
+ * fields) rather than a site-specific guess, and every extraction outcome is
+ * surfaced in the Validation page's Details diagnostics so it can be
+ * confirmed (or corrected) against a real question before bulk validation.
  */
 class Citex_Harvard_Book_Dragdrop_Validator {
 
@@ -44,7 +43,8 @@ class Citex_Harvard_Book_Dragdrop_Validator {
 	 * Routing metadata this validator claims, matched exactly against a
 	 * scanned question's parsed title (see Citex_Scanner / citex-scanner.js).
 	 * Per the brief, category/type values are used exactly as scanned —
-	 * never renamed or consolidated.
+	 * never renamed or consolidated. Unchanged from Phase 3 — routing itself
+	 * was not touched for this task.
 	 */
 	const ROUTES = array(
 		'source'   => 'Harvard',
@@ -54,22 +54,20 @@ class Citex_Harvard_Book_Dragdrop_Validator {
 	);
 
 	/**
-	 * ACF/question edit-form field selectors this validator reads.
-	 * PENDING — populate from the existing QA Checker once its source is
-	 * available. Left empty (not guessed) so it's obvious nothing here has
-	 * been fabricated.
-	 *
-	 * Expected shape once populated, e.g.:
-	 *   'scenario'         => '#acf-field_xxx textarea',
-	 *   'reference_answer' => '#acf-field_xxx',
-	 *   'question_parts'   => '.acf-field-xxx .acf-repeater tr',
-	 *   'distractors'      => '.acf-field-yyy .acf-repeater tr',
+	 * ACF field keys this validator reads, confirmed from the original QA
+	 * Checker v0.3. The client-side copy (admin/js/citex-validator.js) uses
+	 * the identical keys — keep the two in sync.
 	 */
-	const FIELD_MAP = array();
+	const FIELD_MAP = array(
+		'fixedText'      => 'field_59c2476bc859f',
+		'questionParts'  => 'field_59c2476bc81b7',
+		'confusingWords' => 'field_59c2476bc83ab',
+	);
 
 	/**
-	 * Whether this validator has a real rule engine yet. False until the
-	 * existing QA Checker's rules are ported in — see the class docblock.
+	 * True: this validator now has a real rule engine (v1), not just a
+	 * routing stub. See the class docblock for exactly what was ported vs.
+	 * what still needs live confirmation (field extraction).
 	 */
-	const IMPLEMENTED = false;
+	const IMPLEMENTED = true;
 }

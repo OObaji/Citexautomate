@@ -71,7 +71,7 @@ check( 'diagnosis: expectedValidatorKey', $diagnosis['expectedValidatorKey'], 'h
 check( 'diagnosis: selectedValidatorKey', $diagnosis['selectedValidatorKey'], 'harvard-reference-list-book-dragdrop' );
 check( 'diagnosis: routingResult', $diagnosis['routingResult'], 'routed' );
 check( 'diagnosis: validatorExists', $diagnosis['validatorExists'], true );
-check( 'diagnosis: validatorImplemented (honestly false — rule engine still pending)', $diagnosis['validatorImplemented'], false );
+check( 'diagnosis: validatorImplemented (now true — v1 rule engine ported and live)', $diagnosis['validatorImplemented'], true );
 
 // diagnose_routing() and resolve_validator_id() must never diverge — the
 // latter is a thin wrapper around the former by construction, but assert
