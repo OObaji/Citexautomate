@@ -175,6 +175,24 @@
 		return null;
 	}
 
+	/**
+	 * Detects extra whitespace immediately before punctuation. Live BK02
+	 * reconstructed as "Lopez , M. ( 2019 ) Global Health . Oxford: ...",
+	 * proving that this defect can live in Fixed Text independently of the
+	 * draggable values. One structured error is enough even if the reference
+	 * contains more than one occurrence; the correction phase can repair each
+	 * occurrence deterministically later.
+	 */
+	function checkSpaceBeforePunctuation( reference ) {
+		if ( /\s+[.,;:]/.test( reference ) ) {
+			return {
+				code: 'SPACE_BEFORE_PUNCTUATION',
+				message: 'Remove extra spaces before punctuation marks in the completed reference (for example, use "Lopez," rather than "Lopez ,").',
+			};
+		}
+		return null;
+	}
+
 	function checkBookFormat( reference ) {
 		var yearMatch = findLooseYear( reference );
 		if ( ! yearMatch ) {
@@ -228,6 +246,7 @@
 			checkYearTrailingPeriod,
 			checkYearParenthesesSpacing,
 			checkColonSpacing,
+			checkSpaceBeforePunctuation,
 			base.checkMissingFinalPeriod,
 			checkBookFormat,
 		].forEach( function ( check ) {
@@ -338,6 +357,7 @@
 		checkYearTrailingPeriod: checkYearTrailingPeriod,
 		checkYearParenthesesSpacing: checkYearParenthesesSpacing,
 		checkColonSpacing: checkColonSpacing,
+		checkSpaceBeforePunctuation: checkSpaceBeforePunctuation,
 		checkBookFormat: checkBookFormat,
 		validateHarvardBookDragdrop: validateHarvardBookDragdrop,
 		runValidatorFor: runValidatorFor,
