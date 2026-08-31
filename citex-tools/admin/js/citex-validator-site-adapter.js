@@ -131,6 +131,69 @@
 		};
 	}
 
+	/* ---- Live Book-format checks ----
+	 *
+	 * The first BK03 run exposed a diagnostic flaw in the v0.5 base checker:
+	 * a reconstructed year such as "( 2018 )" was reported as "no publication
+	 * year found in parentheses". The year plainly exists; the real defect is
+	 * spacing inside the parentheses. These checks distinguish presence from
+	 * formatting so Citex reports the actual problem instead of a misleading
+	 * BOOK_FORMAT_MISMATCH.
+	 */
+	function findLooseYear( reference ) {
+		return /\(\s*(\d{4})\s*\)/.exec( reference );
+	}
+
+	function checkYearTrailingPeriod( reference ) {
+		if ( /\(\s*\d{4}\s*\)\./.test( reference ) ) {
+			return { code: 'YEAR_TRAILING_PERIOD', message: 'Unwanted full stop after publication year.' };
+		}
+		return null;
+	}
+
+	function checkYearParenthesesSpacing( reference ) {
+		var match = findLooseYear( reference );
+		if ( match && match[ 0 ] !== '(' + match[ 1 ] + ')' ) {
+			return {
+				code: 'YEAR_PARENTHESES_SPACING',
+				message: 'Publication year should be formatted without spaces inside the parentheses, for example (2018).',
+			};
+		}
+		return null;
+	}
+
+	function checkColonSpacing( reference ) {
+		var yearMatch = findLooseYear( reference );
+		var searchFrom = yearMatch ? yearMatch.index + yearMatch[ 0 ].length : 0;
+		var tail = reference.slice( searchFrom );
+		if ( /:\S/.test( tail ) ) {
+			return {
+				code: 'MISSING_SPACE_AFTER_COLON',
+				message: 'A space is required after the colon between the place of publication and publisher.',
+			};
+		}
+		return null;
+	}
+
+	function checkBookFormat( reference ) {
+		var yearMatch = findLooseYear( reference );
+		if ( ! yearMatch ) {
+			return {
+				code: 'BOOK_FORMAT_MISMATCH',
+				message: 'Citation does not match the Liverpool Hope Book format (no four-digit publication year found in parentheses).',
+			};
+		}
+
+		var afterYear = reference.slice( yearMatch.index + yearMatch[ 0 ].length );
+		if ( ! /:\s*\S/.test( afterYear ) ) {
+			return {
+				code: 'BOOK_FORMAT_MISMATCH',
+				message: 'Citation does not match the Liverpool Hope Book format (no "Place: Publisher" separator found after the year).',
+			};
+		}
+		return null;
+	}
+
 	async function validateHarvardBookDragdrop( question, doc ) {
 		var extraction = base.extractQuestionFields( doc );
 		var reconstruction = reconstructReference( extraction.fixedText, extraction.questionParts );
@@ -161,7 +224,13 @@
 		}
 
 		var errors = [];
-		[ base.checkYearTrailingPeriod, base.checkMissingFinalPeriod, base.checkBookFormat ].forEach( function ( check ) {
+		[
+			checkYearTrailingPeriod,
+			checkYearParenthesesSpacing,
+			checkColonSpacing,
+			base.checkMissingFinalPeriod,
+			checkBookFormat,
+		].forEach( function ( check ) {
 			var issue = check( reconstruction.reference );
 			if ( issue ) {
 				errors.push( issue );
@@ -265,6 +334,11 @@
 	window.CitexValidator = Object.assign( {}, base, {
 		findPlaceholderTokens: findPlaceholderTokens,
 		reconstructReference: reconstructReference,
+		findLooseYear: findLooseYear,
+		checkYearTrailingPeriod: checkYearTrailingPeriod,
+		checkYearParenthesesSpacing: checkYearParenthesesSpacing,
+		checkColonSpacing: checkColonSpacing,
+		checkBookFormat: checkBookFormat,
 		validateHarvardBookDragdrop: validateHarvardBookDragdrop,
 		runValidatorFor: runValidatorFor,
 		validateOne: validateOne,
