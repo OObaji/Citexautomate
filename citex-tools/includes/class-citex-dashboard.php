@@ -7,20 +7,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Citex dashboard: question-bank statistics overview.
  *
  * Total/Harvard question counts and the breakdown tables come from the
- * most recent Citex_Scanner scan (see includes/class-citex-scanner.php).
- * Valid/Error counts come from the most recent Citex_Validator results
- * (see includes/class-citex-validator.php): Valid = questions with a
- * stored 'passed' result, Questions With Errors = 'failed'. Unsupported
- * and not-yet-validated questions are deliberately excluded from both —
- * counting either as "valid" would misrepresent the real validation
- * state. Generated/Pending remains a placeholder until the generation
- * module is connected.
+ * most recent Citex_Scanner scan. Valid/Error counts come from the most
+ * recent Citex_Validator results. Generated/Pending comes from the Citex
+ * generator's WordPress-native pending store and does not imply anything
+ * has been published to the real question bank.
  */
 class Citex_Dashboard {
 
 	public function render() {
-		$scan               = Citex_Scanner::get_last_scan();
-		$question_list_url  = Citex_Scanner::get_question_list_url();
+		$scan              = Citex_Scanner::get_last_scan();
+		$question_list_url = Citex_Scanner::get_question_list_url();
 
 		$validation_summary = self::compute_validation_summary( $scan['questions'] ?? array() );
 
@@ -29,8 +25,7 @@ class Citex_Dashboard {
 			'harvard_questions' => $scan ? number_format_i18n( $scan['harvardTotal'] ) : '—',
 			'valid_questions'   => $scan ? number_format_i18n( $validation_summary['passed'] ) : '—',
 			'error_questions'   => $scan ? number_format_i18n( $validation_summary['failed'] ) : '—',
-			// PLACEHOLDER DATA — replace once the generation module is connected.
-			'pending_questions' => '—',
+			'pending_questions' => number_format_i18n( Citex_Generator::get_pending_count() ),
 		);
 
 		$last_scanned = ( $scan && ! empty( $scan['scannedAt'] ) )
@@ -45,7 +40,7 @@ class Citex_Dashboard {
 	/**
 	 * @param array[] $questions Scanned questions from the last scan.
 	 * @return array {passed, failed} counts using each question's current
-	 *               effective validation status (Citex_Validator::effective_status()).
+	 *               effective validation status.
 	 */
 	private static function compute_validation_summary( $questions ) {
 		$results = Citex_Validator::get_results();
