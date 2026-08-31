@@ -6,10 +6,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Question Bank page.
  *
- * The table is sourced from the latest Citex scan and joined with validation
- * results. Pagination is only a display concern: the page also computes the
- * complete filtered set so Citex bulk actions can target all 200+ matching
- * questions rather than only the 20 rows currently visible.
+ * Mirrors the latest Reference List scan, including each record's native
+ * WordPress post status. Validation status remains a separate Citex concept.
  */
 class Citex_Questions {
 
@@ -21,23 +19,24 @@ class Citex_Questions {
 		$search            = isset( $_GET['citex_search'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_search'] ) ) : '';
 
 		$filters = array(
-			'source'   => isset( $_GET['citex_filter_source'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_source'] ) ) : 'all',
-			'category' => isset( $_GET['citex_filter_category'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_category'] ) ) : 'all',
-			'type'     => isset( $_GET['citex_filter_type'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_type'] ) ) : 'all',
-			'status'   => isset( $_GET['citex_filter_status'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_status'] ) ) : 'all',
+			'source'            => isset( $_GET['citex_filter_source'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_source'] ) ) : 'all',
+			'category'          => isset( $_GET['citex_filter_category'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_category'] ) ) : 'all',
+			'type'              => isset( $_GET['citex_filter_type'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_type'] ) ) : 'all',
+			'validation_status' => isset( $_GET['citex_filter_status'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_status'] ) ) : 'all',
+			'post_status'       => isset( $_GET['citex_filter_post_status'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_post_status'] ) ) : 'all',
 		);
 
 		$all_questions = self::attach_validation( $scan['questions'] ?? array() );
 		$sources        = $scan['breakdowns']['sources'] ?? array();
 		$categories     = $scan['breakdowns']['categories'] ?? array();
 		$types          = $scan['breakdowns']['types'] ?? array();
+		$post_statuses  = $scan['breakdowns']['postStatuses'] ?? array();
+		$status_counts  = $scan['statusCounts'] ?? array();
 
 		$filtered       = self::filter_questions( $all_questions, $search, $filters );
 		$total_filtered = count( $filtered );
 		$total_pages    = max( 1, (int) ceil( $total_filtered / self::PER_PAGE ) );
 
-		// All matching real WordPress post IDs, regardless of Citex pagination.
-		// The bulk editor uses this array for "All filtered questions".
 		$filtered_post_ids = array_values(
 			array_unique(
 				array_filter(
@@ -51,9 +50,9 @@ class Citex_Questions {
 			)
 		);
 
-		$paged  = isset( $_GET['citex_paged'] ) ? max( 1, absint( $_GET['citex_paged'] ) ) : 1;
-		$paged  = min( $paged, $total_pages );
-		$offset = ( $paged - 1 ) * self::PER_PAGE;
+		$paged     = isset( $_GET['citex_paged'] ) ? max( 1, absint( $_GET['citex_paged'] ) ) : 1;
+		$paged     = min( $paged, $total_pages );
+		$offset    = ( $paged - 1 ) * self::PER_PAGE;
 		$questions = array_slice( $filtered, $offset, self::PER_PAGE );
 
 		$wordpress_statuses = Citex_Bulk_Editor::status_choices();
@@ -63,7 +62,6 @@ class Citex_Questions {
 
 	private static function attach_validation( $questions ) {
 		$results = Citex_Validator::get_results();
-
 		foreach ( $questions as &$question ) {
 			$key                          = Citex_Validator::result_key( $question );
 			$validator_id                 = Citex_Validator::resolve_validator_id( $question );
@@ -74,13 +72,11 @@ class Citex_Questions {
 			$question['validationKey']    = $key;
 		}
 		unset( $question );
-
 		return $questions;
 	}
 
 	private static function filter_questions( $questions, $search, $filters ) {
 		$search = strtolower( $search );
-
 		return array_values(
 			array_filter(
 				$questions,
@@ -92,7 +88,8 @@ class Citex_Questions {
 							( $question['source'] ?? '' ) . ' ' .
 							( $question['group'] ?? '' ) . ' ' .
 							( $question['category'] ?? '' ) . ' ' .
-							( $question['type'] ?? '' )
+							( $question['type'] ?? '' ) . ' ' .
+							( $question['postStatus'] ?? '' )
 						);
 						if ( false === strpos( $haystack, $search ) ) {
 							return false;
@@ -108,10 +105,12 @@ class Citex_Questions {
 					if ( 'all' !== $filters['type'] && ( $question['type'] ?? '' ) !== $filters['type'] ) {
 						return false;
 					}
-					if ( 'all' !== $filters['status'] && $question['validationStatus'] !== $filters['status'] ) {
+					if ( 'all' !== $filters['validation_status'] && $question['validationStatus'] !== $filters['validation_status'] ) {
 						return false;
 					}
-
+					if ( 'all' !== $filters['post_status'] && ( $question['postStatus'] ?? '' ) !== $filters['post_status'] ) {
+						return false;
+					}
 					return true;
 				}
 			)
