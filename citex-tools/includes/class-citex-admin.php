@@ -112,14 +112,14 @@ class Citex_Admin {
 			'citex-admin',
 			CITEX_TOOLS_URL . 'admin/css/citex-admin.css',
 			array(),
-			CITEX_TOOLS_VERSION
+			self::asset_version( 'admin/css/citex-admin.css' )
 		);
 
 		wp_enqueue_script(
 			'citex-scanner',
 			CITEX_TOOLS_URL . 'admin/js/citex-scanner.js',
 			array(),
-			CITEX_TOOLS_VERSION,
+			self::asset_version( 'admin/js/citex-scanner.js' ),
 			true
 		);
 
@@ -127,7 +127,7 @@ class Citex_Admin {
 			'citex-admin',
 			CITEX_TOOLS_URL . 'admin/js/citex-admin.js',
 			array( 'citex-scanner' ),
-			CITEX_TOOLS_VERSION,
+			self::asset_version( 'admin/js/citex-admin.js' ),
 			true
 		);
 
@@ -151,6 +151,22 @@ class Citex_Admin {
 				),
 			)
 		);
+	}
+
+	/**
+	 * Cache-busting version for a plugin asset: the file's own last-modified
+	 * time rather than the static CITEX_TOOLS_VERSION constant, so a fix
+	 * that changes admin/js/citex-scanner.js (or any other asset) always
+	 * gets a new ?ver= on the next enqueue and can't keep being served from
+	 * a stale browser/host/CDN cache under the old, unchanged URL.
+	 *
+	 * @param string $relative_path Asset path relative to the plugin root, e.g. 'admin/js/citex-scanner.js'.
+	 * @return string|int
+	 */
+	private static function asset_version( $relative_path ) {
+		$file = CITEX_TOOLS_PATH . $relative_path;
+		$mtime = file_exists( $file ) ? filemtime( $file ) : false;
+		return false !== $mtime ? $mtime : CITEX_TOOLS_VERSION;
 	}
 
 	/**
