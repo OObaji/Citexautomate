@@ -6,10 +6,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Bulk editor for the real WordPress Reference List posts indexed by Citex.
  *
- * The status visible under each Reference List title (Draft / Published) is
- * WordPress's native post_status. This endpoint updates that exact database
- * value and then reads it back after the write so Citex never reports success
- * unless the real Reference List post actually changed.
+ * Published/Draft/Pending/Private are normal post_status changes. Moving a
+ * record to Bin is deliberately handled with wp_trash_post(), matching
+ * WordPress's native trash behaviour rather than pretending that "trash" is
+ * just another Quick Edit status.
  */
 class Citex_Bulk_Editor {
 
@@ -27,13 +27,16 @@ class Citex_Bulk_Editor {
 			'draft'   => __( 'Draft', 'citex-tools' ),
 			'pending' => __( 'Pending Review', 'citex-tools' ),
 			'private' => __( 'Private', 'citex-tools' ),
+			'trash'   => __( 'Move to Bin (Trash)', 'citex-tools' ),
 		);
 	}
 
 	/**
-	 * Update and verify the native WordPress status for indexed Reference List
-	 * records. Each successful write is re-read from WordPress before being
-	 * counted as updated.
+	 * Update the real Reference List records for one Citex batch.
+	 *
+	 * Normal statuses use wp_update_post(). Trash uses wp_trash_post(), which
+	 * preserves WordPress's trash metadata and makes the record restorable from
+	 * Reference List > Bin. Nothing is permanently deleted here.
 	 */
 	public function ajax_update_status() {
 		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
@@ -81,8 +84,12 @@ class Citex_Bulk_Editor {
 				$failed[] = array( 'postId' => $post_id, 'reason' => 'not_indexed' );
 				continue;
 			}
-			if ( ! current_user_can( 'edit_post', $post_id ) ) {
-				$failed[] = array( 'postId' => $post_id, 'reason' => 'no_permission' );
+			if ( ! current_user_can( 'delete_post', $post_id ) && 'trash' === $status ) {
+				$failed[] = array( 'postId' => $post_id, 'reason' => 'no_delete_permission' );
+				continue;
+			}
+			if ( 'trash' !== $status && ! current_user_can( 'edit_post', $post_id ) ) {
+				$failed[] = array( 'postId' => $post_id, 'reason' => 'no_edit_permission' );
 				continue;
 			}
 
@@ -91,46 +98,49 @@ class Citex_Bulk_Editor {
 				$failed[] = array( 'postId' => $post_id, 'reason' => 'not_found' );
 				continue;
 			}
-			if ( 'trash' === $post->post_status ) {
-				$failed[] = array( 'postId' => $post_id, 'reason' => 'trashed', 'postType' => $post->post_type );
-				continue;
-			}
 
 			$before = $post->post_status;
 			if ( $status === $before ) {
 				$skipped++;
-				if ( count( $verified ) < 5 ) {
-					$verified[] = array(
+				continue;
+			}
+
+			if ( 'trash' === $status ) {
+				$result = wp_trash_post( $post_id );
+				if ( ! $result ) {
+					$failed[] = array(
 						'postId'   => $post_id,
 						'postType' => $post->post_type,
 						'before'   => $before,
-						'after'    => $before,
+						'reason'   => 'trash_failed',
 					);
+					continue;
 				}
-				continue;
-			}
+			} else {
+				if ( 'trash' === $before ) {
+					$failed[] = array( 'postId' => $post_id, 'reason' => 'already_trashed_use_restore', 'postType' => $post->post_type );
+					continue;
+				}
 
-			$result = wp_update_post(
-				array(
-					'ID'          => $post_id,
-					'post_status' => $status,
-				),
-				true
-			);
-
-			if ( is_wp_error( $result ) ) {
-				$failed[] = array(
-					'postId'   => $post_id,
-					'postType' => $post->post_type,
-					'before'   => $before,
-					'reason'   => $result->get_error_message(),
+				$result = wp_update_post(
+					array(
+						'ID'          => $post_id,
+						'post_status' => $status,
+					),
+					true
 				);
-				continue;
+
+				if ( is_wp_error( $result ) ) {
+					$failed[] = array(
+						'postId'   => $post_id,
+						'postType' => $post->post_type,
+						'before'   => $before,
+						'reason'   => $result->get_error_message(),
+					);
+					continue;
+				}
 			}
 
-			// Do not trust wp_update_post()'s return value alone. Re-read the real
-			// post after clearing cache and verify that Reference List now reports
-			// the requested status.
 			clean_post_cache( $post_id );
 			$after = get_post_status( $post_id );
 
