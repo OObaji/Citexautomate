@@ -70,8 +70,8 @@ class Citex_Importer {
 			$source_name = 'Pasted JSON';
 		}
 
-		$result = $this->import_rows( $rows, $origin, $source_name, $validate_now );
-		$type   = $result['imported'] > 0 ? ( $result['failed'] > 0 ? 'warning' : 'success' ) : 'error';
+		$result  = $this->import_rows( $rows, $origin, $source_name, $validate_now );
+		$type    = $result['imported'] > 0 ? ( $result['failed'] > 0 ? 'warning' : 'success' ) : 'error';
 		$message = sprintf(
 			__( 'Import complete. Added: %1$d. Duplicates skipped: %2$d. Invalid rows: %3$d.%4$s', 'citex-tools' ),
 			$result['imported'],
@@ -205,11 +205,11 @@ class Citex_Importer {
 		);
 
 		foreach ( array_values( $rows ) as $index => $raw_row ) {
-			$row_number = $index + 2; // Header is row 1 for CSV; still useful for JSON item numbering.
+			$item_number = $index + 1;
 			$question = $this->normalise_question( $raw_row, $origin, $source_name );
 			if ( is_wp_error( $question ) ) {
 				$result['failed']++;
-				$result['errors'][] = sprintf( 'Row/item %d: %s', $row_number, $question->get_error_message() );
+				$result['errors'][] = sprintf( 'Item %d: %s', $item_number, $question->get_error_message() );
 				continue;
 			}
 
@@ -234,7 +234,7 @@ class Citex_Importer {
 				}
 			}
 
-			$pending[]  = $question;
+			$pending[]   = $question;
 			$used[ $id ] = true;
 			$result['imported']++;
 		}
@@ -254,10 +254,10 @@ class Citex_Importer {
 			return new WP_Error( 'citex_import_missing_id', __( 'questionId / id is required.', 'citex-tools' ) );
 		}
 
-		$source      = $this->text_or_default( $this->pick( $normal, array( 'source', 'referencingstyle', 'style' ) ), 'Harvard' );
-		$group       = $this->text_or_default( $this->pick( $normal, array( 'group', 'referencegroup' ) ), 'ReferenceList' );
-		$category    = $this->text_or_default( $this->pick( $normal, array( 'category', 'referencecategory' ) ), 'Book' );
-		$type        = $this->text_or_default( $this->pick( $normal, array( 'type', 'questiontype' ) ), 'DragDrop' );
+		$source      = $this->canonical_route_value( 'source', $this->text_or_default( $this->pick( $normal, array( 'source', 'referencingstyle', 'style' ) ), 'Harvard' ) );
+		$group       = $this->canonical_route_value( 'group', $this->text_or_default( $this->pick( $normal, array( 'group', 'referencegroup' ) ), 'ReferenceList' ) );
+		$category    = $this->canonical_route_value( 'category', $this->text_or_default( $this->pick( $normal, array( 'category', 'referencecategory' ) ), 'Book' ) );
+		$type        = $this->canonical_route_value( 'type', $this->text_or_default( $this->pick( $normal, array( 'type', 'questiontype' ) ), 'DragDrop' ) );
 		$institution = $this->text_or_default( $this->pick( $normal, array( 'institution', 'university', 'referencingrules' ) ), 'Liverpool Hope University' );
 		$difficulty  = $this->text_or_default( $this->pick( $normal, array( 'difficulty', 'level' ) ), 'Medium' );
 		$scenario    = trim( (string) $this->pick( $normal, array( 'scenario', 'question', 'prompt' ) ) );
@@ -270,12 +270,12 @@ class Citex_Importer {
 		// Simple external-generator format. If structured DragDrop fields were
 		// not supplied, build them from ordinary book-reference columns.
 		if ( '' === $fixed_text || empty( $parts ) ) {
-			$surname   = trim( (string) $this->pick( $normal, array( 'authorsurname', 'surname', 'lastname', 'familyname' ) ) );
-			$initials  = trim( (string) $this->pick( $normal, array( 'authorinitials', 'initials', 'initial' ) ) );
-			$year      = trim( (string) $this->pick( $normal, array( 'year', 'publicationyear', 'pubyear' ) ) );
-			$book_title= trim( (string) $this->pick( $normal, array( 'booktitle', 'worktitle', 'referencetitle' ) ) );
-			$place     = trim( (string) $this->pick( $normal, array( 'place', 'publicationplace', 'city' ) ) );
-			$publisher = trim( (string) $this->pick( $normal, array( 'publisher', 'publishinghouse' ) ) );
+			$surname    = trim( (string) $this->pick( $normal, array( 'authorsurname', 'surname', 'lastname', 'familyname' ) ) );
+			$initials   = trim( (string) $this->pick( $normal, array( 'authorinitials', 'initials', 'initial' ) ) );
+			$year       = trim( (string) $this->pick( $normal, array( 'year', 'publicationyear', 'pubyear' ) ) );
+			$book_title = trim( (string) $this->pick( $normal, array( 'booktitle', 'worktitle', 'referencetitle' ) ) );
+			$place      = trim( (string) $this->pick( $normal, array( 'place', 'publicationplace', 'city' ) ) );
+			$publisher  = trim( (string) $this->pick( $normal, array( 'publisher', 'publishinghouse' ) ) );
 
 			if ( '' === $surname || '' === $initials || '' === $year || '' === $book_title || '' === $place || '' === $publisher ) {
 				return new WP_Error(
@@ -325,7 +325,13 @@ class Citex_Importer {
 
 	private function parse_list_value( $value ) {
 		if ( is_array( $value ) ) {
-			return array_values( array_filter( array_map( 'trim', $value ), 'strlen' ) );
+			$clean = array_map(
+				function ( $item ) {
+					return is_scalar( $item ) ? trim( (string) $item ) : '';
+				},
+				$value
+			);
+			return array_values( array_filter( $clean, 'strlen' ) );
 		}
 		$value = trim( (string) $value );
 		if ( '' === $value ) {
@@ -334,7 +340,7 @@ class Citex_Importer {
 		if ( '[' === substr( $value, 0, 1 ) ) {
 			$decoded = json_decode( $value, true );
 			if ( is_array( $decoded ) ) {
-				return array_values( array_filter( array_map( 'trim', $decoded ), 'strlen' ) );
+				return $this->parse_list_value( $decoded );
 			}
 		}
 		$parts = preg_split( '/\s*;;\s*|\r?\n/', $value );
@@ -343,8 +349,8 @@ class Citex_Importer {
 
 	private function reconstruct_reference( $fixed_text, $parts ) {
 		$reference = '';
-		$part = 0;
-		$length = strlen( $fixed_text );
+		$part      = 0;
+		$length    = strlen( $fixed_text );
 		for ( $i = 0; $i < $length; ) {
 			if ( '|' !== $fixed_text[ $i ] ) {
 				$reference .= $fixed_text[ $i++ ];
@@ -382,16 +388,34 @@ class Citex_Importer {
 	private function pick( $row, $aliases ) {
 		foreach ( $aliases as $alias ) {
 			$key = $this->clean_header( $alias );
-			if ( array_key_exists( $key, $row ) && '' !== trim( is_scalar( $row[ $key ] ) ? (string) $row[ $key ] : '' ) ) {
-				return $row[ $key ];
+			if ( ! array_key_exists( $key, $row ) ) {
+				continue;
+			}
+			$value = $row[ $key ];
+			if ( is_array( $value ) && ! empty( $value ) ) {
+				return $value;
+			}
+			if ( is_scalar( $value ) && '' !== trim( (string) $value ) ) {
+				return $value;
 			}
 		}
 		return '';
 	}
 
 	private function text_or_default( $value, $default ) {
-		$value = trim( (string) $value );
+		$value = is_scalar( $value ) ? trim( (string) $value ) : '';
 		return '' === $value ? $default : $value;
+	}
+
+	private function canonical_route_value( $field, $value ) {
+		$normal = strtolower( preg_replace( '/[^a-z0-9]+/', '', (string) $value ) );
+		$map = array(
+			'source'   => array( 'harvard' => 'Harvard' ),
+			'group'    => array( 'referencelist' => 'ReferenceList' ),
+			'category' => array( 'book' => 'Book' ),
+			'type'     => array( 'dragdrop' => 'DragDrop' ),
+		);
+		return isset( $map[ $field ][ $normal ] ) ? $map[ $field ][ $normal ] : (string) $value;
 	}
 
 	public function clean_header( $header ) {
