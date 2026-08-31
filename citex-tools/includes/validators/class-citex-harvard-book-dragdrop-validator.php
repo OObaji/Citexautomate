@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class Citex_Harvard_Book_Dragdrop_Validator {
 
-	const ID = 'harvard-book-dragdrop';
+	const ID = 'harvard-reference-list-book-dragdrop';
 
 	/**
 	 * Routing metadata this validator claims, matched exactly against a

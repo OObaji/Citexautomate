@@ -74,15 +74,35 @@ class Citex_Validator {
 		$routes = Citex_Harvard_Book_Dragdrop_Validator::ROUTES;
 
 		if (
-			( $question['source'] ?? '' ) === $routes['source'] &&
-			( $question['group'] ?? '' ) === $routes['group'] &&
-			( $question['category'] ?? '' ) === $routes['category'] &&
-			( $question['type'] ?? '' ) === $routes['type']
+			self::normalize_route_value( $question['source'] ?? '' ) === self::normalize_route_value( $routes['source'] ) &&
+			self::normalize_route_value( $question['group'] ?? '' ) === self::normalize_route_value( $routes['group'] ) &&
+			self::normalize_route_value( $question['category'] ?? '' ) === self::normalize_route_value( $routes['category'] ) &&
+			self::normalize_route_value( $question['type'] ?? '' ) === self::normalize_route_value( $routes['type'] )
 		) {
 			return Citex_Harvard_Book_Dragdrop_Validator::ID;
 		}
 
 		return null;
+	}
+
+	/**
+	 * Normalizes a value for the routing comparison only: collapses any
+	 * run of whitespace (including a non-breaking space, which a scraped
+	 * admin-list page can leave behind) to a single space, trims, and
+	 * lowercases. This never touches what's stored or displayed —
+	 * category/type keep their original scanned casing everywhere else
+	 * (the brief says never rename/consolidate those values; this only
+	 * makes the *comparison* tolerant of a whitespace/case difference
+	 * that would otherwise silently route a real, supported question to
+	 * "unsupported").
+	 *
+	 * @param mixed $value
+	 * @return string
+	 */
+	private static function normalize_route_value( $value ) {
+		$value = str_replace( "\xc2\xa0", ' ', (string) $value );
+		$value = preg_replace( '/\s+/', ' ', $value );
+		return strtolower( trim( $value ) );
 	}
 
 	/**

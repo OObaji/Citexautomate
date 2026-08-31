@@ -130,7 +130,14 @@ $status_labels = array(
 					<td><?php echo esc_html( $question['category'] ? $question['category'] : '—' ); ?></td>
 					<td><?php echo esc_html( $question['type'] ? $question['type'] : '—' ); ?></td>
 					<td>
-						<span class="citex-badge citex-badge-<?php echo esc_attr( $question['validationStatus'] ); ?>">
+						<span
+							class="citex-badge citex-badge-<?php echo esc_attr( $question['validationStatus'] ); ?>"
+							<?php if ( ! empty( $question['validationResult']['reason'] ) ) : ?>
+								title="<?php echo esc_attr( $question['validationResult']['reason'] ); ?>"
+							<?php elseif ( null === $question['validatorId'] ) : ?>
+								title="<?php esc_attr_e( 'No validator is routed for this Source/Group/Category/Question Type combination.', 'citex-tools' ); ?>"
+							<?php endif; ?>
+						>
 							<?php
 							$status = $question['validationStatus'];
 							if ( 'failed' === $status && ! empty( $question['validationResult']['errors'] ) ) {

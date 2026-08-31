@@ -32,7 +32,7 @@ window.CitexValidator = ( function () {
 	 * Citex_Harvard_Book_Dragdrop_Validator::ROUTES in PHP; keep in sync.
 	 */
 	var ROUTES = {
-		id: 'harvard-book-dragdrop',
+		id: 'harvard-reference-list-book-dragdrop',
 		source: 'Harvard',
 		group: 'ReferenceList',
 		category: 'Book',
@@ -47,16 +47,33 @@ window.CitexValidator = ( function () {
 	var FIELD_MAP = {};
 
 	/**
+	 * Normalizes a value for the routing comparison only: collapses any
+	 * whitespace run (including a non-breaking space, which a scraped
+	 * admin-list page can leave behind) to a single space, trims, and
+	 * lowercases. Never touches what's displayed elsewhere — only makes
+	 * this comparison tolerant of a whitespace/case difference that would
+	 * otherwise silently route a real, supported question to "unsupported".
+	 * Mirrors Citex_Validator::normalize_route_value() in PHP.
+	 */
+	function normalizeRouteValue( value ) {
+		return ( value || '' )
+			.replace( / /g, ' ' )
+			.replace( /\s+/g, ' ' )
+			.trim()
+			.toLowerCase();
+	}
+
+	/**
 	 * Routes a question to a validator id, or null (unsupported). The
 	 * single place new combinations (Book MCQ, EditedBook, Website,
 	 * Journal, JournalArticle, ...) get added later.
 	 */
 	function resolveValidatorId( question ) {
 		if (
-			question.source === ROUTES.source &&
-			question.group === ROUTES.group &&
-			question.category === ROUTES.category &&
-			question.type === ROUTES.type
+			normalizeRouteValue( question.source ) === normalizeRouteValue( ROUTES.source ) &&
+			normalizeRouteValue( question.group ) === normalizeRouteValue( ROUTES.group ) &&
+			normalizeRouteValue( question.category ) === normalizeRouteValue( ROUTES.category ) &&
+			normalizeRouteValue( question.type ) === normalizeRouteValue( ROUTES.type )
 		) {
 			return ROUTES.id;
 		}
@@ -115,9 +132,8 @@ window.CitexValidator = ( function () {
 		};
 	}
 
-	var VALIDATORS = {
-		'harvard-book-dragdrop': validateHarvardBookDragdrop,
-	};
+	var VALIDATORS = {};
+	VALIDATORS[ ROUTES.id ] = validateHarvardBookDragdrop;
 
 	function unsupportedResult( question, reason ) {
 		return { status: 'unsupported', reason: reason, errors: [], warnings: [] };

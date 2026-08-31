@@ -67,11 +67,29 @@ global.citexTools = {
 eval( validatorSource );
 const CitexValidator = global.window.CitexValidator;
 
+// Debugging report (live site, 200 indexed questions): BK01 has exactly
+// {source: Harvard, group: ReferenceList, category: Book, type: DragDrop}
+// and was showing as Unsupported instead of routing. This is the literal
+// case from that report, asserted directly against the router.
+function testExactReportedCase() {
+	const bk01 = { source: 'Harvard', group: 'ReferenceList', category: 'Book', type: 'DragDrop', questionId: 'BK01' };
+	const routed = CitexValidator.resolveValidatorId( bk01 );
+
+	check( 'BK01 {Harvard, ReferenceList, Book, DragDrop} routes to harvard-reference-list-book-dragdrop', routed, 'harvard-reference-list-book-dragdrop' );
+	assert.notStrictEqual( routed, null, 'BK01 must NOT route to null/unsupported' );
+	console.log( 'PASS: BK01 does not route to unsupported' );
+
+	// Whitespace/casing that a scraped admin-list page could plausibly
+	// introduce must not silently break routing (Debug checklist item #2).
+	const messy = { source: ' harvard', group: 'ReferenceList ', category: 'book ', type: 'DRAGDROP', questionId: 'BK01' };
+	check( 'routing tolerates whitespace/casing noise around the same values', CitexValidator.resolveValidatorId( messy ), 'harvard-reference-list-book-dragdrop' );
+}
+
 async function testUnsupportedRouting() {
 	const supported = { source: 'Harvard', group: 'ReferenceList', category: 'Book', type: 'DragDrop', questionId: 'BK02' };
 	const unsupported = { source: 'Harvard', group: 'ReferenceList', category: 'Website', type: 'MCQ', questionId: 'WB01' };
 
-	check( 'supported combination routes to harvard-book-dragdrop', CitexValidator.resolveValidatorId( supported ), 'harvard-book-dragdrop' );
+	check( 'supported combination routes to harvard-reference-list-book-dragdrop', CitexValidator.resolveValidatorId( supported ), 'harvard-reference-list-book-dragdrop' );
 	check( 'unsupported combination routes to null', CitexValidator.resolveValidatorId( unsupported ), null );
 
 	// #7: Unsupported category/type returns Unsupported (never Passed or Failed).
@@ -90,12 +108,19 @@ async function testNoFalseResultsYet() {
 	const question = { source: 'Harvard', group: 'ReferenceList', category: 'Book', type: 'DragDrop', questionId: 'BK99', editUrl: 'http://example.test/wp-admin/post.php?post=999&action=edit' };
 	const result = await CitexValidator.runValidatorFor( question );
 	check( 'routed Book/DragDrop question currently always reports unsupported (rule engine pending)', result.status, 'unsupported' );
+	// This specifically catches a real bug found while fixing this: if the
+	// VALIDATORS registry key ever drifts out of sync with ROUTES.id, the
+	// routed validator silently fails to be called and the sequence loop's
+	// catch-all also reports 'unsupported' — indistinguishable from this
+	// honest, intentional stub result unless `validator` is checked too.
+	check( 'the result carries the routed validator id (proves the routed function actually ran, not a silent lookup failure)', result.validator, 'harvard-reference-list-book-dragdrop' );
 	check( 'no errors are fabricated', result.errors, [] );
 	check( 'no warnings are fabricated', result.warnings, [] );
 	console.log( 'PASS: no false pass/fail possible before the real rule engine is ported' );
 }
 
 async function main() {
+	testExactReportedCase();
 	await testUnsupportedRouting();
 	await testNoFalseResultsYet();
 	console.log( '\nAll implemented Phase 3 validator tests passed.' );
