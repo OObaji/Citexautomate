@@ -4,27 +4,23 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Bulk editor for real WordPress question posts indexed by Citex.
+ * Bulk editor for the real WordPress Reference List posts indexed by Citex.
  *
- * This deliberately operates only on post IDs present in the latest Citex
- * scanner index. The browser can submit hundreds of questions, while the
- * server processes them in small batches to avoid PHP timeouts.
+ * The status visible under each Reference List title (Draft / Published) is
+ * WordPress's native post_status. This endpoint updates that exact database
+ * value and then reads it back after the write so Citex never reports success
+ * unless the real Reference List post actually changed.
  */
 class Citex_Bulk_Editor {
 
-	const NONCE_ACTION = 'citex_bulk_edit_questions';
+	const NONCE_ACTION       = 'citex_bulk_edit_questions';
 	const AJAX_UPDATE_STATUS = 'citex_bulk_update_status';
-	const MAX_BATCH = 50;
+	const MAX_BATCH          = 50;
 
 	public function __construct() {
 		add_action( 'wp_ajax_' . self::AJAX_UPDATE_STATUS, array( $this, 'ajax_update_status' ) );
 	}
 
-	/**
-	 * WordPress statuses exposed by the Citex bulk editor.
-	 *
-	 * @return array<string,string>
-	 */
 	public static function status_choices() {
 		return array(
 			'publish' => __( 'Published', 'citex-tools' ),
@@ -35,8 +31,9 @@ class Citex_Bulk_Editor {
 	}
 
 	/**
-	 * AJAX: update the native WordPress post_status for a batch of indexed
-	 * question posts. Trashed posts are never restored implicitly.
+	 * Update and verify the native WordPress status for indexed Reference List
+	 * records. Each successful write is re-read from WordPress before being
+	 * counted as updated.
 	 */
 	public function ajax_update_status() {
 		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
@@ -45,14 +42,14 @@ class Citex_Bulk_Editor {
 			wp_send_json_error( array( 'message' => __( 'You are not allowed to bulk edit questions.', 'citex-tools' ) ), 403 );
 		}
 
-		$status = isset( $_POST['status'] ) ? sanitize_key( wp_unslash( $_POST['status'] ) ) : '';
+		$status  = isset( $_POST['status'] ) ? sanitize_key( wp_unslash( $_POST['status'] ) ) : '';
 		$choices = self::status_choices();
 		if ( ! isset( $choices[ $status ] ) ) {
 			wp_send_json_error( array( 'message' => __( 'Invalid WordPress status.', 'citex-tools' ) ), 400 );
 		}
 
 		$raw_ids = isset( $_POST['post_ids'] ) ? wp_unslash( $_POST['post_ids'] ) : '[]';
-		$ids = json_decode( $raw_ids, true );
+		$ids     = json_decode( $raw_ids, true );
 		if ( ! is_array( $ids ) ) {
 			wp_send_json_error( array( 'message' => __( 'Invalid question ID list.', 'citex-tools' ) ), 400 );
 		}
@@ -65,7 +62,7 @@ class Citex_Bulk_Editor {
 			wp_send_json_error( array( 'message' => __( 'Too many posts in one batch.', 'citex-tools' ) ), 400 );
 		}
 
-		$scan = Citex_Scanner::get_last_scan();
+		$scan        = Citex_Scanner::get_last_scan();
 		$indexed_ids = array();
 		foreach ( ( $scan['questions'] ?? array() ) as $question ) {
 			$id = absint( $question['wpPostId'] ?? 0 );
@@ -74,9 +71,10 @@ class Citex_Bulk_Editor {
 			}
 		}
 
-		$updated = 0;
-		$skipped = 0;
-		$failed = array();
+		$updated  = 0;
+		$skipped  = 0;
+		$failed   = array();
+		$verified = array();
 
 		foreach ( $ids as $post_id ) {
 			if ( ! isset( $indexed_ids[ $post_id ] ) ) {
@@ -94,11 +92,21 @@ class Citex_Bulk_Editor {
 				continue;
 			}
 			if ( 'trash' === $post->post_status ) {
-				$failed[] = array( 'postId' => $post_id, 'reason' => 'trashed' );
+				$failed[] = array( 'postId' => $post_id, 'reason' => 'trashed', 'postType' => $post->post_type );
 				continue;
 			}
-			if ( $status === $post->post_status ) {
+
+			$before = $post->post_status;
+			if ( $status === $before ) {
 				$skipped++;
+				if ( count( $verified ) < 5 ) {
+					$verified[] = array(
+						'postId'   => $post_id,
+						'postType' => $post->post_type,
+						'before'   => $before,
+						'after'    => $before,
+					);
+				}
 				continue;
 			}
 
@@ -111,20 +119,51 @@ class Citex_Bulk_Editor {
 			);
 
 			if ( is_wp_error( $result ) ) {
-				$failed[] = array( 'postId' => $post_id, 'reason' => $result->get_error_message() );
+				$failed[] = array(
+					'postId'   => $post_id,
+					'postType' => $post->post_type,
+					'before'   => $before,
+					'reason'   => $result->get_error_message(),
+				);
+				continue;
+			}
+
+			// Do not trust wp_update_post()'s return value alone. Re-read the real
+			// post after clearing cache and verify that Reference List now reports
+			// the requested status.
+			clean_post_cache( $post_id );
+			$after = get_post_status( $post_id );
+
+			if ( $status !== $after ) {
+				$failed[] = array(
+					'postId'   => $post_id,
+					'postType' => $post->post_type,
+					'before'   => $before,
+					'after'    => $after,
+					'reason'   => 'status_not_persisted',
+				);
 				continue;
 			}
 
 			$updated++;
+			if ( count( $verified ) < 5 ) {
+				$verified[] = array(
+					'postId'   => $post_id,
+					'postType' => $post->post_type,
+					'before'   => $before,
+					'after'    => $after,
+				);
+			}
 		}
 
 		wp_send_json_success(
 			array(
-				'updated' => $updated,
-				'skipped' => $skipped,
-				'failed'  => $failed,
-				'status'  => $status,
-				'label'   => $choices[ $status ],
+				'updated'  => $updated,
+				'skipped'  => $skipped,
+				'failed'   => $failed,
+				'verified' => $verified,
+				'status'   => $status,
+				'label'    => $choices[ $status ],
 			)
 		);
 	}
