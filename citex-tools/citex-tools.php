@@ -3,7 +3,7 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — question generation, validation, population and the question bank overview.
- * Version:     0.5.4
+ * Version:     0.5.5
  * Author:      Citex
  * Text Domain: citex-tools
  *
@@ -23,18 +23,20 @@
  * Liverpool Hope Book structural check.
  *
  * v0.5.2 uses the confirmed Citex DragDrop placeholder grammar:
- * a single `|` represents one draggable placeholder only at the beginning
- * or end of Fixed Text, while `||` represents one draggable placeholder in
- * any internal position.
+ * a single `|` represents one draggable placeholder at the beginning or
+ * final draggable position, while `||` represents one draggable placeholder
+ * internally.
  *
- * v0.5.3 improves live Book diagnostics after BK03 proved that a year can
- * be present but spaced as `( 2018 )`. Citex now distinguishes a missing
- * year from incorrect spacing inside the year parentheses and separately
- * reports a missing space after the Place: Publisher colon.
+ * v0.5.3 distinguishes a missing publication year from incorrect spacing
+ * inside the year parentheses and reports a missing space after the
+ * Place: Publisher colon.
  *
- * v0.5.4 adds a dedicated SPACE_BEFORE_PUNCTUATION check after the live
- * BK02 reconstruction exposed spaces before punctuation (for example
- * `Lopez ,` and `Global Health .`).
+ * v0.5.4 adds SPACE_BEFORE_PUNCTUATION for defects such as `Lopez ,`.
+ *
+ * v0.5.5 incorporates the live BK04 rule: a final single `|` may be followed
+ * by fixed terminal punctuation such as the full stop in `Berlin: |.`. That
+ * is still the final draggable placeholder and is no longer misclassified as
+ * an internal malformed pipe.
  *
  * Question generation and WordPress population are still not implemented.
  */
@@ -43,7 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Disallow direct access.
 }
 
-define( 'CITEX_TOOLS_VERSION', '0.5.4' );
+define( 'CITEX_TOOLS_VERSION', '0.5.5' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
@@ -57,9 +59,7 @@ require_once CITEX_TOOLS_PATH . 'includes/class-citex-questions.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-populator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-admin.php';
 
-/**
- * Boot the plugin once all plugins are loaded.
- */
+/** Boot the plugin once all plugins are loaded. */
 function citex_tools_init() {
 	new Citex_Admin();
 }
