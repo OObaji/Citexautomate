@@ -22,7 +22,7 @@ function reconstruct( fixedText, parts ) {
 	return validator.reconstructReference( fixedText, parts );
 }
 
-// Live BK02 — the decisive placeholder regression case.
+// Live BK02 — internal placeholders use ||.
 let result = reconstruct(
 	'|, || (||) ||. Oxford: Oxford University Press.',
 	[ 'Lopez', 'M.', '2019', 'Global Health' ]
@@ -31,15 +31,29 @@ assert.strictEqual( result.placeholderCount, 4 );
 assert.strictEqual( result.error, null );
 assert.strictEqual( result.reference, 'Lopez, M. (2019) Global Health. Oxford: Oxford University Press.' );
 
+// Live BK04 — final placeholder may be followed by fixed terminal punctuation.
+result = reconstruct(
+	'|, || (||) Urban Planning. Berlin: |.',
+	[ 'Chen', 'E.', '2020', 'Springer' ]
+);
+assert.strictEqual( result.placeholderCount, 4 );
+assert.strictEqual( result.error, null );
+assert.strictEqual( result.reference, 'Chen, E. (2020) Urban Planning. Berlin: Springer.' );
+
 // Single pipe at the beginning is one placeholder.
 result = reconstruct( '| — fixed text', [ 'START' ] );
 assert.strictEqual( result.placeholderCount, 1 );
 assert.strictEqual( result.reference, 'START — fixed text' );
 
-// Single pipe at the end is one placeholder.
+// Single pipe at the literal end is one placeholder.
 result = reconstruct( 'fixed text — |', [ 'END' ] );
 assert.strictEqual( result.placeholderCount, 1 );
 assert.strictEqual( result.reference, 'fixed text — END' );
+
+// Single final placeholder immediately before punctuation is valid.
+result = reconstruct( 'fixed text — |.', [ 'END' ] );
+assert.strictEqual( result.placeholderCount, 1 );
+assert.strictEqual( result.reference, 'fixed text — END.' );
 
 // Double pipe internally is one placeholder.
 result = reconstruct( 'before || after', [ 'MIDDLE' ] );
@@ -47,11 +61,11 @@ assert.strictEqual( result.placeholderCount, 1 );
 assert.strictEqual( result.reference, 'before MIDDLE after' );
 
 // Position rules can be combined.
-result = reconstruct( '| / || / |', [ 'A', 'B', 'C' ] );
+result = reconstruct( '| / || / |.', [ 'A', 'B', 'C' ] );
 assert.strictEqual( result.placeholderCount, 3 );
-assert.strictEqual( result.reference, 'A / B / C' );
+assert.strictEqual( result.reference, 'A / B / C.' );
 
-// A single internal pipe is invalid rather than silently treated as a slot.
+// A single internal pipe followed by normal text is invalid.
 result = reconstruct( 'before | after', [ 'X' ] );
 assert.strictEqual( result.error, 'MALFORMED_PLACEHOLDER_ENCODING' );
 
