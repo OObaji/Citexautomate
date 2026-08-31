@@ -1,23 +1,18 @@
 /**
  * Citex Tools — live-site DragDrop reconstruction adapter.
  *
- * The live WordPress data proved that Fixed Text is stored in two related
- * encodings:
+ * Confirmed Citex Fixed Text placeholder grammar:
+ *   - `|`  = one draggable placeholder ONLY when it is at the beginning
+ *            or the end of Fixed Text.
+ *   - `||` = one draggable placeholder at any internal position.
  *
- * 1) Marker encoding (already supported by v0.5.0):
- *      |, | (|) Title. |: Publisher.
+ * Example from live BK02:
+ *   Fixed Text:     |, || (||) ||. Oxford: Oxford University Press.
+ *   Question Parts: Lopez / M. / 2019 / Global Health
+ *   Reconstructed:  Lopez, M. (2019) Global Health. Oxford: Oxford University Press.
  *
- * 2) Empty-segment encoding (observed on real BK02):
- *      |, || (||) ||. Oxford: Oxford University Press.
- *
- * Splitting encoding (2) on "|" produces four empty segments; those empty
- * segments are the four draggable slots. The seven pipe characters are
- * delimiters, not seven draggable placeholders. This adapter preserves the
- * original validator and field extraction but replaces reconstruction with a
- * dual-mode implementation grounded in the live BK02 data.
- *
- * Read-only: it only GETs the edit screen and POSTs the validation result to
- * Citex's own admin-ajax result store. It never updates a WordPress question.
+ * Read-only: this adapter only GETs the WordPress edit screen and POSTs the
+ * validation result to Citex's own result store. It never updates a question.
  */
 ( function () {
 	'use strict';
@@ -27,97 +22,112 @@
 		return;
 	}
 
-	function structuralError( code, fixedText, questionParts, reconstruction ) {
+	function structuralError( code, questionParts, reconstruction ) {
 		if ( 'FIXED_TEXT_MISSING' === code ) {
 			return { code: code, message: 'Fixed Text field is empty or could not be found.' };
 		}
 		if ( 'QUESTION_PARTS_MISSING' === code ) {
 			return { code: code, message: 'Question Parts field is empty or could not be found.' };
 		}
+		if ( 'MALFORMED_PLACEHOLDER_ENCODING' === code ) {
+			return {
+				code: code,
+				message: 'Fixed Text contains a single "|" in an internal position. Internal draggable placeholders must use "||"; a single "|" is only valid at the beginning or end.',
+			};
+		}
 		return {
 			code: 'PLACEHOLDER_COUNT_MISMATCH',
-			message: 'Could not map the Fixed Text drag slots to the Question Parts. Detected ' +
-				reconstruction.placeholderCount + ' draggable slot(s), ' + reconstruction.rawPipeCount +
-				' pipe delimiter(s), and ' + questionParts.length + ' Question Part(s).',
+			message: 'The number of draggable placeholders in Fixed Text (' + reconstruction.placeholderCount +
+				') does not match the number of Question Parts (' + questionParts.length + ').',
 		};
 	}
 
 	/**
-	 * Reconstruct a DragDrop reference using either of the two confirmed
-	 * Fixed Text encodings.
+	 * Find placeholders using Citex's confirmed positional grammar.
 	 *
-	 * Empty-segment mode is tried first because it is what the live site uses:
-	 *   '|, || (||) ||. Oxford: Oxford University Press.'
-	 * split('|') => ['', ', ', '', ' (', '', ') ', '', '. Oxford: ...']
-	 * The four empty segments are replaced by the four Question Parts.
+	 * A placeholder token is:
+	 *   - one pipe at string position 0;
+	 *   - one pipe at the final string position; or
+	 *   - two consecutive pipes anywhere internally.
 	 *
-	 * If that pattern is not present, fall back to the older marker mode where
-	 * every single pipe is itself one draggable placeholder.
+	 * A lone internal pipe is malformed and is deliberately not counted as a
+	 * draggable slot. This prevents the old bug where seven raw pipe characters
+	 * in BK02 were incorrectly treated as seven Question Parts.
 	 */
+	function findPlaceholderTokens( fixedText ) {
+		var tokens = [];
+		var malformed = [];
+		var i = 0;
+
+		while ( i < fixedText.length ) {
+			if ( 0 === i && '|' === fixedText.charAt( i ) ) {
+				tokens.push( { start: i, length: 1, kind: 'beginning' } );
+				i += 1;
+				continue;
+			}
+
+			if ( i === fixedText.length - 1 && '|' === fixedText.charAt( i ) ) {
+				tokens.push( { start: i, length: 1, kind: 'end' } );
+				i += 1;
+				continue;
+			}
+
+			if ( '||' === fixedText.slice( i, i + 2 ) ) {
+				tokens.push( { start: i, length: 2, kind: 'internal' } );
+				i += 2;
+				continue;
+			}
+
+			if ( '|' === fixedText.charAt( i ) ) {
+				malformed.push( i );
+			}
+			i += 1;
+		}
+
+		return { tokens: tokens, malformed: malformed };
+	}
+
 	function reconstructReference( fixedText, questionParts ) {
 		if ( ! fixedText ) {
-			return { reference: null, placeholderCount: 0, rawPipeCount: 0, mode: null, error: 'FIXED_TEXT_MISSING' };
+			return { reference: null, placeholderCount: 0, error: 'FIXED_TEXT_MISSING' };
 		}
 		if ( ! questionParts || ! questionParts.length ) {
+			return { reference: null, placeholderCount: 0, error: 'QUESTION_PARTS_MISSING' };
+		}
+
+		var parsed = findPlaceholderTokens( fixedText );
+		var tokens = parsed.tokens;
+
+		if ( parsed.malformed.length ) {
 			return {
 				reference: null,
-				placeholderCount: 0,
-				rawPipeCount: ( fixedText.match( /\|/g ) || [] ).length,
-				mode: null,
-				error: 'QUESTION_PARTS_MISSING',
+				placeholderCount: tokens.length,
+				error: 'MALFORMED_PLACEHOLDER_ENCODING',
 			};
 		}
 
-		var segments = fixedText.split( '|' );
-		var rawPipeCount = segments.length - 1;
-		var slotIndexes = [];
+		if ( tokens.length !== questionParts.length ) {
+			return {
+				reference: null,
+				placeholderCount: tokens.length,
+				error: 'PLACEHOLDER_COUNT_MISMATCH',
+			};
+		}
 
-		segments.forEach( function ( segment, index ) {
-			if ( '' === segment.trim() ) {
-				slotIndexes.push( index );
-			}
+		var reference = '';
+		var cursor = 0;
+
+		tokens.forEach( function ( token, index ) {
+			reference += fixedText.slice( cursor, token.start );
+			reference += questionParts[ index ];
+			cursor = token.start + token.length;
 		} );
-
-		// Live Citex encoding: empty segments between pipe delimiters are slots.
-		if ( slotIndexes.length === questionParts.length ) {
-			var slot = 0;
-			var liveReference = segments.map( function ( segment ) {
-				if ( '' === segment.trim() && slot < questionParts.length ) {
-					return questionParts[ slot++ ];
-				}
-				return segment;
-			} ).join( '' );
-
-			return {
-				reference: liveReference,
-				placeholderCount: slotIndexes.length,
-				rawPipeCount: rawPipeCount,
-				mode: 'empty-segment-slots',
-				error: null,
-			};
-		}
-
-		// Original v0.5 marker encoding: each pipe itself is one slot.
-		if ( rawPipeCount === questionParts.length ) {
-			var reference = segments[ 0 ];
-			for ( var i = 0; i < questionParts.length; i++ ) {
-				reference += questionParts[ i ] + segments[ i + 1 ];
-			}
-			return {
-				reference: reference,
-				placeholderCount: rawPipeCount,
-				rawPipeCount: rawPipeCount,
-				mode: 'pipe-markers',
-				error: null,
-			};
-		}
+		reference += fixedText.slice( cursor );
 
 		return {
-			reference: null,
-			placeholderCount: slotIndexes.length,
-			rawPipeCount: rawPipeCount,
-			mode: null,
-			error: 'PLACEHOLDER_COUNT_MISMATCH',
+			reference: reference,
+			placeholderCount: tokens.length,
+			error: null,
 		};
 	}
 
@@ -144,19 +154,14 @@
 				status: 'failed',
 				reason: 'Could not reconstruct the reference — see errors.',
 				reconstructedReference: null,
-				errors: [ structuralError( reconstruction.error, extraction.fixedText, extraction.questionParts, reconstruction ) ],
+				errors: [ structuralError( reconstruction.error, extraction.questionParts, reconstruction ) ],
 				warnings: [],
 				diagnostics: diagnostics,
 			};
 		}
 
 		var errors = [];
-		var checks = [
-			base.checkYearTrailingPeriod,
-			base.checkMissingFinalPeriod,
-			base.checkBookFormat,
-		];
-		checks.forEach( function ( check ) {
+		[ base.checkYearTrailingPeriod, base.checkMissingFinalPeriod, base.checkBookFormat ].forEach( function ( check ) {
 			var issue = check( reconstruction.reference );
 			if ( issue ) {
 				errors.push( issue );
@@ -258,6 +263,7 @@
 	}
 
 	window.CitexValidator = Object.assign( {}, base, {
+		findPlaceholderTokens: findPlaceholderTokens,
 		reconstructReference: reconstructReference,
 		validateHarvardBookDragdrop: validateHarvardBookDragdrop,
 		runValidatorFor: runValidatorFor,
