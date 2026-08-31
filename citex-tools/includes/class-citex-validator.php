@@ -42,16 +42,17 @@ class Citex_Validator {
 
 		$rows = array();
 		foreach ( $questions as $question ) {
-			$key          = self::result_key( $question );
-			$validator_id = self::resolve_validator_id( $question );
-			$stored       = $results[ $key ] ?? null;
+			$key       = self::result_key( $question );
+			$diagnosis = self::diagnose_routing( $question );
+			$stored    = $results[ $key ] ?? null;
 
 			$rows[] = array(
 				'question'     => $question,
 				'key'          => $key,
-				'validatorId'  => $validator_id,
+				'validatorId'  => $diagnosis['selectedValidatorKey'],
+				'diagnosis'    => $diagnosis,
 				'result'       => $stored,
-				'status'       => self::effective_status( $validator_id, $stored ),
+				'status'       => self::effective_status( $diagnosis['selectedValidatorKey'], $stored ),
 			);
 		}
 
@@ -71,18 +72,91 @@ class Citex_Validator {
 	 * @return string|null Validator id, or null (unsupported).
 	 */
 	public static function resolve_validator_id( $question ) {
-		$routes = Citex_Harvard_Book_Dragdrop_Validator::ROUTES;
+		return self::diagnose_routing( $question )['selectedValidatorKey'];
+	}
 
-		if (
-			self::normalize_route_value( $question['source'] ?? '' ) === self::normalize_route_value( $routes['source'] ) &&
-			self::normalize_route_value( $question['group'] ?? '' ) === self::normalize_route_value( $routes['group'] ) &&
-			self::normalize_route_value( $question['category'] ?? '' ) === self::normalize_route_value( $routes['category'] ) &&
-			self::normalize_route_value( $question['type'] ?? '' ) === self::normalize_route_value( $routes['type'] )
-		) {
-			return Citex_Harvard_Book_Dragdrop_Validator::ID;
+	/**
+	 * Full routing diagnosis for one question: exactly what resolve_validator_id()
+	 * uses to make its decision, exposed field-by-field so the Validation
+	 * page's Details panel can show precisely what metadata reached the
+	 * router, how it compares (raw and normalized) to what the Harvard/
+	 * ReferenceList/Book/DragDrop validator expects, and — when nothing
+	 * matches — exactly which field(s) caused that. resolve_validator_id()
+	 * is a thin wrapper around this so the diagnostic view and the actual
+	 * routing decision can never diverge (they're the same computation).
+	 *
+	 * @param array $question Scanned/parsed question record.
+	 * @return array {
+	 *     @type array       $fields                One entry per source/group/category/type: {received, expected, normalizedReceived, normalizedExpected, match}.
+	 *     @type string      $questionId
+	 *     @type int|null    $wpPostId
+	 *     @type string      $expectedValidatorKey  The only validator id this build knows about.
+	 *     @type string|null $selectedValidatorKey  The id actually routed to, or null.
+	 *     @type string      $routingResult         'routed' or 'unsupported'.
+	 *     @type bool        $validatorExists        Whether the routed-to PHP validator class exists at all.
+	 *     @type bool        $validatorImplemented   Whether that validator's rule engine is implemented yet (vs. a routing-only stub).
+	 *     @type string      $reason                 Human-readable explanation, always populated.
+	 * }
+	 */
+	public static function diagnose_routing( $question ) {
+		$routes = Citex_Harvard_Book_Dragdrop_Validator::ROUTES;
+		$fields = array();
+		$all_match = true;
+		$mismatched = array();
+
+		foreach ( array( 'source', 'group', 'category', 'type' ) as $field ) {
+			$received            = (string) ( $question[ $field ] ?? '' );
+			$expected            = $routes[ $field ];
+			$normalized_received = self::normalize_route_value( $received );
+			$normalized_expected = self::normalize_route_value( $expected );
+			$match               = $normalized_received === $normalized_expected;
+
+			if ( ! $match ) {
+				$all_match    = false;
+				$mismatched[] = sprintf(
+					'%s: received "%s" (normalized "%s") vs. expected "%s" (normalized "%s")',
+					$field,
+					$received,
+					$normalized_received,
+					$expected,
+					$normalized_expected
+				);
+			}
+
+			$fields[ $field ] = array(
+				'received'            => $received,
+				'expected'            => $expected,
+				'normalizedReceived'  => $normalized_received,
+				'normalizedExpected'  => $normalized_expected,
+				'match'               => $match,
+			);
 		}
 
-		return null;
+		$validator_exists      = class_exists( 'Citex_Harvard_Book_Dragdrop_Validator' );
+		$validator_implemented = $validator_exists && Citex_Harvard_Book_Dragdrop_Validator::IMPLEMENTED;
+		$selected_id           = ( $all_match && $validator_exists ) ? Citex_Harvard_Book_Dragdrop_Validator::ID : null;
+
+		if ( $selected_id ) {
+			$reason = $validator_implemented
+				? sprintf( 'Routed to "%s"; its rule engine is implemented.', $selected_id )
+				: sprintf( 'Routed to "%s"; the class exists but its rule engine is still a placeholder (Citex_Harvard_Book_Dragdrop_Validator::IMPLEMENTED = false) — see includes/validators/class-citex-harvard-book-dragdrop-validator.php.', $selected_id );
+		} elseif ( $all_match && ! $validator_exists ) {
+			$reason = 'All four fields match, but the Citex_Harvard_Book_Dragdrop_Validator class does not exist (not loaded) — this would be a plugin bug, not an unsupported question.';
+		} else {
+			$reason = 'Not routed — mismatch on: ' . implode( '; ', $mismatched ) . '.';
+		}
+
+		return array(
+			'fields'                => $fields,
+			'questionId'            => $question['questionId'] ?? '',
+			'wpPostId'              => $question['wpPostId'] ?? null,
+			'expectedValidatorKey'  => Citex_Harvard_Book_Dragdrop_Validator::ID,
+			'selectedValidatorKey'  => $selected_id,
+			'routingResult'         => $selected_id ? 'routed' : 'unsupported',
+			'validatorExists'       => $validator_exists,
+			'validatorImplemented'  => $validator_implemented,
+			'reason'                => $reason,
+		);
 	}
 
 	/**

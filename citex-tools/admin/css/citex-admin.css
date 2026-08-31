@@ -195,6 +195,41 @@
 	padding: 12px 16px;
 }
 
+/* Routing diagnostics (Validation page Details panel) */
+
+.citex-diagnostics {
+	margin-top: 14px;
+	padding-top: 12px;
+	border-top: 1px solid #dcdcde;
+}
+
+.citex-diagnostics-table {
+	width: 100%;
+	max-width: 720px;
+	border-collapse: collapse;
+	margin: 8px 0;
+	font-size: 12.5px;
+}
+
+.citex-diagnostics-table th,
+.citex-diagnostics-table td {
+	text-align: left;
+	padding: 5px 10px;
+	border-bottom: 1px solid #e2e2e4;
+}
+
+.citex-diagnostics-table code {
+	font-size: 12px;
+}
+
+/* Version badge (Dashboard) */
+
+.citex-version-badge {
+	margin-top: 28px;
+	color: #8c8f94;
+	font-size: 12px;
+}
+
 /* Scan panel (Dashboard + Questions) */
 
 .citex-scan-panel {

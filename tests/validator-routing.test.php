@@ -59,6 +59,41 @@ check(
 check( 'Citex_Harvard_Book_Dragdrop_Validator class exists', class_exists( 'Citex_Harvard_Book_Dragdrop_Validator' ), true );
 check( 'its ID matches what routing returns', Citex_Harvard_Book_Dragdrop_Validator::ID, 'harvard-reference-list-book-dragdrop' );
 
+// The full diagnostic breakdown (what the Validation page's Details panel
+// now shows live) for the exact reported BK01 metadata.
+$diagnosis = Citex_Validator::diagnose_routing( $bk01 );
+check( 'diagnosis: source field matches', $diagnosis['fields']['source']['match'], true );
+check( 'diagnosis: group field matches', $diagnosis['fields']['group']['match'], true );
+check( 'diagnosis: category field matches', $diagnosis['fields']['category']['match'], true );
+check( 'diagnosis: type field matches', $diagnosis['fields']['type']['match'], true );
+check( 'diagnosis: questionId carried through', $diagnosis['questionId'], 'BK01' );
+check( 'diagnosis: expectedValidatorKey', $diagnosis['expectedValidatorKey'], 'harvard-reference-list-book-dragdrop' );
+check( 'diagnosis: selectedValidatorKey', $diagnosis['selectedValidatorKey'], 'harvard-reference-list-book-dragdrop' );
+check( 'diagnosis: routingResult', $diagnosis['routingResult'], 'routed' );
+check( 'diagnosis: validatorExists', $diagnosis['validatorExists'], true );
+check( 'diagnosis: validatorImplemented (honestly false — rule engine still pending)', $diagnosis['validatorImplemented'], false );
+
+// diagnose_routing() and resolve_validator_id() must never diverge — the
+// latter is a thin wrapper around the former by construction, but assert
+// it directly so a future refactor that breaks that can't pass silently.
+check(
+	'resolve_validator_id() and diagnose_routing()[selectedValidatorKey] agree for BK01',
+	Citex_Validator::resolve_validator_id( $bk01 ),
+	$diagnosis['selectedValidatorKey']
+);
+
+// The diagnosis for a genuinely unsupported record must name which
+// field(s) caused it, not just say "unsupported".
+$wb01_diagnosis = Citex_Validator::diagnose_routing( $unsupported );
+check( 'diagnosis: unsupported record routingResult', $wb01_diagnosis['routingResult'], 'unsupported' );
+check( 'diagnosis: unsupported record selectedValidatorKey is null', $wb01_diagnosis['selectedValidatorKey'], null );
+if ( false === strpos( $wb01_diagnosis['reason'], 'category' ) || false === strpos( $wb01_diagnosis['reason'], 'type' ) ) {
+	echo "FAIL: unsupported reason should name the mismatched fields (category, type); got: " . $wb01_diagnosis['reason'] . "\n";
+	$failures++;
+} else {
+	echo "PASS: unsupported reason names the mismatched fields: \"" . $wb01_diagnosis['reason'] . "\"\n";
+}
+
 if ( $failures > 0 ) {
 	echo "\n$failures test(s) FAILED.\n";
 	exit( 1 );

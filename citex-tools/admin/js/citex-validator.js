@@ -149,7 +149,23 @@ window.CitexValidator = ( function () {
 		if ( ! validatorId ) {
 			return finalizeResult( question, null, unsupportedResult(
 				question,
-				'No validator implemented for ' + [ question.source, question.group, question.category, question.type ].join( ' / ' ) + '.'
+				'Not routed — no validator matches {source: "' + question.source + '", group: "' + question.group +
+					'", category: "' + question.category + '", type: "' + question.type + '"}. Expected {source: "' +
+					ROUTES.source + '", group: "' + ROUTES.group + '", category: "' + ROUTES.category + '", type: "' + ROUTES.type + '"}.'
+			) );
+		}
+
+		var validatorFn = VALIDATORS[ validatorId ];
+
+		if ( 'function' !== typeof validatorFn ) {
+			// Distinct from "not routed": routing succeeded (validatorId is
+			// set) but no function is registered for that id. This is a
+			// registry/plugin bug, not an unimplemented question format —
+			// keep it diagnosably separate rather than folding it into the
+			// same generic "no validator implemented" message above.
+			return finalizeResult( question, validatorId, unsupportedResult(
+				question,
+				'Routed to "' + validatorId + '" but no validator function is registered for that id in VALIDATORS — registry mismatch (plugin bug, not an unimplemented format).'
 			) );
 		}
 
@@ -157,10 +173,10 @@ window.CitexValidator = ( function () {
 		try {
 			doc = await fetchQuestionDocument( question.editUrl );
 		} catch ( error ) {
-			return finalizeResult( question, validatorId, unsupportedResult( question, 'Could not load the question for validation: ' + error.message ) );
+			return finalizeResult( question, validatorId, unsupportedResult( question, 'Routed to "' + validatorId + '"; could not load the question for validation: ' + error.message ) );
 		}
 
-		var outcome = await VALIDATORS[ validatorId ]( question, doc );
+		var outcome = await validatorFn( question, doc );
 		return finalizeResult( question, validatorId, outcome );
 	}
 

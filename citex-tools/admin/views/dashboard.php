@@ -137,4 +137,14 @@ $breakdown_sections = array(
 			<?php endforeach; ?>
 		</div>
 	<?php endif; ?>
+
+	<p class="citex-version-badge">
+		<?php
+		printf(
+			/* translators: %s: installed Citex Tools plugin version. */
+			esc_html__( 'Citex Tools v%s', 'citex-tools' ),
+			esc_html( CITEX_TOOLS_VERSION )
+		);
+		?>
+	</p>
 </div>

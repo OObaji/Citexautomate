@@ -3,7 +3,7 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — question generation, validation, population and the question bank overview.
- * Version:     0.1.0
+ * Version:     0.4.0
  * Author:      Citex
  * Text Domain: citex-tools
  *
@@ -20,13 +20,18 @@
  * Question generation and WordPress population are still not implemented
  * — see the remaining includes/class-citex-*.php modules those features
  * will be plugged into later without rewriting the plugin.
+ *
+ * v0.4.0 adds live routing diagnostics to the Validation page's Details
+ * panel (Citex_Validator::diagnose_routing()) and displays the installed
+ * plugin version on the Dashboard, for diagnosing why a question isn't
+ * routing as expected on a given install without guesswork.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Disallow direct access.
 }
 
-define( 'CITEX_TOOLS_VERSION', '0.1.0' );
+define( 'CITEX_TOOLS_VERSION', '0.4.0' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );

@@ -108,21 +108,51 @@ async function testNoFalseResultsYet() {
 	const question = { source: 'Harvard', group: 'ReferenceList', category: 'Book', type: 'DragDrop', questionId: 'BK99', editUrl: 'http://example.test/wp-admin/post.php?post=999&action=edit' };
 	const result = await CitexValidator.runValidatorFor( question );
 	check( 'routed Book/DragDrop question currently always reports unsupported (rule engine pending)', result.status, 'unsupported' );
-	// This specifically catches a real bug found while fixing this: if the
-	// VALIDATORS registry key ever drifts out of sync with ROUTES.id, the
-	// routed validator silently fails to be called and the sequence loop's
-	// catch-all also reports 'unsupported' — indistinguishable from this
-	// honest, intentional stub result unless `validator` is checked too.
-	check( 'the result carries the routed validator id (proves the routed function actually ran, not a silent lookup failure)', result.validator, 'harvard-reference-list-book-dragdrop' );
+	check( 'the result carries the routed validator id', result.validator, 'harvard-reference-list-book-dragdrop' );
+	// The reason text is what actually distinguishes "the routed function
+	// ran and honestly said unsupported" from a registry mismatch (see
+	// testRegistryMismatchIsDetected below) — both populate `validator`.
+	assert.ok( /rule engine has not been ported/.test( result.reason ), 'reason indicates the routed function ran (rule engine pending), not a registry mismatch' );
 	check( 'no errors are fabricated', result.errors, [] );
 	check( 'no warnings are fabricated', result.warnings, [] );
 	console.log( 'PASS: no false pass/fail possible before the real rule engine is ported' );
+}
+
+// Regression guard for the exact bug class already found once while fixing
+// this: if VALIDATORS' key ever drifts from ROUTES.id again (e.g. someone
+// hand-edits one but not the other), routing still succeeds but the
+// function lookup fails. That must surface as a clearly labeled "registry
+// mismatch" reason, not silently collapse into the same message as "rule
+// engine pending" or "not routed". Exercised by loading a deliberately
+// corrupted copy of the module (VALIDATORS keyed wrong) under its own
+// global, independent of the real (correct) CitexValidator loaded above.
+async function testRegistryMismatchIsDetected() {
+	const corruptedSource = validatorSource.replace(
+		"VALIDATORS[ ROUTES.id ] = validateHarvardBookDragdrop;",
+		"VALIDATORS[ 'deliberately-wrong-key-for-test' ] = validateHarvardBookDragdrop;"
+	);
+	assert.notStrictEqual( corruptedSource, validatorSource, 'the corruption string actually matched something to replace' );
+
+	global.window = {};
+	// eslint-disable-next-line no-eval
+	eval( corruptedSource );
+	const CorruptedValidator = global.window.CitexValidator;
+	global.window = { CitexValidator: CitexValidator }; // restore for any later use
+
+	const question = { source: 'Harvard', group: 'ReferenceList', category: 'Book', type: 'DragDrop', questionId: 'BK01' };
+	const result = await CorruptedValidator.runValidatorFor( question );
+
+	check( 'a registry mismatch still reports status unsupported (never a false pass/fail)', result.status, 'unsupported' );
+	check( 'a registry mismatch still records which id was routed to', result.validator, 'harvard-reference-list-book-dragdrop' );
+	assert.ok( /registry mismatch/.test( result.reason ), 'reason explicitly names it a registry mismatch: "' + result.reason + '"' );
+	console.log( 'PASS: registry mismatch is detected and labeled distinctly: "' + result.reason + '"' );
 }
 
 async function main() {
 	testExactReportedCase();
 	await testUnsupportedRouting();
 	await testNoFalseResultsYet();
+	await testRegistryMismatchIsDetected();
 	console.log( '\nAll implemented Phase 3 validator tests passed.' );
 }
 
