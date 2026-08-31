@@ -131,10 +131,22 @@ class Citex_Admin {
 			true
 		);
 
+		// Live-site adapter: the real WordPress data revealed a second Fixed
+		// Text pipe encoding where consecutive delimiters create empty
+		// segments that are the actual DragDrop slots. This adapter extends the
+		// v0.5 validator without disturbing routing or field extraction.
+		wp_enqueue_script(
+			'citex-validator-site-adapter',
+			CITEX_TOOLS_URL . 'admin/js/citex-validator-site-adapter.js',
+			array( 'citex-validator' ),
+			self::asset_version( 'admin/js/citex-validator-site-adapter.js' ),
+			true
+		);
+
 		wp_enqueue_script(
 			'citex-admin',
 			CITEX_TOOLS_URL . 'admin/js/citex-admin.js',
-			array( 'citex-scanner', 'citex-validator' ),
+			array( 'citex-scanner', 'citex-validator-site-adapter' ),
 			self::asset_version( 'admin/js/citex-admin.js' ),
 			true
 		);
