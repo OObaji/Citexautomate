@@ -3,7 +3,7 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — question generation, validation, population and the question bank overview.
- * Version:     0.5.2
+ * Version:     0.5.3
  * Author:      Citex
  * Text Domain: citex-tools
  *
@@ -25,8 +25,12 @@
  * v0.5.2 uses the confirmed Citex DragDrop placeholder grammar:
  * a single `|` represents one draggable placeholder only at the beginning
  * or end of Fixed Text, while `||` represents one draggable placeholder in
- * any internal position. This replaces the earlier inference based only on
- * raw pipe/empty-segment counts and matches the live BK02 structure.
+ * any internal position.
+ *
+ * v0.5.3 improves live Book diagnostics after BK03 proved that a year can
+ * be present but spaced as `( 2018 )`. Citex now distinguishes a missing
+ * year from incorrect spacing inside the year parentheses and separately
+ * reports a missing space after the Place: Publisher colon.
  *
  * Question generation and WordPress population are still not implemented.
  */
@@ -35,7 +39,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Disallow direct access.
 }
 
-define( 'CITEX_TOOLS_VERSION', '0.5.2' );
+define( 'CITEX_TOOLS_VERSION', '0.5.3' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
