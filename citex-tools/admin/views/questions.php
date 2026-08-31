@@ -1,22 +1,7 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) {
-	exit; // Disallow direct access.
+	exit;
 }
-/**
- * Question Bank view.
- *
- * @var string     $search
- * @var array      $filters
- * @var array      $sources            [{name, count}] from the last scan.
- * @var array      $categories         [{name, count}] from the last scan.
- * @var array      $types              [{name, count}] from the last scan.
- * @var array      $questions          Current page slice of real scanned records.
- * @var int        $total_filtered
- * @var int        $total_pages
- * @var int        $paged
- * @var array|null $scan               Full last-scan report, or null if never scanned.
- * @var string     $question_list_url
- */
 
 $status_labels = array(
 	'passed'        => __( '✓ Passed', 'citex-tools' ),
@@ -34,7 +19,6 @@ $status_labels = array(
 			<?php if ( $scan && ! empty( $scan['scannedAt'] ) ) : ?>
 				<?php
 				printf(
-					/* translators: 1: date/time of the last scan, 2: number of questions indexed. */
 					esc_html__( 'Last scanned: %1$s — %2$s questions indexed.', 'citex-tools' ),
 					esc_html( Citex_Scanner::format_scanned_at( $scan['scannedAt'] ) ),
 					esc_html( number_format_i18n( $scan['total'] ) )
@@ -44,11 +28,7 @@ $status_labels = array(
 				<?php esc_html_e( 'No scan yet. Configure the Question List URL and run a scan from the Dashboard.', 'citex-tools' ); ?>
 			<?php endif; ?>
 		</p>
-		<button
-			type="button"
-			class="button button-primary citex-scan-btn"
-			<?php disabled( empty( $question_list_url ) ); ?>
-		>
+		<button type="button" class="button button-primary citex-scan-btn" <?php disabled( empty( $question_list_url ) ); ?>>
 			<?php echo $scan ? esc_html__( 'Refresh / Scan Again', 'citex-tools' ) : esc_html__( 'Scan Question Bank', 'citex-tools' ); ?>
 		</button>
 		<p class="citex-scan-status" aria-live="polite"></p>
@@ -56,14 +36,7 @@ $status_labels = array(
 
 	<form method="get" class="citex-filter-bar">
 		<input type="hidden" name="page" value="citex-questions" />
-
-		<input
-			type="search"
-			name="citex_search"
-			class="citex-search-input"
-			placeholder="<?php esc_attr_e( 'Search questions...', 'citex-tools' ); ?>"
-			value="<?php echo esc_attr( $search ); ?>"
-		/>
+		<input type="search" name="citex_search" class="citex-search-input" placeholder="<?php esc_attr_e( 'Search questions...', 'citex-tools' ); ?>" value="<?php echo esc_attr( $search ); ?>" />
 
 		<select name="citex_filter_source">
 			<option value="all" <?php selected( $filters['source'], 'all' ); ?>><?php esc_html_e( 'All Sources', 'citex-tools' ); ?></option>
@@ -87,7 +60,7 @@ $status_labels = array(
 		</select>
 
 		<select name="citex_filter_status">
-			<option value="all" <?php selected( $filters['status'], 'all' ); ?>><?php esc_html_e( 'All', 'citex-tools' ); ?></option>
+			<option value="all" <?php selected( $filters['status'], 'all' ); ?>><?php esc_html_e( 'All Validation Statuses', 'citex-tools' ); ?></option>
 			<?php foreach ( $status_labels as $value => $label ) : ?>
 				<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $filters['status'], $value ); ?>><?php echo esc_html( $label ); ?></option>
 			<?php endforeach; ?>
@@ -96,12 +69,42 @@ $status_labels = array(
 		<button type="submit" class="button"><?php esc_html_e( 'Filter', 'citex-tools' ); ?></button>
 	</form>
 
+	<div
+		id="citex-bulk-status-editor"
+		class="citex-scan-panel"
+		data-filtered-post-ids="<?php echo esc_attr( wp_json_encode( $filtered_post_ids ) ); ?>"
+	>
+		<h2><?php esc_html_e( 'Bulk Edit WordPress Status', 'citex-tools' ); ?></h2>
+		<p class="description">
+			<?php
+			printf(
+				esc_html__( 'Apply one WordPress status to the whole filtered result set — %s indexed questions with usable post IDs — even when only 20 are visible on this page.', 'citex-tools' ),
+				esc_html( number_format_i18n( count( $filtered_post_ids ) ) )
+			);
+			?>
+		</p>
+
+		<select id="citex-bulk-scope">
+			<option value="filtered"><?php printf( esc_html__( 'All filtered questions (%s)', 'citex-tools' ), esc_html( number_format_i18n( count( $filtered_post_ids ) ) ) ); ?></option>
+			<option value="selected"><?php esc_html_e( 'Selected on this page', 'citex-tools' ); ?></option>
+		</select>
+
+		<select id="citex-bulk-status">
+			<?php foreach ( $wordpress_statuses as $value => $label ) : ?>
+				<option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option>
+			<?php endforeach; ?>
+		</select>
+
+		<button type="button" id="citex-apply-bulk-status" class="button button-primary" <?php disabled( empty( $filtered_post_ids ) ); ?>>
+			<?php esc_html_e( 'Apply Status', 'citex-tools' ); ?>
+		</button>
+		<p id="citex-bulk-status-progress" aria-live="polite"></p>
+	</div>
+
 	<table class="wp-list-table widefat fixed striped citex-table">
 		<thead>
 			<tr>
-				<td class="manage-column column-cb check-column">
-					<input type="checkbox" id="citex-select-all" />
-				</td>
+				<td class="manage-column column-cb check-column"><input type="checkbox" id="citex-select-all" /></td>
 				<th><?php esc_html_e( 'Question ID', 'citex-tools' ); ?></th>
 				<th><?php esc_html_e( 'Title', 'citex-tools' ); ?></th>
 				<th><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></th>
@@ -113,16 +116,17 @@ $status_labels = array(
 		</thead>
 		<tbody>
 		<?php if ( empty( $questions ) ) : ?>
-			<tr>
-				<td colspan="8">
-					<?php echo $scan ? esc_html__( 'No questions match your search/filters.', 'citex-tools' ) : esc_html__( 'No questions scanned yet.', 'citex-tools' ); ?>
-				</td>
-			</tr>
+			<tr><td colspan="8"><?php echo $scan ? esc_html__( 'No questions match your search/filters.', 'citex-tools' ) : esc_html__( 'No questions scanned yet.', 'citex-tools' ); ?></td></tr>
 		<?php else : ?>
 			<?php foreach ( $questions as $question ) : ?>
 				<tr>
 					<th scope="row" class="check-column">
-						<input type="checkbox" class="citex-row-select" />
+						<input
+							type="checkbox"
+							class="citex-row-select"
+							data-key="<?php echo esc_attr( $question['validationKey'] ); ?>"
+							<?php if ( ! empty( $question['wpPostId'] ) ) : ?>data-post-id="<?php echo esc_attr( absint( $question['wpPostId'] ) ); ?>"<?php endif; ?>
+						/>
 					</th>
 					<td><?php echo esc_html( $question['questionId'] ? $question['questionId'] : '—' ); ?></td>
 					<td><?php echo esc_html( $question['original'] ); ?></td>
@@ -130,22 +134,11 @@ $status_labels = array(
 					<td><?php echo esc_html( $question['category'] ? $question['category'] : '—' ); ?></td>
 					<td><?php echo esc_html( $question['type'] ? $question['type'] : '—' ); ?></td>
 					<td>
-						<span
-							class="citex-badge citex-badge-<?php echo esc_attr( $question['validationStatus'] ); ?>"
-							<?php if ( ! empty( $question['validationResult']['reason'] ) ) : ?>
-								title="<?php echo esc_attr( $question['validationResult']['reason'] ); ?>"
-							<?php elseif ( null === $question['validatorId'] ) : ?>
-								title="<?php esc_attr_e( 'No validator is routed for this Source/Group/Category/Question Type combination.', 'citex-tools' ); ?>"
-							<?php endif; ?>
-						>
+						<span class="citex-badge citex-badge-<?php echo esc_attr( $question['validationStatus'] ); ?>">
 							<?php
 							$status = $question['validationStatus'];
 							if ( 'failed' === $status && ! empty( $question['validationResult']['errors'] ) ) {
-								printf(
-									/* translators: %d: number of errors. */
-									esc_html( _n( '✕ %d Error', '✕ %d Errors', count( $question['validationResult']['errors'] ), 'citex-tools' ) ),
-									(int) count( $question['validationResult']['errors'] )
-								);
+								printf( esc_html( _n( '✕ %d Error', '✕ %d Errors', count( $question['validationResult']['errors'] ), 'citex-tools' ) ), (int) count( $question['validationResult']['errors'] ) );
 							} else {
 								echo esc_html( $status_labels[ $status ] ?? $status );
 							}
@@ -153,18 +146,13 @@ $status_labels = array(
 						</span>
 					</td>
 					<td class="citex-actions">
-						<button type="button" class="button button-small" disabled><?php esc_html_e( 'View', 'citex-tools' ); ?></button>
 						<?php if ( ! empty( $question['editUrl'] ) ) : ?>
-							<a class="button button-small" href="<?php echo esc_url( $question['editUrl'] ); ?>" target="_blank" rel="noopener noreferrer">
-								<?php esc_html_e( 'Edit', 'citex-tools' ); ?>
-							</a>
+							<a class="button button-small" href="<?php echo esc_url( $question['editUrl'] ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Edit', 'citex-tools' ); ?></a>
 						<?php else : ?>
 							<button type="button" class="button button-small" disabled><?php esc_html_e( 'Edit', 'citex-tools' ); ?></button>
 						<?php endif; ?>
 						<?php if ( $question['validatorId'] ) : ?>
-							<button type="button" class="button button-small citex-validate-btn" data-key="<?php echo esc_attr( $question['validationKey'] ); ?>">
-								<?php echo $question['validationResult'] ? esc_html__( 'Revalidate', 'citex-tools' ) : esc_html__( 'Validate', 'citex-tools' ); ?>
-							</button>
+							<button type="button" class="button button-small citex-validate-btn" data-key="<?php echo esc_attr( $question['validationKey'] ); ?>"><?php echo $question['validationResult'] ? esc_html__( 'Revalidate', 'citex-tools' ) : esc_html__( 'Validate', 'citex-tools' ); ?></button>
 						<?php else : ?>
 							<button type="button" class="button button-small" disabled><?php esc_html_e( 'Validate', 'citex-tools' ); ?></button>
 						<?php endif; ?>
@@ -181,20 +169,17 @@ $status_labels = array(
 				<?php
 				$page_url = add_query_arg(
 					array(
-						'citex_search'           => $search,
-						'citex_filter_source'    => $filters['source'],
-						'citex_filter_category'  => $filters['category'],
-						'citex_filter_type'      => $filters['type'],
-						'citex_filter_status'    => $filters['status'],
-						'citex_paged'            => $page_number,
+						'citex_search'          => $search,
+						'citex_filter_source'   => $filters['source'],
+						'citex_filter_category' => $filters['category'],
+						'citex_filter_type'     => $filters['type'],
+						'citex_filter_status'   => $filters['status'],
+						'citex_paged'           => $page_number,
 					),
 					admin_url( 'admin.php?page=citex-questions' )
 				);
 				?>
-				<a
-					href="<?php echo esc_url( $page_url ); ?>"
-					class="citex-page-link<?php echo $page_number === $paged ? ' is-current' : ''; ?>"
-				><?php echo esc_html( $page_number ); ?></a>
+				<a href="<?php echo esc_url( $page_url ); ?>" class="citex-page-link<?php echo $page_number === $paged ? ' is-current' : ''; ?>"><?php echo esc_html( $page_number ); ?></a>
 			<?php endfor; ?>
 		</div>
 	<?php endif; ?>
@@ -202,7 +187,6 @@ $status_labels = array(
 	<p class="description">
 		<?php
 		printf(
-			/* translators: 1: number of questions shown on this page, 2: total matching the current search/filters. */
 			esc_html__( 'Showing %1$s of %2$s questions.', 'citex-tools' ),
 			esc_html( number_format_i18n( count( $questions ) ) ),
 			esc_html( number_format_i18n( $total_filtered ) )
