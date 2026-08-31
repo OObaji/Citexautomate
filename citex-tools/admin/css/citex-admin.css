@@ -1,0 +1,177 @@
+/*
+ * Citex Tools — admin styling.
+ * Loaded only on Citex admin screens (see Citex_Admin::enqueue_assets).
+ * Deliberately small and framework-free; relies on native WP admin
+ * classes (.wrap, .button, .form-table, .wp-list-table) wherever
+ * possible.
+ */
+
+.citex-wrap {
+	max-width: 1200px;
+}
+
+.citex-page-title {
+	margin-bottom: 16px;
+}
+
+/* Stat cards */
+
+.citex-stat-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+	gap: 16px;
+	margin: 20px 0;
+}
+
+.citex-stat-cards-compact {
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	margin: 16px 0;
+}
+
+.citex-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	padding: 16px 18px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.citex-card-label {
+	font-size: 13px;
+	color: #646970;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+}
+
+.citex-card-value {
+	font-size: 28px;
+	font-weight: 600;
+	color: #1d2327;
+	line-height: 1.2;
+}
+
+/* Quick actions */
+
+.citex-quick-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-bottom: 28px;
+}
+
+/* Tables */
+
+.citex-table {
+	margin-top: 8px;
+}
+
+/* Forms */
+
+.citex-form .form-table th {
+	width: 220px;
+}
+
+.citex-inline-form {
+	margin: 16px 0;
+	display: flex;
+	gap: 10px;
+}
+
+/* Filter bar */
+
+.citex-filter-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 16px 0;
+	padding: 12px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+}
+
+.citex-search-input {
+	min-width: 220px;
+	flex: 1 1 220px;
+}
+
+/* Status badges */
+
+.citex-badge {
+	display: inline-block;
+	padding: 2px 10px;
+	border-radius: 12px;
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1.8;
+	text-transform: capitalize;
+}
+
+.citex-badge-valid {
+	background: #edfaef;
+	color: #1a7f37;
+}
+
+.citex-badge-error {
+	background: #fcedee;
+	color: #a4222f;
+}
+
+.citex-badge-not_validated {
+	background: #f0f0f1;
+	color: #50575e;
+}
+
+.citex-badge-pending {
+	background: #fef8ee;
+	color: #9a6700;
+}
+
+/* Actions column */
+
+.citex-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+/* Validation results */
+
+.citex-validation-results {
+	margin-top: 12px;
+}
+
+.citex-result-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-left: 4px solid #a4222f;
+	border-radius: 4px;
+	padding: 14px 16px;
+	max-width: 480px;
+}
+
+.citex-result-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+.citex-result-errors {
+	margin: 0 0 12px 18px;
+	list-style: disc;
+}
+
+@media screen and (max-width: 782px) {
+	.citex-card-value {
+		font-size: 22px;
+	}
+
+	.citex-filter-bar {
+		flex-direction: column;
+		align-items: stretch;
+	}
+}
