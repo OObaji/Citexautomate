@@ -1,129 +1,154 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) {
-	exit; // Disallow direct access.
+	exit;
 }
 
 /**
  * Citex question generator.
  *
- * Generator v1 is intentionally narrow and deterministic: it creates
- * Liverpool Hope Harvard / ReferenceList / Book / DragDrop questions as
- * PENDING Citex records. It does not publish or modify WordPress questions.
- *
- * Generated records are structured around the live Citex DragDrop format:
- *   Fixed Text:     |, || (||) ||. Oxford: Oxford University Press.
- *   Question Parts: Lopez / M. / 2019 / Global Health
- *
- * Population into the real WordPress question post/ACF fields remains a
- * separate phase handled by Citex_Populator later.
+ * Generator v1 creates Liverpool Hope Harvard / ReferenceList / Book /
+ * DragDrop questions as pending Citex records. v0.9 adds an independent
+ * validation gate: generated records must pass Citex_Generated_Validator
+ * before the Populator is allowed to create real Reference List posts.
  */
 class Citex_Generator {
 
 	const NONCE_ACTION   = 'citex_generate_questions';
 	const OPTION_PENDING = 'citex_pending_questions';
 
-	/**
-	 * Render the generator page.
-	 */
 	public function render() {
 		$this->maybe_handle_submit();
 
-		$referencing_styles = array(
-			'harvard' => 'Harvard',
-		);
-
-		$institutions = array(
-			'liverpool_hope' => 'Liverpool Hope University',
-		);
-
-		// Generator v1 deliberately supports only the format we now understand
-		// end-to-end. Additional generators can be added without changing the
-		// pending-question storage contract below.
-		$categories = array(
-			'book' => 'Book',
-		);
-
-		$question_types = array(
-			'dragdrop' => 'DragDrop',
-		);
-
-		$difficulties = array(
+		$referencing_styles = array( 'harvard' => 'Harvard' );
+		$institutions       = array( 'liverpool_hope' => 'Liverpool Hope University' );
+		$categories         = array( 'book' => 'Book' );
+		$question_types     = array( 'dragdrop' => 'DragDrop' );
+		$difficulties       = array(
 			'easy'   => 'Easy',
 			'medium' => 'Medium',
 			'hard'   => 'Hard',
 		);
 
 		$pending_questions = self::get_pending_questions();
-
 		require CITEX_TOOLS_PATH . 'admin/views/generate.php';
 	}
 
-	/**
-	 * Return all generated-but-not-populated questions.
-	 *
-	 * @return array[]
-	 */
 	public static function get_pending_questions() {
 		$pending = get_option( self::OPTION_PENDING, array() );
 		return is_array( $pending ) ? array_values( $pending ) : array();
 	}
 
-	/**
-	 * Number of pending generated questions.
-	 *
-	 * @return int
-	 */
+	public static function save_pending_questions( $pending ) {
+		update_option( self::OPTION_PENDING, array_values( is_array( $pending ) ? $pending : array() ), false );
+	}
+
 	public static function get_pending_count() {
 		return count( self::get_pending_questions() );
 	}
 
-	/**
-	 * Handle generate / clear / delete actions.
-	 */
 	private function maybe_handle_submit() {
 		if (
 			empty( $_POST['citex_generate_submit'] ) &&
 			empty( $_POST['citex_clear_pending'] ) &&
-			empty( $_POST['citex_delete_pending'] )
+			empty( $_POST['citex_delete_pending'] ) &&
+			empty( $_POST['citex_validate_pending'] ) &&
+			empty( $_POST['citex_validate_one_pending'] )
 		) {
 			return;
 		}
 
 		check_admin_referer( self::NONCE_ACTION, 'citex_generate_nonce' );
-
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You are not allowed to do this.', 'citex-tools' ) );
 		}
 
 		if ( ! empty( $_POST['citex_clear_pending'] ) ) {
-			update_option( self::OPTION_PENDING, array(), false );
+			self::save_pending_questions( array() );
 			Citex_Admin::set_notice( __( 'All pending generated questions were cleared. No WordPress questions were changed.', 'citex-tools' ), 'success' );
 			$this->redirect_back();
 		}
 
 		if ( ! empty( $_POST['citex_delete_pending'] ) ) {
 			$key     = isset( $_POST['citex_pending_key'] ) ? sanitize_text_field( wp_unslash( $_POST['citex_pending_key'] ) ) : '';
-			$pending = self::get_pending_questions();
 			$pending = array_values(
 				array_filter(
-					$pending,
+					self::get_pending_questions(),
 					function ( $question ) use ( $key ) {
 						return ( $question['key'] ?? '' ) !== $key;
 					}
 				)
 			);
-			update_option( self::OPTION_PENDING, $pending, false );
+			self::save_pending_questions( $pending );
 			Citex_Admin::set_notice( __( 'Pending question removed.', 'citex-tools' ), 'success' );
 			$this->redirect_back();
+		}
+
+		if ( ! empty( $_POST['citex_validate_pending'] ) ) {
+			$this->validate_pending_batch();
+		}
+
+		if ( ! empty( $_POST['citex_validate_one_pending'] ) ) {
+			$key = isset( $_POST['citex_pending_key'] ) ? sanitize_text_field( wp_unslash( $_POST['citex_pending_key'] ) ) : '';
+			$this->validate_one_pending( $key );
 		}
 
 		$this->handle_generation();
 	}
 
-	/**
-	 * Generate one batch of Book/DragDrop questions into the Citex pending
-	 * store. This never creates a WordPress post.
-	 */
+	private function validate_pending_batch() {
+		$pending = self::get_pending_questions();
+		$passed  = 0;
+		$failed  = 0;
+
+		foreach ( $pending as &$question ) {
+			$result = Citex_Generated_Validator::validate( $question );
+			$question['validationStatus'] = $result['status'];
+			$question['validationErrors'] = $result['errors'];
+			$question['validatedAt']      = $result['validatedAt'];
+			if ( ! empty( $result['reconstructedReference'] ) ) {
+				$question['validatedReference'] = $result['reconstructedReference'];
+			}
+			if ( 'passed' === $result['status'] ) {
+				$passed++;
+			} else {
+				$failed++;
+			}
+		}
+		unset( $question );
+
+		self::save_pending_questions( $pending );
+		Citex_Admin::set_notice(
+			sprintf( __( 'Generated-question validation complete. Passed: %1$d. Failed: %2$d. Only passed questions can be populated.', 'citex-tools' ), $passed, $failed ),
+			empty( $failed ) ? 'success' : 'warning'
+		);
+		$this->redirect_back();
+	}
+
+	private function validate_one_pending( $key ) {
+		$pending = self::get_pending_questions();
+		$found   = false;
+
+		foreach ( $pending as &$question ) {
+			if ( ( $question['key'] ?? '' ) !== $key ) {
+				continue;
+			}
+			$result = Citex_Generated_Validator::validate( $question );
+			$question['validationStatus'] = $result['status'];
+			$question['validationErrors'] = $result['errors'];
+			$question['validatedAt']      = $result['validatedAt'];
+			if ( ! empty( $result['reconstructedReference'] ) ) {
+				$question['validatedReference'] = $result['reconstructedReference'];
+			}
+			$found = true;
+			break;
+		}
+		unset( $question );
+
+		self::save_pending_questions( $pending );
+		Citex_Admin::set_notice( $found ? __( 'Generated question revalidated.', 'citex-tools' ) : __( 'Pending question was not found.', 'citex-tools' ), $found ? 'success' : 'error' );
+		$this->redirect_back();
+	}
+
 	private function handle_generation() {
 		$style       = isset( $_POST['citex_referencing_style'] ) ? sanitize_key( wp_unslash( $_POST['citex_referencing_style'] ) ) : '';
 		$institution = isset( $_POST['citex_institution'] ) ? sanitize_key( wp_unslash( $_POST['citex_institution'] ) ) : '';
@@ -134,21 +159,13 @@ class Citex_Generator {
 		$starting_id = isset( $_POST['citex_starting_id'] ) ? strtoupper( sanitize_text_field( wp_unslash( $_POST['citex_starting_id'] ) ) ) : 'BK01';
 
 		$quantity = max( 1, min( 100, $quantity ) );
-
-		if (
-			'harvard' !== $style ||
-			'liverpool_hope' !== $institution ||
-			'book' !== $category ||
-			'dragdrop' !== $type
-		) {
+		if ( 'harvard' !== $style || 'liverpool_hope' !== $institution || 'book' !== $category || 'dragdrop' !== $type ) {
 			Citex_Admin::set_notice( __( 'Generator v1 currently supports only Liverpool Hope Harvard → Book → DragDrop.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
-
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
 			$difficulty = 'medium';
 		}
-
 		if ( ! preg_match( '/^([A-Z]+)(\d+)$/', $starting_id, $matches ) ) {
 			Citex_Admin::set_notice( __( 'Starting ID must look like BK01, BK25, or BOOK001.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
@@ -165,86 +182,46 @@ class Citex_Generator {
 		while ( count( $generated ) < $quantity ) {
 			$question_id = $prefix . str_pad( (string) $next_number, $number_width, '0', STR_PAD_LEFT );
 			$next_number++;
-
 			if ( isset( $used_ids[ $question_id ] ) ) {
 				continue;
 			}
-
 			$question = $this->build_book_dragdrop_question( $question_id, $difficulty, count( $pending ) + count( $generated ) );
 			$generated[]              = $question;
 			$used_ids[ $question_id ] = true;
 		}
 
-		$pending = array_merge( $pending, $generated );
-		update_option( self::OPTION_PENDING, $pending, false );
-
+		self::save_pending_questions( array_merge( $pending, $generated ) );
 		Citex_Admin::set_notice(
-			sprintf(
-				/* translators: %d: generated question count. */
-				_n( '%d pending question generated. Nothing was published to WordPress.', '%d pending questions generated. Nothing was published to WordPress.', count( $generated ), 'citex-tools' ),
-				count( $generated )
-			),
+			sprintf( _n( '%d pending question generated. Validate it before population.', '%d pending questions generated. Validate them before population.', count( $generated ), 'citex-tools' ), count( $generated ) ),
 			'success'
 		);
-
 		$this->redirect_back();
 	}
 
-	/**
-	 * Generate one valid Liverpool Hope Harvard Book DragDrop record.
-	 *
-	 * The source data below is intentionally fictional/synthetic. It gives us
-	 * predictable, copyright-safe training questions without pretending that
-	 * the generated books are real publications.
-	 *
-	 * @param string $question_id Question identifier such as BK01.
-	 * @param string $difficulty  easy|medium|hard.
-	 * @param int    $seed        Batch position used to vary data.
-	 * @return array
-	 */
 	private function build_book_dragdrop_question( $question_id, $difficulty, $seed ) {
 		$authors = array(
-			array( 'surname' => 'Adebayo', 'initials' => 'T.' ),
-			array( 'surname' => 'Bennett', 'initials' => 'R.' ),
-			array( 'surname' => 'Clarke', 'initials' => 'M.' ),
-			array( 'surname' => 'Davies', 'initials' => 'S.' ),
-			array( 'surname' => 'Evans', 'initials' => 'L.' ),
-			array( 'surname' => 'Foster', 'initials' => 'J.' ),
-			array( 'surname' => 'Green', 'initials' => 'P.' ),
-			array( 'surname' => 'Hassan', 'initials' => 'N.' ),
-			array( 'surname' => 'Ibrahim', 'initials' => 'K.' ),
-			array( 'surname' => 'Jones', 'initials' => 'A.' ),
-			array( 'surname' => 'Khan', 'initials' => 'D.' ),
-			array( 'surname' => 'Lewis', 'initials' => 'C.' ),
+			array( 'first' => 'Temi', 'surname' => 'Adebayo', 'initials' => 'T.' ),
+			array( 'first' => 'Rebecca', 'surname' => 'Bennett', 'initials' => 'R.' ),
+			array( 'first' => 'Michael', 'surname' => 'Clarke', 'initials' => 'M.' ),
+			array( 'first' => 'Sophie', 'surname' => 'Davies', 'initials' => 'S.' ),
+			array( 'first' => 'Leah', 'surname' => 'Evans', 'initials' => 'L.' ),
+			array( 'first' => 'James', 'surname' => 'Foster', 'initials' => 'J.' ),
+			array( 'first' => 'Priya', 'surname' => 'Green', 'initials' => 'P.' ),
+			array( 'first' => 'Nadia', 'surname' => 'Hassan', 'initials' => 'N.' ),
+			array( 'first' => 'Kareem', 'surname' => 'Ibrahim', 'initials' => 'K.' ),
+			array( 'first' => 'Amelia', 'surname' => 'Jones', 'initials' => 'A.' ),
+			array( 'first' => 'Daniel', 'surname' => 'Khan', 'initials' => 'D.' ),
+			array( 'first' => 'Chloe', 'surname' => 'Lewis', 'initials' => 'C.' ),
 		);
-
 		$titles = array(
-			'Digital Communities',
-			'Global Health Systems',
-			'Modern Economic Ideas',
-			'Cities and Social Change',
-			'Learning in a Connected World',
-			'Public Policy in Practice',
-			'Culture and Communication',
-			'Foundations of Data Society',
-			'Education and Innovation',
-			'Sustainable Urban Futures',
-			'Media, Identity and Society',
-			'Contemporary Business Strategy',
+			'Digital Communities', 'Global Health Systems', 'Modern Economic Ideas', 'Cities and Social Change',
+			'Learning in a Connected World', 'Public Policy in Practice', 'Culture and Communication',
+			'Foundations of Data Society', 'Education and Innovation', 'Sustainable Urban Futures',
+			'Media, Identity and Society', 'Contemporary Business Strategy',
 		);
-
-		$places = array( 'London', 'Oxford', 'Manchester', 'Bristol', 'Cambridge', 'Liverpool', 'Leeds', 'Edinburgh' );
-		$publishers = array(
-			'Northbridge Academic Press',
-			'Meridian Press',
-			'Oakwell Publishing',
-			'Civic Academic',
-			'Harbour House',
-			'Westfield Press',
-			'Elmstone Academic',
-			'Kingfisher Learning',
-		);
-		$years = array( 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025 );
+		$places     = array( 'London', 'Oxford', 'Manchester', 'Bristol', 'Cambridge', 'Liverpool', 'Leeds', 'Edinburgh' );
+		$publishers = array( 'Northbridge Academic Press', 'Meridian Press', 'Oakwell Publishing', 'Civic Academic', 'Harbour House', 'Westfield Press', 'Elmstone Academic', 'Kingfisher Learning' );
+		$years      = array( 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025 );
 
 		$author    = $authors[ $seed % count( $authors ) ];
 		$title     = $titles[ ( $seed * 5 + 2 ) % count( $titles ) ];
@@ -252,17 +229,10 @@ class Citex_Generator {
 		$publisher = $publishers[ ( $seed * 7 + 3 ) % count( $publishers ) ];
 		$year      = $years[ ( $seed * 2 + 1 ) % count( $years ) ];
 
-		// Four draggable items. Place and publisher remain fixed text, matching
-		// the live BK02 structure that the current validator handles reliably.
-		$question_parts = array(
-			$author['surname'],
-			$author['initials'],
-			(string) $year,
-			$title,
-		);
-
-		$fixed_text = sprintf( '|, || (||) ||. %s: %s.', $place, $publisher );
-		$reference  = sprintf( '%s, %s (%d) %s. %s: %s.', $author['surname'], $author['initials'], $year, $title, $place, $publisher );
+		$question_parts = array( $author['surname'], $author['initials'], (string) $year, $title );
+		$fixed_text     = sprintf( '|, || (||) ||. %s: %s.', $place, $publisher );
+		$reference      = sprintf( '%s, %s (%d) %s. %s: %s.', $author['surname'], $author['initials'], $year, $title, $place, $publisher );
+		$scenario       = sprintf( 'You are creating a reference for a book titled %s, written by %s %s. It was published in %d by %s in %s.', $title, $author['first'], $author['surname'], $year, $publisher, $place );
 
 		$confusing_count = 'easy' === $difficulty ? 2 : ( 'hard' === $difficulty ? 4 : 3 );
 		$confusing_words = $this->build_confusing_words( $year, $place, $title, $titles, $places, $confusing_count, $seed );
@@ -277,19 +247,18 @@ class Citex_Generator {
 			'type'                   => 'DragDrop',
 			'institution'            => 'Liverpool Hope University',
 			'difficulty'             => ucfirst( $difficulty ),
-			'scenario'               => 'Drag the correct items into the gaps to complete the Liverpool Hope Harvard book reference.',
+			'scenario'               => $scenario,
 			'fixedText'              => $fixed_text,
 			'questionParts'          => $question_parts,
 			'confusingWords'         => $confusing_words,
 			'reconstructedReference' => $reference,
+			'validationStatus'       => 'not_validated',
+			'validationErrors'       => array(),
 			'status'                 => 'pending',
 			'generatedAt'            => gmdate( 'c' ),
 		);
 	}
 
-	/**
-	 * Build distractors that do not duplicate any correct draggable value.
-	 */
 	private function build_confusing_words( $year, $place, $title, $titles, $places, $count, $seed ) {
 		$candidates = array(
 			(string) ( $year - 2 ),
@@ -299,10 +268,8 @@ class Citex_Generator {
 			'Routledge',
 			'Pearson',
 		);
-
 		$forbidden = array_map( 'strtolower', array( (string) $year, $place, $title ) );
-		$out       = array();
-
+		$out = array();
 		foreach ( $candidates as $candidate ) {
 			if ( in_array( strtolower( $candidate ), $forbidden, true ) || in_array( $candidate, $out, true ) ) {
 				continue;
@@ -312,24 +279,17 @@ class Citex_Generator {
 				break;
 			}
 		}
-
 		return $out;
 	}
 
-	/**
-	 * Collect IDs already present in the pending store and in the most recent
-	 * scanner index, preventing accidental duplicate IDs before population.
-	 */
 	private function collect_used_question_ids( $pending ) {
 		$used = array();
-
 		foreach ( $pending as $question ) {
 			$id = strtoupper( trim( (string) ( $question['questionId'] ?? '' ) ) );
 			if ( '' !== $id ) {
 				$used[ $id ] = true;
 			}
 		}
-
 		$scan = Citex_Scanner::get_last_scan();
 		foreach ( ( $scan['questions'] ?? array() ) as $question ) {
 			$id = strtoupper( trim( (string) ( $question['questionId'] ?? '' ) ) );
@@ -337,7 +297,6 @@ class Citex_Generator {
 				$used[ $id ] = true;
 			}
 		}
-
 		return $used;
 	}
 
