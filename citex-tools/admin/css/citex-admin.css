@@ -130,6 +130,26 @@
 	color: #9a6700;
 }
 
+.citex-badge-passed {
+	background: #edfaef;
+	color: #1a7f37;
+}
+
+.citex-badge-failed {
+	background: #fcedee;
+	color: #a4222f;
+}
+
+.citex-badge-warning {
+	background: #fef8ee;
+	color: #9a6700;
+}
+
+.citex-badge-unsupported {
+	background: #f0f0f1;
+	color: #50575e;
+}
+
 /* Actions column */
 
 .citex-actions {
@@ -162,7 +182,17 @@
 
 .citex-result-errors {
 	margin: 0 0 12px 18px;
-	list-style: disc;
+	list-style: decimal;
+}
+
+.citex-error-code {
+	color: #646970;
+	font-size: 12px;
+}
+
+.citex-detail-row td {
+	background: #f6f7f7;
+	padding: 12px 16px;
 }
 
 /* Scan panel (Dashboard + Questions) */

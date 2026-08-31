@@ -8,9 +8,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Renders search/filter controls and the question-records table, sourced
  * from the most recent Citex_Scanner scan of the real WordPress question
- * records (see includes/class-citex-scanner.php). Read-only: filtering
- * and pagination operate on the cached scan array only, nothing here
- * reads or writes question posts directly.
+ * records (see includes/class-citex-scanner.php), joined with each
+ * question's current validation status/result from Citex_Validator (see
+ * includes/class-citex-validator.php). Read-only: filtering and
+ * pagination operate on the cached scan + stored validation results only
+ * — nothing here reads or writes question posts directly.
  */
 class Citex_Questions {
 
@@ -29,7 +31,7 @@ class Citex_Questions {
 			'status'   => isset( $_GET['citex_filter_status'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_filter_status'] ) ) : 'all',
 		);
 
-		$all_questions = $scan['questions'] ?? array();
+		$all_questions = self::attach_validation( $scan['questions'] ?? array() );
 
 		$sources    = $scan['breakdowns']['sources'] ?? array();
 		$categories = $scan['breakdowns']['categories'] ?? array();
@@ -49,12 +51,36 @@ class Citex_Questions {
 	}
 
 	/**
-	 * Filters the cached scan records by search text and the four filter
-	 * dropdowns. Every scanned record currently has validation status
-	 * 'not_validated' (no validation engine yet), so any 'valid'/'error'
-	 * status filter simply yields no matches.
+	 * Joins each scanned question with its current validation status,
+	 * result, and routed validator id (Citex_Validator::effective_status()
+	 * — 'unsupported' when nothing is routed, 'not_validated' when routed
+	 * but never run, otherwise the stored result's own status).
 	 *
 	 * @param array[] $questions Cached scan records.
+	 * @return array[] Same records, each with 'validationStatus', 'validationResult', 'validatorId' added.
+	 */
+	private static function attach_validation( $questions ) {
+		$results = Citex_Validator::get_results();
+
+		foreach ( $questions as &$question ) {
+			$key                          = Citex_Validator::result_key( $question );
+			$validator_id                 = Citex_Validator::resolve_validator_id( $question );
+			$stored                       = $results[ $key ] ?? null;
+			$question['validatorId']      = $validator_id;
+			$question['validationResult'] = $stored;
+			$question['validationStatus'] = Citex_Validator::effective_status( $validator_id, $stored );
+			$question['validationKey']    = $key;
+		}
+		unset( $question );
+
+		return $questions;
+	}
+
+	/**
+	 * Filters the joined scan+validation records by search text and the
+	 * four filter dropdowns.
+	 *
+	 * @param array[] $questions Records from attach_validation().
 	 * @param string  $search    Free-text search (matched against the title and question ID).
 	 * @param array   $filters   source/category/type/status filter values ('all' = no filter).
 	 * @return array[] Filtered records.
@@ -85,7 +111,7 @@ class Citex_Questions {
 						return false;
 					}
 
-					if ( 'all' !== $filters['status'] && 'not_validated' !== $filters['status'] ) {
+					if ( 'all' !== $filters['status'] && $question['validationStatus'] !== $filters['status'] ) {
 						return false;
 					}
 

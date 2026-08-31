@@ -124,9 +124,17 @@ class Citex_Admin {
 		);
 
 		wp_enqueue_script(
+			'citex-validator',
+			CITEX_TOOLS_URL . 'admin/js/citex-validator.js',
+			array(),
+			self::asset_version( 'admin/js/citex-validator.js' ),
+			true
+		);
+
+		wp_enqueue_script(
 			'citex-admin',
 			CITEX_TOOLS_URL . 'admin/js/citex-admin.js',
-			array( 'citex-scanner' ),
+			array( 'citex-scanner', 'citex-validator' ),
 			self::asset_version( 'admin/js/citex-admin.js' ),
 			true
 		);
@@ -148,6 +156,17 @@ class Citex_Admin {
 					'scanningPage'   => __( 'Scanning page {page} of {total}...', 'citex-tools' ),
 					'scanComplete'   => __( 'Scan complete — {total} questions found.', 'citex-tools' ),
 					'scanFailed'     => __( 'Scan failed:', 'citex-tools' ),
+				),
+				'validator'          => array(
+					'nonce'            => wp_create_nonce( Citex_Validator::NONCE_ACTION ),
+					'saveResultAction' => Citex_Validator::AJAX_SAVE_RESULT,
+					'questions'        => Citex_Validator::build_client_queue(),
+					'strings'          => array(
+						'validating'       => __( 'Validating {index} of {total}... {questionId}', 'citex-tools' ),
+						'validateComplete' => __( 'Validation complete. Passed: {passed}  Failed: {failed}  Warnings: {warnings}  Unsupported: {unsupported}', 'citex-tools' ),
+						'validateFailed'   => __( 'Validation failed:', 'citex-tools' ),
+						'noSelection'      => __( 'Select at least one question to validate.', 'citex-tools' ),
+					),
 				),
 			)
 		);

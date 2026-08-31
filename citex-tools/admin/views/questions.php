@@ -17,6 +17,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @var array|null $scan               Full last-scan report, or null if never scanned.
  * @var string     $question_list_url
  */
+
+$status_labels = array(
+	'passed'        => __( '✓ Passed', 'citex-tools' ),
+	'failed'        => __( '✕ Failed', 'citex-tools' ),
+	'warning'       => __( '⚠ Warning', 'citex-tools' ),
+	'not_validated' => __( '— Not Validated', 'citex-tools' ),
+	'unsupported'   => __( '○ Unsupported', 'citex-tools' ),
+);
 ?>
 <div class="wrap citex-wrap">
 	<h1 class="citex-page-title"><?php esc_html_e( 'Question Bank', 'citex-tools' ); ?></h1>
@@ -80,9 +88,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 		<select name="citex_filter_status">
 			<option value="all" <?php selected( $filters['status'], 'all' ); ?>><?php esc_html_e( 'All', 'citex-tools' ); ?></option>
-			<option value="valid" <?php selected( $filters['status'], 'valid' ); ?>><?php esc_html_e( 'Valid', 'citex-tools' ); ?></option>
-			<option value="error" <?php selected( $filters['status'], 'error' ); ?>><?php esc_html_e( 'Error', 'citex-tools' ); ?></option>
-			<option value="not_validated" <?php selected( $filters['status'], 'not_validated' ); ?>><?php esc_html_e( 'Not Validated', 'citex-tools' ); ?></option>
+			<?php foreach ( $status_labels as $value => $label ) : ?>
+				<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $filters['status'], $value ); ?>><?php echo esc_html( $label ); ?></option>
+			<?php endforeach; ?>
 		</select>
 
 		<button type="submit" class="button"><?php esc_html_e( 'Filter', 'citex-tools' ); ?></button>
@@ -122,7 +130,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 					<td><?php echo esc_html( $question['category'] ? $question['category'] : '—' ); ?></td>
 					<td><?php echo esc_html( $question['type'] ? $question['type'] : '—' ); ?></td>
 					<td>
-						<span class="citex-badge citex-badge-not_validated"><?php esc_html_e( 'Not Validated', 'citex-tools' ); ?></span>
+						<span class="citex-badge citex-badge-<?php echo esc_attr( $question['validationStatus'] ); ?>">
+							<?php
+							$status = $question['validationStatus'];
+							if ( 'failed' === $status && ! empty( $question['validationResult']['errors'] ) ) {
+								printf(
+									/* translators: %d: number of errors. */
+									esc_html( _n( '✕ %d Error', '✕ %d Errors', count( $question['validationResult']['errors'] ), 'citex-tools' ) ),
+									(int) count( $question['validationResult']['errors'] )
+								);
+							} else {
+								echo esc_html( $status_labels[ $status ] ?? $status );
+							}
+							?>
+						</span>
 					</td>
 					<td class="citex-actions">
 						<button type="button" class="button button-small" disabled><?php esc_html_e( 'View', 'citex-tools' ); ?></button>
@@ -133,7 +154,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 						<?php else : ?>
 							<button type="button" class="button button-small" disabled><?php esc_html_e( 'Edit', 'citex-tools' ); ?></button>
 						<?php endif; ?>
-						<button type="button" class="button button-small" disabled><?php esc_html_e( 'Validate', 'citex-tools' ); ?></button>
+						<?php if ( $question['validatorId'] ) : ?>
+							<button type="button" class="button button-small citex-validate-btn" data-key="<?php echo esc_attr( $question['validationKey'] ); ?>">
+								<?php echo $question['validationResult'] ? esc_html__( 'Revalidate', 'citex-tools' ) : esc_html__( 'Validate', 'citex-tools' ); ?>
+							</button>
+						<?php else : ?>
+							<button type="button" class="button button-small" disabled><?php esc_html_e( 'Validate', 'citex-tools' ); ?></button>
+						<?php endif; ?>
 					</td>
 				</tr>
 			<?php endforeach; ?>

@@ -6,13 +6,23 @@ referencing questions.
 **Phase 1** shipped a clean, working admin interface and plugin
 architecture with placeholder data throughout.
 
-**Phase 2** (this update) connects the Dashboard and Questions page to
-the **real** WordPress question records, read-only, via a browser-side
-scanner that reuses the already-proven title-parsing logic supplied for
-this phase. Question generation, validation, and WordPress population
-are still not implemented — those remain future modules that plug into
-the hooks already left in place (see
-[Architecture notes](#architecture-notes) below).
+**Phase 2** connects the Dashboard and Questions page to the **real**
+WordPress question records, read-only, via a browser-side scanner that
+reuses the already-proven title-parsing logic supplied for that phase.
+
+**Phase 3** (this update) adds read-only validation on top of the
+Phase 2 index: each indexed question is routed to a validator id (or
+left `unsupported`), results persist across refresh, and the
+Dashboard/Questions page reflect them honestly. **The one routed
+combination (Harvard / ReferenceList / Book / DragDrop) currently
+always reports `unsupported`** — its rule engine could not be ported
+because the existing QA Checker prototype's source (ACF field
+selectors, expected reference format, exact rules) was never supplied
+to this implementation; see
+[Phase 3: known limitation](#phase-3-known-limitation) below. Question
+generation and WordPress population are still not implemented — those
+remain future modules that plug into the hooks already left in place
+(see [Architecture notes](#architecture-notes) below).
 
 ## 1. Plugin file structure
 
@@ -24,28 +34,39 @@ citex-tools/
 ├── includes/
 │   ├── class-citex-admin.php        Menu registration, asset loading, shared notices
 │   ├── class-citex-scanner.php      Question-list URL + last-scan storage, scan AJAX endpoints
-│   ├── class-citex-dashboard.php    Dashboard page controller (real totals from the last scan)
+│   ├── class-citex-dashboard.php    Dashboard page controller (real totals + validation summary)
 │   ├── class-citex-generator.php    Generate Questions page controller
-│   ├── class-citex-questions.php    Question Bank page controller (real records, search/filter/paginate)
-│   ├── class-citex-validator.php    Validation page controller (+ demo data)
-│   └── class-citex-populator.php    Populate page controller
+│   ├── class-citex-questions.php    Question Bank page controller (real records + validation status)
+│   ├── class-citex-validator.php    Validation routing/persistence/AJAX (see Phase 3 below)
+│   ├── class-citex-populator.php    Populate page controller
+│   └── validators/
+│       └── class-citex-harvard-book-dragdrop-validator.php   Routing + FIELD_MAP registration (rule engine pending — see Phase 3)
 │
 ├── admin/
 │   ├── views/
 │   │   ├── dashboard.php            Dashboard markup
 │   │   ├── generate.php             Generate Questions form markup
 │   │   ├── questions.php            Question Bank search/filter/table markup
-│   │   ├── validation.php           Validation summary/results markup
+│   │   ├── validation.php           Validation summary/results/expandable-errors markup
 │   │   └── populate.php             Populate form markup
 │   │
 │   ├── css/
-│   │   └── citex-admin.css          Small custom stylesheet (cards, badges, table, scan panel)
+│   │   └── citex-admin.css          Small custom stylesheet (cards, badges, table, scan/validate panels)
 │   │
 │   └── js/
 │       ├── citex-scanner.js         Reusable scanner module (fetch/parse/report; no WP writes)
-│       └── citex-admin.js           UI wiring: select-all, scan buttons, settings form
+│       ├── citex-validator.js       Reusable validator module (route/fetch/validate/save; no WP writes)
+│       └── citex-admin.js           UI wiring: select-all, scan buttons, settings form, validate buttons
 │
 └── README.md
+```
+
+Repo-level (not shipped in citex-tools.zip):
+
+```text
+tests/
+├── scanner-parse-title.test.js      Phase 2 title-parsing tests (node tests/scanner-parse-title.test.js)
+└── validator-behavior.test.js       Phase 3 validator tests (node tests/validator-behavior.test.js)
 ```
 
 ## 2. What each main file does
@@ -247,6 +268,43 @@ connected yet — no WordPress writes, no external service calls.
 | — | Read-only — no existing question record modified | ✅ (scanner only issues GET requests) |
 | — | Refresh / Scan Again | ✅ (same button relabels once a scan exists) |
 
+## Phase 3: known limitation
+
+**The Harvard / ReferenceList / Book / DragDrop validator's rule engine
+is not implemented.** Everything around it is: routing (this exact
+combination, and only this combination, resolves to a validator id —
+everything else is `unsupported`, per the brief's explicit "do not
+produce false results" requirement), the fetch-the-edit-screen
+pipeline, AJAX persistence with a server-side integrity check (the
+declared validator id is recomputed from the current index, not
+trusted from the client), revalidation, bulk validation with progress,
+the Dashboard/Questions/Validation page integrations, and security
+(nonces, capability checks, sanitization, read-only fetches only) — all
+of that is real and tested (see [Test results](#test-results) below,
+and the full report in the conversation this was built in).
+
+What's missing is the actual rule content: the Phase 3 brief requires
+reusing an existing "Citex Harvard QA Checker" prototype's ACF field
+selectors, its expected Liverpool Hope Harvard Book reference
+reconstruction, its exact checks (year trailing full stop, missing
+final full stop, book-format mismatch, scenario/question-parts/
+distractor checks), and its DragDrop fixed-text-vs-draggable-part fix
+— and explicitly forbids inventing any of that. That prototype's
+source was not included with the brief, and a full search of this
+repository and its git history found no trace of it (Phase 1–2 were
+built from scratch in this project). `admin/js/citex-validator.js`'s
+`validateHarvardBookDragdrop()` and
+`includes/validators/class-citex-harvard-book-dragdrop-validator.php`'s
+`FIELD_MAP` are the two places, clearly marked, where that logic goes
+once supplied — every other file is already wired to use it as soon as
+it's implemented, with no further changes needed elsewhere.
+
+Until then, this validator honestly reports every question as
+`unsupported` (never a fabricated pass or fail) — which is exactly the
+behavior the brief requires for a format with "no implemented
+validator," applied here to the one combination that's routed but not
+yet built out.
+
 ## Architecture notes
 
 Each future integration point is isolated behind a single method so the
@@ -259,12 +317,39 @@ Record counting (the third prototype) is now connected:
   `$status` array in `Citex_Populator::render()` is the one remaining
   placeholder (population readiness isn't computable until the
   population module exists).
-- **Validation** → `Citex_Validator::maybe_handle_actions()` (replace
-  the notice with a real scan) and the `$summary` / demo result
-  arrays in `Citex_Validator::render()`. Once connected, each
-  question's real validation status can replace the hard-coded
-  "Not Validated" badge in `admin/views/questions.php`.
+- **Validation** → routing, persistence, AJAX, and all four page
+  integrations (Dashboard/Questions/Validation, bulk validate) are
+  done. The one remaining seam is the Harvard/ReferenceList/Book/
+  DragDrop rule engine itself: `admin/js/citex-validator.js`'s
+  `validateHarvardBookDragdrop()` and the `FIELD_MAP` in
+  `includes/validators/class-citex-harvard-book-dragdrop-validator.php`
+  — see [Phase 3: known limitation](#phase-3-known-limitation). Once
+  those are filled in, every other supported combination (Book MCQ,
+  EditedBook DragDrop/MCQ, Website, Journal, JournalArticle, ...) is
+  added the same way: a new `includes/validators/class-citex-*.php`
+  registering its `ROUTES`, a case in
+  `Citex_Validator::resolve_validator_id()`, and an entry in
+  `citex-validator.js`'s `VALIDATORS` map — no other file changes.
 - **Question generation** → `Citex_Generator::maybe_handle_submit()`.
 - **WordPress population** → `Citex_Populator::maybe_handle_submit()`.
 - **Question storage** → done. `Citex_Questions::render()` now reads
   `Citex_Scanner::get_last_scan()['questions']` instead of demo data.
+
+## Test results
+
+Run with plain `node` from the repo root, no dependencies:
+
+```
+node tests/scanner-parse-title.test.js    # 15/15 assertions pass
+node tests/validator-behavior.test.js     # 9/9 assertions pass
+```
+
+PHP-side (routing, persistence, revalidation-replaces-previous-result,
+the server-side integrity check that forces an unsupported record's
+status even if a client payload claims otherwise, and full-page
+rendering with zero fatals/warnings/notices across empty-state, mixed
+supported/unsupported, and multi-status scans) was verified with a
+stubbed-WordPress harness during development — 18/18 assertions pass.
+That harness isn't part of the repo (it stubs ~30 core WP functions
+purely to exercise the plugin outside a real install) but the same
+checks apply directly to a live WordPress site.

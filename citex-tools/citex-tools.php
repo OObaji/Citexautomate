@@ -11,10 +11,15 @@
  * Phase 2 connects the Dashboard and Questions page to the real
  * WordPress question records via a read-only browser-side scanner (see
  * includes/class-citex-scanner.php and admin/js/citex-scanner.js).
- * Question generation, validation and WordPress population are still
- * not implemented — see the remaining includes/class-citex-*.php
- * modules those features will be plugged into later without rewriting
- * the plugin.
+ * Phase 3 adds read-only validation (see includes/class-citex-validator.php
+ * and admin/js/citex-validator.js): each indexed question is routed to a
+ * validator id or left unsupported, results persist across refresh, and
+ * the Dashboard/Questions page reflect them. The Harvard/ReferenceList/
+ * Book/DragDrop rule engine itself is routed but not yet implemented —
+ * see includes/validators/class-citex-harvard-book-dragdrop-validator.php.
+ * Question generation and WordPress population are still not implemented
+ * — see the remaining includes/class-citex-*.php modules those features
+ * will be plugged into later without rewriting the plugin.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -27,10 +32,11 @@ define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
 
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-scanner.php';
+require_once CITEX_TOOLS_PATH . 'includes/validators/class-citex-harvard-book-dragdrop-validator.php';
+require_once CITEX_TOOLS_PATH . 'includes/class-citex-validator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-dashboard.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-generator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-questions.php';
-require_once CITEX_TOOLS_PATH . 'includes/class-citex-validator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-populator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-admin.php';
 
