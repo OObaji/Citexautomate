@@ -24,6 +24,10 @@ $wp_status_labels = array(
 <div class="wrap citex-wrap">
 	<h1 class="citex-page-title"><?php esc_html_e( 'Question Bank', 'citex-tools' ); ?></h1>
 
+	<?php if ( $sync_notice ) : ?>
+		<div class="notice notice-<?php echo esc_attr( $sync_notice['type'] ); ?> inline"><p><?php echo esc_html( $sync_notice['message'] ); ?></p></div>
+	<?php endif; ?>
+
 	<div class="citex-scan-panel">
 		<p class="citex-scan-meta">
 			<?php if ( $scan && ! empty( $scan['scannedAt'] ) ) : ?>
@@ -35,7 +39,7 @@ $wp_status_labels = array(
 				);
 				?>
 			<?php else : ?>
-				<?php esc_html_e( 'No scan yet. Configure the Reference List URL and run a scan from the Dashboard.', 'citex-tools' ); ?>
+				<?php esc_html_e( 'No sync yet. Configure the Reference List URL on the Dashboard first.', 'citex-tools' ); ?>
 			<?php endif; ?>
 		</p>
 
@@ -49,10 +53,14 @@ $wp_status_labels = array(
 			</div>
 		<?php endif; ?>
 
-		<button type="button" class="button button-primary citex-scan-btn" <?php disabled( empty( $question_list_url ) ); ?>>
-			<?php echo $scan ? esc_html__( 'Refresh / Sync Reference List', 'citex-tools' ) : esc_html__( 'Sync Reference List', 'citex-tools' ); ?>
-		</button>
-		<p class="citex-scan-status" aria-live="polite"></p>
+		<form method="post" action="">
+			<?php wp_nonce_field( Citex_Questions::SYNC_NONCE_ACTION, 'citex_sync_nonce' ); ?>
+			<input type="hidden" name="citex_sync_reference_list" value="1" />
+			<button type="submit" class="button button-primary" <?php disabled( empty( $question_list_url ) ); ?>>
+				<?php echo $scan ? esc_html__( 'Refresh / Sync Reference List', 'citex-tools' ) : esc_html__( 'Sync Reference List', 'citex-tools' ); ?>
+			</button>
+		</form>
+		<p class="description" style="margin-top:8px;"><?php esc_html_e( 'This refresh now reads the Reference List directly from WordPress; it does not depend on browser JavaScript.', 'citex-tools' ); ?></p>
 	</div>
 
 	<form method="get" class="citex-filter-bar">
@@ -103,7 +111,7 @@ $wp_status_labels = array(
 		<p class="description">
 			<?php
 			printf(
-				esc_html__( 'Change the same Published/Draft status shown on the real Reference List for all %s matching records. Citex uses WordPress’s own Quick Edit save mechanism and then re-syncs the Reference List.', 'citex-tools' ),
+				esc_html__( 'Change the same Published/Draft status shown on the real Reference List for all %s matching records.', 'citex-tools' ),
 				esc_html( number_format_i18n( count( $filtered_post_ids ) ) )
 			);
 			?>
@@ -140,7 +148,7 @@ $wp_status_labels = array(
 		</thead>
 		<tbody>
 		<?php if ( empty( $questions ) ) : ?>
-			<tr><td colspan="9"><?php echo $scan ? esc_html__( 'No questions match your search/filters.', 'citex-tools' ) : esc_html__( 'No questions scanned yet.', 'citex-tools' ); ?></td></tr>
+			<tr><td colspan="9"><?php echo $scan ? esc_html__( 'No questions match your search/filters.', 'citex-tools' ) : esc_html__( 'No questions synced yet.', 'citex-tools' ); ?></td></tr>
 		<?php else : ?>
 			<?php foreach ( $questions as $question ) : ?>
 				<tr>
