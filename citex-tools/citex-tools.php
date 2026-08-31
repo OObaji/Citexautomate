@@ -3,7 +3,7 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — question generation, validation, population and the question bank overview.
- * Version:     0.5.3
+ * Version:     0.5.4
  * Author:      Citex
  * Text Domain: citex-tools
  *
@@ -32,6 +32,10 @@
  * year from incorrect spacing inside the year parentheses and separately
  * reports a missing space after the Place: Publisher colon.
  *
+ * v0.5.4 adds a dedicated SPACE_BEFORE_PUNCTUATION check after the live
+ * BK02 reconstruction exposed spaces before punctuation (for example
+ * `Lopez ,` and `Global Health .`).
+ *
  * Question generation and WordPress population are still not implemented.
  */
 
@@ -39,7 +43,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Disallow direct access.
 }
 
-define( 'CITEX_TOOLS_VERSION', '0.5.3' );
+define( 'CITEX_TOOLS_VERSION', '0.5.4' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
