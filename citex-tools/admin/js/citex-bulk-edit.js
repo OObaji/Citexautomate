@@ -1,9 +1,11 @@
 /**
- * Citex Tools — real Reference List bulk status editor.
+ * Citex Tools — real Reference List bulk editor.
  *
- * Uses WordPress's native Quick Edit `inline-save` endpoint for real status
- * changes. v0.8.1 no longer requires CitexScanner to exist in the browser;
- * after the writes finish it submits the server-side Reference List sync form.
+ * Published/Draft/Pending/Private use WordPress's native Quick Edit
+ * `inline-save` path. "Move to Bin" is different: WordPress trashing has its
+ * own lifecycle/metadata, so Citex sends those batches to its authenticated
+ * server endpoint, which calls wp_trash_post() for each real Reference List
+ * post. After either path completes, Citex runs the server-side sync.
  */
 ( function () {
 	'use strict';
@@ -44,34 +46,46 @@
 
 			var status = statusSelect.value;
 			var label = statusSelect.options[ statusSelect.selectedIndex ].text;
-			var confirmation = citexBulkEdit.strings.confirm
-				.replace( '{count}', ids.length )
-				.replace( '{status}', label );
+			var confirmation;
+
+			if ( 'trash' === status ) {
+				confirmation = 'Move ' + ids.length + ' question(s) to the WordPress Bin? They will be removed from the active Reference List but can still be restored from Bin.';
+			} else {
+				confirmation = citexBulkEdit.strings.confirm
+					.replace( '{count}', ids.length )
+					.replace( '{status}', label );
+			}
+
 			if ( ! window.confirm( confirmation ) ) {
 				return;
 			}
 
 			setDisabled( true );
 			try {
-				setProgress( 'Loading WordPress Quick Edit credentials from the real Reference List…' );
-				var nativeContext = await loadNativeQuickEditContext();
-				var summary = await runNativeUpdates( ids, status, nativeContext );
+				var summary;
+
+				if ( 'trash' === status ) {
+					setProgress( 'Moving real Reference List questions to Bin…' );
+					summary = await runServerBatches( ids, status );
+				} else {
+					setProgress( 'Loading WordPress Quick Edit credentials from the real Reference List…' );
+					var nativeContext = await loadNativeQuickEditContext();
+					summary = await runNativeUpdates( ids, status, nativeContext );
+				}
 
 				if ( summary.failed.length ) {
 					var sample = summary.failed.slice( 0, 3 ).map( function ( item ) {
 						return '#' + item.postId + ': ' + item.reason;
 					} ).join( ' | ' );
 					setProgress(
-						'WordPress updated ' + summary.updated + ' of ' + ids.length +
+						'WordPress changed ' + summary.updated + ' of ' + ids.length +
 						'. Failed: ' + summary.failed.length + '. ' + sample +
 						' Synchronising Citex from WordPress…'
 					);
 				} else {
-					setProgress( 'WordPress updated ' + summary.updated + ' of ' + ids.length + '. Synchronising Citex from WordPress…' );
+					setProgress( 'WordPress changed ' + summary.updated + ' of ' + ids.length + '. Synchronising Citex from WordPress…' );
 				}
 
-				// The sync form is a normal server-side POST, so this refresh does
-				// not depend on the browser scanner at all.
 				window.setTimeout( submitServerSync, 350 );
 			} catch ( error ) {
 				setProgress( citexBulkEdit.strings.failed + ' ' + error.message );
@@ -98,6 +112,50 @@
 				}
 			} );
 			return out;
+		}
+
+		async function runServerBatches( ids, status ) {
+			var batchSize = citexBulkEdit.batchSize || 40;
+			var summary = { updated: 0, skipped: 0, failed: [] };
+
+			for ( var offset = 0; offset < ids.length; offset += batchSize ) {
+				var batch = ids.slice( offset, offset + batchSize );
+				var end = Math.min( offset + batch.length, ids.length );
+				setProgress(
+					'Moving questions ' + ( offset + 1 ) + '–' + end + ' of ' + ids.length + ' to Bin…'
+				);
+
+				var result = await postServerBatch( batch, status );
+				summary.updated += result.updated || 0;
+				summary.skipped += result.skipped || 0;
+				( result.failed || [] ).forEach( function ( failure ) {
+					summary.failed.push( failure );
+				} );
+			}
+
+			return summary;
+		}
+
+		function postServerBatch( ids, status ) {
+			var body = new URLSearchParams();
+			body.set( 'action', citexBulkEdit.action );
+			body.set( 'nonce', citexBulkEdit.nonce );
+			body.set( 'status', status );
+			body.set( 'post_ids', JSON.stringify( ids ) );
+
+			return fetch( citexBulkEdit.ajaxUrl, {
+				method: 'POST',
+				credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+				body: body.toString(),
+			} ).then( function ( response ) {
+				return response.json();
+			} ).then( function ( payload ) {
+				if ( ! payload || ! payload.success ) {
+					throw new Error( ( payload && payload.data && payload.data.message ) || 'WordPress trash request failed.' );
+				}
+				return payload.data;
+			} );
 		}
 
 		async function loadNativeQuickEditContext() {
