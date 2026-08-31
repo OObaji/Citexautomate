@@ -7,8 +7,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<h1 class="citex-page-title"><?php esc_html_e( 'Generate Questions', 'citex-tools' ); ?></h1>
 
 	<p class="description">
-		<?php esc_html_e( 'Generate → validate → populate. Generated questions stay inside Citex until they pass validation; only passed questions can be sent to the real Reference List.', 'citex-tools' ); ?>
+		<?php esc_html_e( 'Generate or import → validate → populate. Every question stays inside Citex until it passes validation; only passed questions can be sent to the real Reference List.', 'citex-tools' ); ?>
 	</p>
+	<p><a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-import' ) ); ?>"><?php esc_html_e( 'Import Questions from CSV / JSON →', 'citex-tools' ); ?></a></p>
 
 	<form method="post" class="citex-form">
 		<?php wp_nonce_field( Citex_Generator::NONCE_ACTION, 'citex_generate_nonce' ); ?>
@@ -26,7 +27,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 	<hr />
 	<div class="citex-section-heading" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-		<h2><?php esc_html_e( 'Generated / Pending Questions', 'citex-tools' ); ?> (<?php echo esc_html( number_format_i18n( count( $pending_questions ) ) ); ?>)</h2>
+		<h2><?php esc_html_e( 'Pending Questions — Generated + Imported', 'citex-tools' ); ?> (<?php echo esc_html( number_format_i18n( count( $pending_questions ) ) ); ?>)</h2>
 		<?php if ( ! empty( $pending_questions ) ) : ?>
 			<form method="post" style="display:inline-block;">
 				<?php wp_nonce_field( Citex_Generator::NONCE_ACTION, 'citex_generate_nonce' ); ?>
@@ -35,17 +36,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-populate' ) ); ?>"><?php esc_html_e( 'Go to Populate →', 'citex-tools' ); ?></a>
 			<form method="post" style="display:inline-block;">
 				<?php wp_nonce_field( Citex_Generator::NONCE_ACTION, 'citex_generate_nonce' ); ?>
-				<button type="submit" name="citex_clear_pending" value="1" class="button" onclick="return confirm('Clear all pending generated questions? This does not delete Reference List questions.');"><?php esc_html_e( 'Clear Pending', 'citex-tools' ); ?></button>
+				<button type="submit" name="citex_clear_pending" value="1" class="button" onclick="return confirm('Clear all pending questions, including imported ones? This does not delete Reference List questions.');"><?php esc_html_e( 'Clear Pending', 'citex-tools' ); ?></button>
 			</form>
 		<?php endif; ?>
 	</div>
 
 	<?php if ( empty( $pending_questions ) ) : ?>
-		<p><?php esc_html_e( 'No pending generated questions yet.', 'citex-tools' ); ?></p>
+		<p><?php esc_html_e( 'No pending generated or imported questions yet.', 'citex-tools' ); ?></p>
 	<?php else : ?>
 		<table class="wp-list-table widefat fixed striped citex-table">
 			<thead><tr>
 				<th style="width:80px;"><?php esc_html_e( 'ID', 'citex-tools' ); ?></th>
+				<th style="width:110px;"><?php esc_html_e( 'Origin', 'citex-tools' ); ?></th>
 				<th><?php esc_html_e( 'Scenario', 'citex-tools' ); ?></th>
 				<th><?php esc_html_e( 'Question Parts', 'citex-tools' ); ?></th>
 				<th><?php esc_html_e( 'Fixed Text', 'citex-tools' ); ?></th>
@@ -56,9 +58,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</tr></thead>
 			<tbody>
 			<?php foreach ( $pending_questions as $question ) : ?>
-				<?php $validation_status = $question['validationStatus'] ?? 'not_validated'; ?>
+				<?php
+				$validation_status = $question['validationStatus'] ?? 'not_validated';
+				$origin = (string) ( $question['origin'] ?? 'generated' );
+				$origin_label = 0 === strpos( $origin, 'imported_' ) ? 'Imported' : 'Generated';
+				?>
 				<tr>
 					<td><strong><?php echo esc_html( $question['questionId'] ?? '—' ); ?></strong><br /><span class="description"><?php echo esc_html( $question['difficulty'] ?? '' ); ?></span></td>
+					<td><strong><?php echo esc_html( $origin_label ); ?></strong><?php if ( ! empty( $question['importSource'] ) ) : ?><br /><span class="description"><?php echo esc_html( $question['importSource'] ); ?></span><?php endif; ?></td>
 					<td><?php echo esc_html( $question['scenario'] ?? '' ); ?></td>
 					<td><?php echo esc_html( implode( ' · ', $question['questionParts'] ?? array() ) ); ?></td>
 					<td><code><?php echo esc_html( $question['fixedText'] ?? '' ); ?></code></td>
