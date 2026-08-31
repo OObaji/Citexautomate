@@ -1,21 +1,16 @@
 /**
  * Citex Tools — real Reference List bulk status editor.
  *
- * v0.8 stops using Citex's own wp_update_post endpoint. Instead it fetches
- * the configured Reference List screen, extracts WordPress's own Quick Edit
- * nonce/screen metadata, and calls the native `inline-save` AJAX action for
- * every selected Reference List post. This is intentionally the same save
- * path WordPress uses when Quick Edit/Bulk Edit works manually.
- *
- * After the writes finish, Citex re-scans and stores the Reference List so
- * the Question Bank immediately mirrors Published/Draft counts and statuses.
+ * Uses WordPress's native Quick Edit `inline-save` endpoint for real status
+ * changes. v0.8.1 no longer requires CitexScanner to exist in the browser;
+ * after the writes finish it submits the server-side Reference List sync form.
  */
 ( function () {
 	'use strict';
 
 	document.addEventListener( 'DOMContentLoaded', function () {
 		var panel = document.getElementById( 'citex-bulk-status-editor' );
-		if ( ! panel || ! window.citexBulkEdit || ! window.citexTools || ! window.CitexScanner ) {
+		if ( ! panel || ! window.citexBulkEdit || ! window.citexTools ) {
 			return;
 		}
 
@@ -69,20 +64,15 @@
 					setProgress(
 						'WordPress updated ' + summary.updated + ' of ' + ids.length +
 						'. Failed: ' + summary.failed.length + '. ' + sample +
-						' Re-syncing Reference List…'
+						' Synchronising Citex from WordPress…'
 					);
 				} else {
-					setProgress( 'WordPress updated ' + summary.updated + ' of ' + ids.length + '. Re-syncing the real Reference List…' );
+					setProgress( 'WordPress updated ' + summary.updated + ' of ' + ids.length + '. Synchronising Citex from WordPress…' );
 				}
 
-				await rescanAndSave();
-				setProgress(
-					citexBulkEdit.strings.complete
-						.replace( '{updated}', summary.updated )
-						.replace( '{skipped}', 0 )
-						.replace( '{failed}', summary.failed.length )
-				);
-				window.setTimeout( function () { window.location.reload(); }, 900 );
+				// The sync form is a normal server-side POST, so this refresh does
+				// not depend on the browser scanner at all.
+				window.setTimeout( submitServerSync, 350 );
 			} catch ( error ) {
 				setProgress( citexBulkEdit.strings.failed + ' ' + error.message );
 				setDisabled( false );
@@ -110,11 +100,6 @@
 			return out;
 		}
 
-		/**
-		 * Pull WordPress's real inline-edit nonce and screen metadata from the
-		 * configured Reference List page. If this cannot be found, we stop rather
-		 * than claiming an update succeeded.
-		 */
 		async function loadNativeQuickEditContext() {
 			var url = new URL( citexTools.questionListUrl, window.location.origin );
 			url.searchParams.delete( 'post_status' );
@@ -198,23 +183,14 @@
 			} );
 		}
 
-		async function rescanAndSave() {
-			var report = await CitexScanner.scan( citexTools.questionListUrl );
-			var body = new URLSearchParams();
-			body.set( 'action', citexTools.saveScanAction );
-			body.set( 'nonce', citexTools.nonce );
-			body.set( 'scan', JSON.stringify( report ) );
-			var response = await fetch( citexTools.ajaxUrl, {
-				method: 'POST',
-				credentials: 'same-origin',
-				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-				body: body.toString(),
-			} );
-			var payload = await response.json();
-			if ( ! payload || ! payload.success ) {
-				throw new Error( 'WordPress was updated but Citex could not save the refreshed Reference List scan.' );
+		function submitServerSync() {
+			var input = document.querySelector( 'input[name="citex_sync_reference_list"]' );
+			var form = input ? input.closest( 'form' ) : null;
+			if ( ! form ) {
+				window.location.reload();
+				return;
 			}
-			return payload.data;
+			form.submit();
 		}
 
 		function setDisabled( disabled ) {
