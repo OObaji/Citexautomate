@@ -6,9 +6,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Citex scanner storage/service.
  *
- * The browser-side scanner reads the real WordPress Reference List. This
- * class stores that read-only snapshot so Citex can mirror the native list,
- * including each post's WordPress status and the native status-tab counts.
+ * v0.8.1 adds a direct WordPress-database sync for the Reference List. The
+ * configured Reference List URL is used only to identify the custom post type;
+ * the actual records, post statuses and counts are then read from WordPress
+ * itself rather than depending on a browser DOM scan.
  */
 class Citex_Scanner {
 
@@ -41,6 +42,179 @@ class Citex_Scanner {
 		return date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $time );
 	}
 
+	/**
+	 * Read the real Reference List directly from WordPress and persist a fresh
+	 * Citex snapshot. Trash/Bin is counted separately, matching WordPress's
+	 * native "All" tab behaviour.
+	 *
+	 * @return array|WP_Error
+	 */
+	public static function sync_from_wordpress() {
+		$url = self::get_question_list_url();
+		if ( ! $url ) {
+			return new WP_Error( 'citex_no_reference_url', __( 'Reference List URL is not configured.', 'citex-tools' ) );
+		}
+
+		$post_type = self::post_type_from_url( $url );
+		if ( ! $post_type || ! post_type_exists( $post_type ) ) {
+			return new WP_Error( 'citex_bad_post_type', __( 'Citex could not determine the Reference List post type from the configured URL.', 'citex-tools' ) );
+		}
+
+		$statuses = array( 'publish', 'draft', 'pending', 'private', 'future', 'trash' );
+		$posts = get_posts(
+			array(
+				'post_type'              => $post_type,
+				'post_status'            => $statuses,
+				'posts_per_page'         => -1,
+				'orderby'                => 'ID',
+				'order'                  => 'ASC',
+				'no_found_rows'          => true,
+				'suppress_filters'       => false,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+			)
+		);
+
+		$status_counts = array(
+			'all'     => 0,
+			'publish' => 0,
+			'draft'   => 0,
+			'pending' => 0,
+			'private' => 0,
+			'future'  => 0,
+			'trash'   => 0,
+		);
+		$questions = array();
+
+		foreach ( $posts as $post ) {
+			$status = sanitize_key( $post->post_status );
+			if ( isset( $status_counts[ $status ] ) ) {
+				$status_counts[ $status ]++;
+			}
+
+			if ( 'trash' === $status ) {
+				continue;
+			}
+
+			$status_counts['all']++;
+			$parsed = self::parse_title( get_the_title( $post ) );
+
+			$questions[] = array(
+				'original'           => $parsed['original'],
+				'source'             => $parsed['source'],
+				'group'              => $parsed['group'],
+				'category'           => $parsed['category'],
+				'type'               => $parsed['type'],
+				'questionId'         => $parsed['questionId'],
+				'parts'              => $parsed['parts'],
+				'editUrl'            => get_edit_post_link( $post->ID, 'raw' ),
+				'wpPostId'           => (int) $post->ID,
+				'postStatus'         => $status,
+				'legacySourcePrefix' => $parsed['legacySourcePrefix'],
+			);
+		}
+
+		$harvard = array_filter(
+			$questions,
+			function ( $question ) {
+				return false !== stripos( (string) ( $question['source'] ?? '' ), 'harvard' );
+			}
+		);
+
+		$scan = array(
+			'scannedAt'       => gmdate( 'c' ),
+			'questionListUrl' => esc_url_raw( $url ),
+			'postType'        => sanitize_key( $post_type ),
+			'total'           => count( $questions ),
+			'harvardTotal'    => count( $harvard ),
+			'statusCounts'    => $status_counts,
+			'questions'       => $questions,
+			'breakdowns'      => array(
+				'sources'      => self::count_by( $questions, 'source' ),
+				'groups'       => self::count_by( $questions, 'group' ),
+				'categories'   => self::count_by( $questions, 'category' ),
+				'types'        => self::count_by( $questions, 'type' ),
+				'postStatuses' => self::count_by( $questions, 'postStatus' ),
+				'combinations' => self::count_combinations( $questions ),
+			),
+		);
+
+		update_option( self::OPTION_SCAN, $scan, false );
+		return $scan;
+	}
+
+	private static function post_type_from_url( $url ) {
+		$query = wp_parse_url( $url, PHP_URL_QUERY );
+		if ( ! $query ) {
+			return '';
+		}
+		$params = array();
+		parse_str( $query, $params );
+		return isset( $params['post_type'] ) ? sanitize_key( $params['post_type'] ) : '';
+	}
+
+	private static function parse_title( $title ) {
+		$original = sanitize_text_field( (string) $title );
+		$parts = array_values( array_filter( array_map( 'trim', explode( '|', $original ) ), 'strlen' ) );
+		$source = isset( $parts[0] ) ? $parts[0] : '';
+		$legacy = (bool) preg_match( '/^question\s+title\s*:\s*/i', $source );
+		$source = preg_replace( '/^question\s+title\s*:\s*/i', '', $source );
+
+		return array(
+			'original'           => $original,
+			'source'             => sanitize_text_field( trim( $source ) ),
+			'group'              => sanitize_text_field( $parts[1] ?? '' ),
+			'category'           => sanitize_text_field( $parts[2] ?? '' ),
+			'type'               => sanitize_text_field( $parts[3] ?? '' ),
+			'questionId'         => sanitize_text_field( $parts[4] ?? '' ),
+			'parts'              => array_map( 'sanitize_text_field', $parts ),
+			'legacySourcePrefix' => $legacy,
+		);
+	}
+
+	private static function count_by( $questions, $key ) {
+		$counts = array();
+		foreach ( $questions as $question ) {
+			$name = (string) ( $question[ $key ] ?? '' );
+			if ( '' === $name ) {
+				$name = '(blank)';
+			}
+			$counts[ $name ] = isset( $counts[ $name ] ) ? $counts[ $name ] + 1 : 1;
+		}
+		arsort( $counts );
+		$rows = array();
+		foreach ( $counts as $name => $count ) {
+			$rows[] = array( 'name' => $name, 'count' => $count );
+		}
+		return $rows;
+	}
+
+	private static function count_combinations( $questions ) {
+		$counts = array();
+		foreach ( $questions as $question ) {
+			$pieces = array_filter(
+				array(
+					(string) ( $question['source'] ?? '' ),
+					(string) ( $question['group'] ?? '' ),
+					(string) ( $question['category'] ?? '' ),
+					(string) ( $question['type'] ?? '' ),
+				),
+				'strlen'
+			);
+			$name = implode( ' | ', $pieces );
+			if ( '' === $name ) {
+				$name = '(blank)';
+			}
+			$counts[ $name ] = isset( $counts[ $name ] ) ? $counts[ $name ] + 1 : 1;
+		}
+		arsort( $counts );
+		$rows = array();
+		foreach ( $counts as $name => $count ) {
+			$rows[] = array( 'name' => $name, 'count' => $count );
+		}
+		return $rows;
+	}
+
 	public function ajax_save_settings() {
 		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -67,9 +241,9 @@ class Citex_Scanner {
 		update_option( self::OPTION_SCAN, $scan, false );
 		wp_send_json_success(
 			array(
-				'scannedAt'   => $scan['scannedAt'],
-				'total'       => $scan['total'],
-				'statusCounts'=> $scan['statusCounts'],
+				'scannedAt'    => $scan['scannedAt'],
+				'total'        => $scan['total'],
+				'statusCounts' => $scan['statusCounts'],
 			)
 		);
 	}
