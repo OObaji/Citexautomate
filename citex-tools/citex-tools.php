@@ -3,7 +3,7 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — question generation, validation, population and the question bank overview.
- * Version:     0.5.1
+ * Version:     0.5.2
  * Author:      Citex
  * Text Domain: citex-tools
  *
@@ -22,12 +22,11 @@
  * YEAR_TRAILING_PERIOD / MISSING_FINAL_PERIOD punctuation checks, and the
  * Liverpool Hope Book structural check.
  *
- * v0.5.1 adds the live-site DragDrop Fixed Text adapter discovered from BK02:
- * some records encode draggable slots as empty segments between pipe
- * delimiters (for example `|, || (||) ||. Oxford: ...`), so the raw number
- * of `|` characters is not the number of draggable slots. The adapter
- * supports both this live encoding and the earlier single-pipe marker
- * encoding while keeping validation read-only.
+ * v0.5.2 uses the confirmed Citex DragDrop placeholder grammar:
+ * a single `|` represents one draggable placeholder only at the beginning
+ * or end of Fixed Text, while `||` represents one draggable placeholder in
+ * any internal position. This replaces the earlier inference based only on
+ * raw pipe/empty-segment counts and matches the live BK02 structure.
  *
  * Question generation and WordPress population are still not implemented.
  */
@@ -36,7 +35,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Disallow direct access.
 }
 
-define( 'CITEX_TOOLS_VERSION', '0.5.1' );
+define( 'CITEX_TOOLS_VERSION', '0.5.2' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
