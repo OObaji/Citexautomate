@@ -9,6 +9,7 @@ class Citex_Admin {
 
 	private $dashboard;
 	private $generator;
+	private $importer;
 	private $questions;
 	private $validator;
 	private $populator;
@@ -20,6 +21,7 @@ class Citex_Admin {
 		$this->scanner     = new Citex_Scanner();
 		$this->dashboard   = new Citex_Dashboard();
 		$this->generator   = new Citex_Generator();
+		$this->importer    = new Citex_Importer();
 		$this->questions   = new Citex_Questions();
 		$this->validator   = new Citex_Validator();
 		$this->populator   = new Citex_Populator();
@@ -34,6 +36,7 @@ class Citex_Admin {
 		$this->page_hooks[] = add_menu_page( __( 'Citex', 'citex-tools' ), __( 'Citex', 'citex-tools' ), 'manage_options', 'citex', array( $this->dashboard, 'render' ), 'dashicons-book-alt', 30 );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Dashboard', 'citex-tools' ), __( 'Dashboard', 'citex-tools' ), 'manage_options', 'citex', array( $this->dashboard, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Generate Questions', 'citex-tools' ), __( 'Generate Questions', 'citex-tools' ), 'manage_options', 'citex-generate', array( $this->generator, 'render' ) );
+		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Import Questions', 'citex-tools' ), __( 'Import Questions', 'citex-tools' ), 'manage_options', 'citex-import', array( $this->importer, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Questions', 'citex-tools' ), __( 'Questions', 'citex-tools' ), 'manage_options', 'citex-questions', array( $this->questions, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Validation', 'citex-tools' ), __( 'Validation', 'citex-tools' ), 'manage_options', 'citex-validation', array( $this->validator, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Populate', 'citex-tools' ), __( 'Populate', 'citex-tools' ), 'manage_options', 'citex-populate', array( $this->populator, 'render' ) );
