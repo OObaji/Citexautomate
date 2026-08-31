@@ -1,17 +1,21 @@
 /**
- * Citex Tools — bulk WordPress status editor.
+ * Citex Tools — real Reference List bulk status editor.
  *
- * Lets an administrator apply one native WordPress post status to every
- * question matching the current Citex filters, not just the 20 rows visible
- * on the current page. Requests are chunked so 200+ posts can be changed
- * without relying on one long PHP request.
+ * v0.8 stops using Citex's own wp_update_post endpoint. Instead it fetches
+ * the configured Reference List screen, extracts WordPress's own Quick Edit
+ * nonce/screen metadata, and calls the native `inline-save` AJAX action for
+ * every selected Reference List post. This is intentionally the same save
+ * path WordPress uses when Quick Edit/Bulk Edit works manually.
+ *
+ * After the writes finish, Citex re-scans and stores the Reference List so
+ * the Question Bank immediately mirrors Published/Draft counts and statuses.
  */
 ( function () {
 	'use strict';
 
 	document.addEventListener( 'DOMContentLoaded', function () {
 		var panel = document.getElementById( 'citex-bulk-status-editor' );
-		if ( ! panel || ! window.citexBulkEdit ) {
+		if ( ! panel || ! window.citexBulkEdit || ! window.citexTools || ! window.CitexScanner ) {
 			return;
 		}
 
@@ -31,12 +35,15 @@
 			return;
 		}
 
-		button.addEventListener( 'click', function () {
+		button.addEventListener( 'click', async function () {
 			var ids = 'selected' === scope.value ? selectedPostIds() : filteredIds.slice();
 			ids = uniquePositiveIntegers( ids );
-
 			if ( ! ids.length ) {
 				setProgress( citexBulkEdit.strings.noSelection );
+				return;
+			}
+			if ( ! citexTools.questionListUrl ) {
+				setProgress( 'Reference List URL is not configured.' );
 				return;
 			}
 
@@ -45,33 +52,41 @@
 			var confirmation = citexBulkEdit.strings.confirm
 				.replace( '{count}', ids.length )
 				.replace( '{status}', label );
-
 			if ( ! window.confirm( confirmation ) ) {
 				return;
 			}
 
-			button.disabled = true;
-			scope.disabled = true;
-			statusSelect.disabled = true;
+			setDisabled( true );
+			try {
+				setProgress( 'Loading WordPress Quick Edit credentials from the real Reference List…' );
+				var nativeContext = await loadNativeQuickEditContext();
+				var summary = await runNativeUpdates( ids, status, nativeContext );
 
-			runBatches( ids, status )
-				.then( function ( summary ) {
+				if ( summary.failed.length ) {
+					var sample = summary.failed.slice( 0, 3 ).map( function ( item ) {
+						return '#' + item.postId + ': ' + item.reason;
+					} ).join( ' | ' );
 					setProgress(
-						citexBulkEdit.strings.complete
-							.replace( '{updated}', summary.updated )
-							.replace( '{skipped}', summary.skipped )
-							.replace( '{failed}', summary.failed )
+						'WordPress updated ' + summary.updated + ' of ' + ids.length +
+						'. Failed: ' + summary.failed.length + '. ' + sample +
+						' Re-syncing Reference List…'
 					);
-					window.setTimeout( function () {
-						window.location.reload();
-					}, 1200 );
-				} )
-				.catch( function ( error ) {
-					setProgress( citexBulkEdit.strings.failed + ' ' + error.message );
-					button.disabled = false;
-					scope.disabled = false;
-					statusSelect.disabled = false;
-				} );
+				} else {
+					setProgress( 'WordPress updated ' + summary.updated + ' of ' + ids.length + '. Re-syncing the real Reference List…' );
+				}
+
+				await rescanAndSave();
+				setProgress(
+					citexBulkEdit.strings.complete
+						.replace( '{updated}', summary.updated )
+						.replace( '{skipped}', 0 )
+						.replace( '{failed}', summary.failed.length )
+				);
+				window.setTimeout( function () { window.location.reload(); }, 900 );
+			} catch ( error ) {
+				setProgress( citexBulkEdit.strings.failed + ' ' + error.message );
+				setDisabled( false );
+			}
 		} );
 
 		function selectedPostIds() {
@@ -95,49 +110,117 @@
 			return out;
 		}
 
-		async function runBatches( ids, status ) {
-			var batchSize = citexBulkEdit.batchSize || 40;
-			var summary = { updated: 0, skipped: 0, failed: 0 };
-
-			for ( var offset = 0; offset < ids.length; offset += batchSize ) {
-				var batch = ids.slice( offset, offset + batchSize );
-				var end = Math.min( offset + batch.length, ids.length );
-				setProgress(
-					citexBulkEdit.strings.updating
-						.replace( '{from}', offset + 1 )
-						.replace( '{to}', end )
-						.replace( '{total}', ids.length )
-				);
-
-				var result = await postBatch( batch, status );
-				summary.updated += result.updated || 0;
-				summary.skipped += result.skipped || 0;
-				summary.failed += ( result.failed || [] ).length;
+		/**
+		 * Pull WordPress's real inline-edit nonce and screen metadata from the
+		 * configured Reference List page. If this cannot be found, we stop rather
+		 * than claiming an update succeeded.
+		 */
+		async function loadNativeQuickEditContext() {
+			var url = new URL( citexTools.questionListUrl, window.location.origin );
+			url.searchParams.delete( 'post_status' );
+			url.searchParams.set( 'paged', '1' );
+			var response = await fetch( url.href, { credentials: 'same-origin' } );
+			if ( ! response.ok ) {
+				throw new Error( 'Could not load Reference List (HTTP ' + response.status + ').' );
+			}
+			var html = await response.text();
+			var doc = new DOMParser().parseFromString( html, 'text/html' );
+			var nonceInput = doc.querySelector( '#inline-edit input[name="_inline_edit"], input[name="_inline_edit"]' );
+			var screenInput = doc.querySelector( '#inline-edit input[name="screen"], input[name="screen"]' );
+			var postViewInput = doc.querySelector( '#inline-edit input[name="post_view"], input[name="post_view"]' );
+			var postType = url.searchParams.get( 'post_type' ) || '';
+			if ( ! postType ) {
+				var postTypeInput = doc.querySelector( 'input[name="post_type"]' );
+				postType = postTypeInput ? postTypeInput.value : '';
 			}
 
+			if ( ! nonceInput || ! nonceInput.value ) {
+				throw new Error( 'Could not find WordPress Quick Edit nonce on the Reference List page.' );
+			}
+			if ( ! postType ) {
+				throw new Error( 'Could not determine the Reference List post type.' );
+			}
+
+			return {
+				nonce: nonceInput.value,
+				screen: screenInput ? screenInput.value : ( 'edit-' + postType ),
+				postView: postViewInput ? postViewInput.value : 'list',
+				postType: postType,
+			};
+		}
+
+		async function runNativeUpdates( ids, status, context ) {
+			var summary = { updated: 0, failed: [] };
+			for ( var i = 0; i < ids.length; i++ ) {
+				setProgress(
+					citexBulkEdit.strings.updating
+						.replace( '{from}', i + 1 )
+						.replace( '{to}', i + 1 )
+						.replace( '{total}', ids.length )
+				);
+				try {
+					await nativeInlineSave( ids[ i ], status, context );
+					summary.updated++;
+				} catch ( error ) {
+					summary.failed.push( { postId: ids[ i ], reason: error.message } );
+				}
+			}
 			return summary;
 		}
 
-		function postBatch( ids, status ) {
+		function nativeInlineSave( postId, status, context ) {
 			var body = new URLSearchParams();
-			body.set( 'action', citexBulkEdit.action );
-			body.set( 'nonce', citexBulkEdit.nonce );
-			body.set( 'status', status );
-			body.set( 'post_ids', JSON.stringify( ids ) );
+			body.set( 'action', 'inline-save' );
+			body.set( '_inline_edit', context.nonce );
+			body.set( 'post_ID', String( postId ) );
+			body.set( 'post_type', context.postType );
+			body.set( '_status', status );
+			body.set( 'screen', context.screen );
+			body.set( 'post_view', context.postView );
+			body.set( 'edit_date', 'true' );
 
-			return fetch( citexBulkEdit.ajaxUrl, {
+			return fetch( citexTools.ajaxUrl, {
+				method: 'POST',
+				credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+				body: body.toString(),
+			} ).then( function ( response ) {
+				if ( ! response.ok ) {
+					throw new Error( 'HTTP ' + response.status );
+				}
+				return response.text();
+			} ).then( function ( html ) {
+				if ( html.indexOf( '<tr' ) === -1 ) {
+					var text = html.replace( /<[^>]*>/g, ' ' ).replace( /\s+/g, ' ' ).trim();
+					throw new Error( text || 'WordPress inline save returned no updated row.' );
+				}
+				return true;
+			} );
+		}
+
+		async function rescanAndSave() {
+			var report = await CitexScanner.scan( citexTools.questionListUrl );
+			var body = new URLSearchParams();
+			body.set( 'action', citexTools.saveScanAction );
+			body.set( 'nonce', citexTools.nonce );
+			body.set( 'scan', JSON.stringify( report ) );
+			var response = await fetch( citexTools.ajaxUrl, {
 				method: 'POST',
 				credentials: 'same-origin',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: body.toString(),
-			} ).then( function ( response ) {
-				return response.json();
-			} ).then( function ( payload ) {
-				if ( ! payload || ! payload.success ) {
-					throw new Error( ( payload && payload.data && payload.data.message ) || 'Bulk update request failed.' );
-				}
-				return payload.data;
 			} );
+			var payload = await response.json();
+			if ( ! payload || ! payload.success ) {
+				throw new Error( 'WordPress was updated but Citex could not save the refreshed Reference List scan.' );
+			}
+			return payload.data;
+		}
+
+		function setDisabled( disabled ) {
+			button.disabled = disabled;
+			scope.disabled = disabled;
+			statusSelect.disabled = disabled;
 		}
 
 		function setProgress( message ) {
