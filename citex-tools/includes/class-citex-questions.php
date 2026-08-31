@@ -6,14 +6,47 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Question Bank page.
  *
- * Mirrors the latest Reference List scan, including each record's native
- * WordPress post status. Validation status remains a separate Citex concept.
+ * Mirrors the latest Reference List snapshot, including each record's native
+ * WordPress post status. The Refresh / Sync button is deliberately handled
+ * server-side so it still works even if admin JavaScript fails to initialise.
  */
 class Citex_Questions {
 
 	const PER_PAGE = 20;
+	const SYNC_NONCE_ACTION = 'citex_sync_reference_list';
 
 	public function render() {
+		$sync_notice = null;
+
+		if ( isset( $_POST['citex_sync_reference_list'] ) ) {
+			check_admin_referer( self::SYNC_NONCE_ACTION, 'citex_sync_nonce' );
+
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_die( esc_html__( 'You are not allowed to synchronise the Reference List.', 'citex-tools' ) );
+			}
+
+			$result = Citex_Scanner::sync_from_wordpress();
+			if ( is_wp_error( $result ) ) {
+				$sync_notice = array(
+					'type'    => 'error',
+					'message' => $result->get_error_message(),
+				);
+			} else {
+				$counts = $result['statusCounts'] ?? array();
+				$sync_notice = array(
+					'type'    => 'success',
+					'message' => sprintf(
+						/* translators: 1: active count, 2: published count, 3: draft count, 4: bin count. */
+						__( 'Reference List synced from WordPress. All: %1$d, Published: %2$d, Drafts: %3$d, Bin: %4$d.', 'citex-tools' ),
+						(int) ( $counts['all'] ?? 0 ),
+						(int) ( $counts['publish'] ?? 0 ),
+						(int) ( $counts['draft'] ?? 0 ),
+						(int) ( $counts['trash'] ?? 0 )
+					),
+				);
+			}
+		}
+
 		$scan              = Citex_Scanner::get_last_scan();
 		$question_list_url = Citex_Scanner::get_question_list_url();
 		$search            = isset( $_GET['citex_search'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_search'] ) ) : '';
