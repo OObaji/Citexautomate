@@ -140,6 +140,10 @@ class Citex_Scanner {
 				'parts'      => $parts,
 				'editUrl'    => ! empty( $question['editUrl'] ) ? esc_url_raw( (string) $question['editUrl'] ) : '',
 				'wpPostId'   => isset( $question['wpPostId'] ) && is_numeric( $question['wpPostId'] ) ? absint( $question['wpPostId'] ) : null,
+				// Flags records whose title had the legacy "Question title:" source
+				// prefix, which the scanner strips before indexing the source. The
+				// original WordPress title is untouched — see the `original` field.
+				'legacySourcePrefix' => ! empty( $question['legacySourcePrefix'] ),
 			);
 		}
 

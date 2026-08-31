@@ -16,6 +16,22 @@ window.CitexScanner = ( function () {
 		return ( value || '' ).trim();
 	}
 
+	/**
+	 * Some legacy WordPress titles prefix the source with "Question
+	 * title:" (e.g. "Question title: Harvard" instead of "Harvard").
+	 * Stripping it here — before it becomes parts[0]/source — keeps
+	 * those records grouped under the same source as the rest instead
+	 * of splitting off a separate "Question title: Harvard" bucket.
+	 */
+	var LEGACY_SOURCE_PREFIX = /^question\s+title\s*:\s*/i;
+
+	function stripLegacySourcePrefix( value ) {
+		return {
+			value: clean( value.replace( LEGACY_SOURCE_PREFIX, '' ) ),
+			hadPrefix: LEGACY_SOURCE_PREFIX.test( value ),
+		};
+	}
+
 	function countBy( items, getter ) {
 		var counts = {};
 
@@ -39,14 +55,17 @@ window.CitexScanner = ( function () {
 			.map( clean )
 			.filter( Boolean );
 
+		var normalisedSource = stripLegacySourcePrefix( parts[0] || '' );
+
 		return {
 			original: title,
-			source: parts[0] || '',
+			source: normalisedSource.value,
 			group: parts[1] || '',
 			category: parts[2] || '',
 			type: parts[3] || '',
 			questionId: parts[4] || '',
 			parts: parts,
+			legacySourcePrefix: normalisedSource.hadPrefix,
 		};
 	}
 
