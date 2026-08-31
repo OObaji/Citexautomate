@@ -3,7 +3,7 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — question generation, validation, population and the question bank overview.
- * Version:     0.8.1
+ * Version:     0.8.2
  * Author:      Citex
  * Text Domain: citex-tools
  *
@@ -13,16 +13,17 @@
  * v0.6.0: structured pending Book/DragDrop question generator.
  * v0.7.x: first bulk post-status editor.
  * v0.8.0: Reference List status mirroring and native Quick Edit bulk writes.
- * v0.8.1: the Question Bank refresh/sync is now server-side and reads the
- * real Reference List posts/statuses directly from WordPress, so the sync
- * button no longer depends on admin JavaScript or DOM scraping.
+ * v0.8.1: server-side Reference List sync.
+ * v0.8.2: bulk Move to Bin/Trash for selected or all filtered Reference List
+ * questions. Trashing uses WordPress's wp_trash_post() so records remain
+ * restorable from Reference List > Bin; nothing is permanently deleted.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'CITEX_TOOLS_VERSION', '0.8.1' );
+define( 'CITEX_TOOLS_VERSION', '0.8.2' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
