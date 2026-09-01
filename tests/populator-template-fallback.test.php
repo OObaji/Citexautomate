@@ -37,6 +37,9 @@ $GLOBALS['__registered_post_types']        = array();
 $GLOBALS['__next_post_id']                 = 100;
 $GLOBALS['__deleted_posts']                = array();
 $GLOBALS['__wp_update_post_calls']         = 0;
+$GLOBALS['__clean_post_cache_calls']       = array();
+$GLOBALS['__acf_save_post_calls']          = array();
+$GLOBALS['__options']                      = array();
 
 class WP_Error {
 	public $code;
@@ -153,6 +156,29 @@ function wp_update_post( $args, $wp_error = false ) {
 		$GLOBALS['__posts'][ $id ][ $k ] = $v;
 	}
 	return $id;
+}
+
+function get_post_status( $post_id ) {
+	return $GLOBALS['__posts'][ $post_id ]['post_status'] ?? false;
+}
+
+function clean_post_cache( $post_id ) {
+	$GLOBALS['__clean_post_cache_calls'][] = $post_id;
+}
+
+function do_action( $hook, ...$args ) {
+	if ( 'acf/save_post' === $hook ) {
+		$GLOBALS['__acf_save_post_calls'][] = $args[0] ?? null;
+	}
+}
+
+function get_option( $key, $default = false ) {
+	return $GLOBALS['__options'][ $key ] ?? $default;
+}
+
+function update_option( $key, $value, $autoload = null ) {
+	$GLOBALS['__options'][ $key ] = $value;
+	return true;
 }
 
 function wp_delete_post( $id, $force = false ) {
@@ -303,6 +329,9 @@ function reset_environment() {
 	$GLOBALS['__next_post_id']                   = 100;
 	$GLOBALS['__deleted_posts']                  = array();
 	$GLOBALS['__wp_update_post_calls']           = 0;
+	$GLOBALS['__clean_post_cache_calls']         = array();
+	$GLOBALS['__acf_save_post_calls']            = array();
+	$GLOBALS['__options']                        = array();
 
 	// The three known ACF field keys are always "registered" on the site,
 	// mirroring a real ACF install where the field group already exists.
@@ -527,7 +556,11 @@ check( '[verification] error identifies the missing terms as "MISSING" not silen
 check( '[verification] no post was left behind', isset( $GLOBALS['__posts'][100] ), false );
 
 // ---------------------------------------------------------------------
-// 5. ACF write failure rolls back the new post
+// 5. ACF write failure rolls back the new post. The save lifecycle (status
+// save + acf/save_post) now runs BEFORE verification (per the population
+// order this fix implements), so it has already executed once by the time
+// the bad Fixed Text is caught — the safety guarantee is that the post is
+// still rolled back regardless, not that the save step never ran.
 // ---------------------------------------------------------------------
 reset_environment();
 $GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
@@ -542,12 +575,12 @@ $GLOBALS['__acf_write_blocked'][100][ Citex_Populator::FIELD_FIXED_TEXT ] = true
 $result_4 = invoke_private( $populator, 'populate_one', array( $question_4, 'question', 0, $field_map_4, 'draft' ) );
 check( '[write failure] populate_one reports failure when Fixed Text does not persist', is_wp_error( $result_4 ), true );
 check( '[write failure] error code identifies the population failure', is_wp_error( $result_4 ) ? $result_4->get_error_code() : null, 'citex_population_failed' );
-check( '[write failure] the newly-created post was rolled back (deleted)', isset( $GLOBALS['__posts'][100] ), false );
+check( '[write failure] the newly-created post was rolled back (deleted) despite the save step already having run', isset( $GLOBALS['__posts'][100] ), false );
 check( '[write failure] the rollback used force delete', in_array( 100, $GLOBALS['__deleted_posts'], true ), true );
-check( '[write failure] publish was never attempted before the failed verification', $GLOBALS['__wp_update_post_calls'], 0 );
 
 // ---------------------------------------------------------------------
-// 7. Successful requested publish only happens after field verification
+// 7. Successful requested publish only happens after field verification —
+// and the save lifecycle (clean_post_cache + acf/save_post) has run.
 // ---------------------------------------------------------------------
 reset_environment();
 $GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
@@ -559,10 +592,33 @@ $result_5    = invoke_private( $populator, 'populate_one', array( $question_5, '
 check( '[publish] populate_one succeeds', is_wp_error( $result_5 ), false );
 $new_id_5 = is_array( $result_5 ) ? $result_5['postId'] : null;
 check( '[publish] the post was actually published only after verification passed', $GLOBALS['__posts'][ $new_id_5 ]['post_status'] ?? null, 'publish' );
-check( '[publish] wp_update_post (the publish step) ran exactly once', $GLOBALS['__wp_update_post_calls'], 1 );
+check( '[publish] wp_update_post (the save/status step) ran exactly once', $GLOBALS['__wp_update_post_calls'], 1 );
+check( '[publish] clean_post_cache() ran as part of the save lifecycle', $GLOBALS['__clean_post_cache_calls'], array( $new_id_5 ) );
+check( '[publish] acf/save_post fired once, for the new post — reproducing a manual admin Update click', $GLOBALS['__acf_save_post_calls'], array( $new_id_5 ) );
+check( '[publish] result reports the save lifecycle as completed', $result_5['saveLifecycleCompleted'] ?? null, true );
+check( '[publish] result reports status as verified', $result_5['statusVerified'] ?? null, true );
 
-// Now repeat with a blocked write and final_status=publish: publish must
-// never be reached because verification fails first.
+// A Draft population must run the SAME save lifecycle (per this fix's
+// requirement that Draft and Publish both complete it), just without ever
+// transitioning to "publish".
+reset_environment();
+$GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
+	array( 'key' => 'group_1', 'fields' => array( array( 'key' => 'field_scenario_fallback', 'label' => 'Scenario', 'name' => 'scenario', 'sub_fields' => array() ) ) ),
+);
+$field_map_draft = invoke_private( $populator, 'resolve_population_fields_without_template', array( 'question' ) );
+$question_draft   = sample_question( array( 'key' => 'k-draft-lifecycle', 'title' => 'Harvard | ReferenceList | Book | DragDrop | BK-DRAFT-LC' ) );
+$result_draft     = invoke_private( $populator, 'populate_one', array( $question_draft, 'question', 0, $field_map_draft, 'draft' ) );
+check( '[draft lifecycle] populate_one succeeds', is_wp_error( $result_draft ), false );
+$new_id_draft = is_array( $result_draft ) ? $result_draft['postId'] : null;
+check( '[draft lifecycle] the post remains Draft', $GLOBALS['__posts'][ $new_id_draft ]['post_status'] ?? null, 'draft' );
+check( '[draft lifecycle] acf/save_post still fired for a Draft population', $GLOBALS['__acf_save_post_calls'], array( $new_id_draft ) );
+check( '[draft lifecycle] clean_post_cache() still ran for a Draft population', $GLOBALS['__clean_post_cache_calls'], array( $new_id_draft ) );
+
+// Now repeat the write-failure case with final_status=publish: the save
+// step still runs once (status stays whatever it was set to before the
+// failure is caught), but verification still catches the bad Fixed Text
+// and the post is still rolled back — it is never left behind published
+// or otherwise, regardless of what the save step already did to it.
 reset_environment();
 $GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
 	array( 'key' => 'group_1', 'fields' => array( array( 'key' => 'field_scenario_fallback', 'label' => 'Scenario', 'name' => 'scenario', 'sub_fields' => array() ) ) ),
@@ -571,9 +627,9 @@ $field_map_6 = invoke_private( $populator, 'resolve_population_fields_without_te
 $question_6  = sample_question( array( 'key' => 'k6', 'title' => 'Harvard | ReferenceList | Book | DragDrop | BK06' ) );
 $GLOBALS['__acf_write_blocked'][100][ Citex_Populator::FIELD_FIXED_TEXT ] = true;
 $result_6 = invoke_private( $populator, 'populate_one', array( $question_6, 'question', 0, $field_map_6, 'publish' ) );
-check( '[publish guard] a failed verification blocks publish entirely', is_wp_error( $result_6 ), true );
-check( '[publish guard] wp_update_post (publish) was never called', $GLOBALS['__wp_update_post_calls'], 0 );
-check( '[publish guard] the unpublished, unverified post was rolled back', isset( $GLOBALS['__posts'][100] ), false );
+check( '[publish guard] a failed verification is still caught and reported', is_wp_error( $result_6 ), true );
+check( '[publish guard] the unpublished, unverified post was rolled back regardless', isset( $GLOBALS['__posts'][100] ), false );
+check( '[publish guard] the rollback used force delete', in_array( 100, $GLOBALS['__deleted_posts'], true ), true );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

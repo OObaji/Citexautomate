@@ -41,6 +41,36 @@ if ( ! defined( 'ABSPATH' ) ) {
  *    terms named by the generated question, cannot be located, Citex stops
  *    with a clear, diagnostic error rather than writing a record with a
  *    missing or incorrect classification.
+ *
+ * Question Parts/Confusing Words repeater rows (see resolve_repeater_text_row_shape()):
+ * a real Book/DragDrop repeater row was found to have more than one
+ * sub-field — a row-TYPE selector (e.g. the reported "Select Element"
+ * choice field distinguishing Text rows from Punctuation rows) alongside
+ * type-specific value sub-fields — not a single flat text sub-field.
+ * Writing only the first sub-field of each row (the old behaviour) could
+ * leave a template-cloned row's OTHER sub-field values (a punctuation
+ * selection) in place, because the row's real required shape was never
+ * fully written. The real shape is discovered from the field's own ACF
+ * definition (acf_get_field()) — its sub-fields' types, labels and, for
+ * the selector, its actual choices — never assumed from the field label,
+ * and every row read back and compared value-for-value, in order, after
+ * saving.
+ *
+ * Save lifecycle (see the do_action('acf/save_post', ...) call in
+ * populate_one()): update_field() and wp_set_object_terms() persist their
+ * values directly but do not, by themselves, fire ACF's own acf/save_post
+ * action — only ACF's own admin edit-screen form-processing pipeline does
+ * that (this is standard, documented ACF architecture, not specific to
+ * this site). Any site logic that hooks acf/save_post — the ACF-documented
+ * place to react to "this post's ACF data is now saved", commonly used for
+ * indexing/cache-invalidation — never runs for values written only through
+ * update_field(). Citex fires that same action once, after every field and
+ * taxonomy write and the final post-status transition, for both Draft and
+ * Publish, so a program­matically populated post goes through the same
+ * completion step a manual admin "Update" click would trigger. This plugin
+ * has no visibility into what, if anything, a separate "student app" reads
+ * beyond WordPress/ACF's own data and hooks — if it has its own index or
+ * cache outside of that, this cannot detect or refresh it.
  */
 class Citex_Populator {
 
@@ -182,11 +212,18 @@ class Citex_Populator {
 			$summaries = array();
 			foreach ( array_slice( $created, 0, 3 ) as $c ) {
 				$summaries[] = sprintf(
-					'%1$s (Category: %2$s ✓, Exercise: %3$s ✓, Type: %4$s ✓, ACF: Verified ✓)',
+					'%1$s (Category: %2$s ✓, Exercise: %3$s ✓, Type: %4$s ✓, Scenario: %5$s, Question Parts: %6$s, Fixed Text: %7$s, Taxonomy: %8$s, Status: %9$s %10$s, Save lifecycle: %11$s)',
 					$c['questionId'],
 					$c['category'],
 					$c['exercise'],
-					$c['type']
+					$c['type'],
+					! empty( $c['scenarioVerified'] ) ? '✓' : '✗',
+					$c['questionPartsVerified'] ?? '0/0',
+					! empty( $c['fixedTextVerified'] ) ? '✓' : '✗',
+					( ! empty( $c['categoryVerified'] ) && ! empty( $c['exerciseVerified'] ) ) ? '✓' : '✗',
+					$c['status'],
+					! empty( $c['statusVerified'] ) ? '✓' : '✗',
+					! empty( $c['saveLifecycleCompleted'] ) ? '✓' : '✗'
 				);
 			}
 			$message .= ' ' . implode( ' | ', $summaries );
@@ -244,6 +281,10 @@ class Citex_Populator {
 			return $new_id;
 		}
 
+		$expected_parts     = array_values( is_array( $question['questionParts'] ?? null ) ? $question['questionParts'] : array() );
+		$expected_confusing = array_values( is_array( $question['confusingWords'] ?? null ) ? $question['confusingWords'] : array() );
+		$diagnostics        = array();
+
 		try {
 			if ( $template_id ) {
 				$this->clone_template_meta( $template_id, $new_id );
@@ -259,29 +300,81 @@ class Citex_Populator {
 			// never leak into, or survive alongside, the generated question's.
 			$classification_result = $this->assign_generated_classification( $new_id, $post_type, $classification );
 			if ( is_wp_error( $classification_result ) ) {
-				throw new Exception( $classification_result->get_error_message() );
+				throw new Exception( 'Category/Exercise: ' . $classification_result->get_error_message() );
 			}
 
 			$this->write_acf_value( $new_id, $field_map['fixedText'], (string) ( $question['fixedText'] ?? '' ) );
-			$this->write_acf_list( $new_id, $field_map['questionParts'], $question['questionParts'] ?? array() );
-			$this->write_acf_list( $new_id, $field_map['confusingWords'], $question['confusingWords'] ?? array() );
+
+			// Question Parts/Confusing Words are ACF repeaters whose real shape
+			// is only known by introspecting the field itself (see
+			// resolve_repeater_text_row_shape()) — never assumed from the
+			// label alone. Cloning a template can leave a repeater's OTHER
+			// (non-text) sub-field values — e.g. a punctuation selector — in
+			// place; only writing every row with the discovered shape (not
+			// just the first sub-field) replaces them correctly.
+			$parts_shape = $this->write_repeater_rows( $new_id, $field_map['questionParts'], $expected_parts );
+			if ( is_wp_error( $parts_shape ) ) {
+				throw new Exception( 'Question Parts: ' . $parts_shape->get_error_message() );
+			}
+
+			$confusing_shape = $this->write_repeater_rows( $new_id, $field_map['confusingWords'], $expected_confusing );
+			if ( is_wp_error( $confusing_shape ) ) {
+				throw new Exception( 'Confusing Words: ' . $confusing_shape->get_error_message() );
+			}
+
 			$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
 
-			// Verify the fields that make the question actually usable against
-			// the real ACF values before the post can ever be published. A
-			// record whose Scenario did not persist must never be published —
-			// it would show students a blank or stale prompt with real
-			// draggable answers.
+			// Reproduce the WordPress/ACF save lifecycle a manual "Update"
+			// click goes through — for BOTH Draft and Publish, per the
+			// investigation in the class docblock: update_field() and
+			// wp_set_object_terms() alone never fire ACF's own acf/save_post
+			// action (only ACF's own admin edit-screen form processing does),
+			// so any site logic that hooks acf/save_post to react to "this
+			// post's fields are now saved" never runs for values written this
+			// way. clean_post_cache() clears WordPress's in-process object
+			// cache for this post first, the same clear-then-reread pattern
+			// already used by Citex_Bulk_Editor for the same class of
+			// stale-read problem, so every verification read below reflects
+			// what is truly persisted.
+			$status_result = wp_update_post( array( 'ID' => $new_id, 'post_status' => $final_status ), true );
+			if ( is_wp_error( $status_result ) ) {
+				throw new Exception( $status_result->get_error_message() );
+			}
+			if ( function_exists( 'clean_post_cache' ) ) {
+				clean_post_cache( $new_id );
+			}
+			if ( function_exists( 'do_action' ) ) {
+				do_action( 'acf/save_post', $new_id );
+			}
+
+			// Consolidated post-save verification, performed AFTER the save
+			// lifecycle above so it reflects the truly final, settled state —
+			// never trust a write call's return value alone.
 			if ( function_exists( 'get_field' ) ) {
 				$stored_fixed = get_field( $field_map['fixedText'], $new_id, false );
-				if ( trim( (string) $stored_fixed ) !== trim( (string) ( $question['fixedText'] ?? '' ) ) ) {
+				$diagnostics['fixedTextVerified'] = trim( (string) $stored_fixed ) === trim( (string) ( $question['fixedText'] ?? '' ) );
+				if ( ! $diagnostics['fixedTextVerified'] ) {
 					throw new Exception( 'Fixed Text did not persist to the new Reference List record.' );
 				}
+
 				$stored_scenario = get_field( $field_map['scenario'], $new_id, false );
-				if ( trim( (string) $stored_scenario ) !== trim( (string) ( $question['scenario'] ?? '' ) ) ) {
+				$diagnostics['scenarioVerified'] = trim( (string) $stored_scenario ) === trim( (string) ( $question['scenario'] ?? '' ) );
+				if ( ! $diagnostics['scenarioVerified'] ) {
 					throw new Exception( 'Scenario did not persist to the new Reference List record.' );
 				}
 			}
+
+			$parts_check = $this->verify_repeater_text_values( $new_id, $field_map['questionParts'], $parts_shape, $expected_parts );
+			if ( is_wp_error( $parts_check ) ) {
+				throw new Exception( 'Question Parts: ' . $parts_check->get_error_message() );
+			}
+			$diagnostics['questionPartsVerified'] = count( $expected_parts ) . '/' . count( $expected_parts );
+
+			$confusing_check = $this->verify_repeater_text_values( $new_id, $field_map['confusingWords'], $confusing_shape, $expected_confusing );
+			if ( is_wp_error( $confusing_check ) ) {
+				throw new Exception( 'Confusing Words: ' . $confusing_check->get_error_message() );
+			}
+			$diagnostics['confusingWordsVerified'] = true;
 
 			// Mandatory post-creation verification: read the Category/Exercise
 			// terms back from WordPress rather than trusting wp_set_object_terms()'s
@@ -305,28 +398,33 @@ class Citex_Populator {
 					)
 				);
 			}
+			$diagnostics['categoryVerified'] = true;
+			$diagnostics['exerciseVerified']  = true;
 
-			if ( 'publish' === $final_status ) {
-				$publish_result = wp_update_post( array( 'ID' => $new_id, 'post_status' => 'publish' ), true );
-				if ( is_wp_error( $publish_result ) ) {
-					throw new Exception( $publish_result->get_error_message() );
-				}
+			$actual_status = function_exists( 'get_post_status' ) ? get_post_status( $new_id ) : $final_status;
+			$diagnostics['statusVerified'] = ( $actual_status === $final_status );
+			if ( ! $diagnostics['statusVerified'] ) {
+				throw new Exception( sprintf( 'Post status did not verify after saving: expected "%1$s", found "%2$s".', $final_status, (string) $actual_status ) );
 			}
+
+			$diagnostics['saveLifecycleCompleted'] = true;
 		} catch ( Exception $e ) {
 			wp_delete_post( $new_id, true );
 			return new WP_Error( 'citex_population_failed', $e->getMessage() );
 		}
 
-		return array(
-			'postId'           => (int) $new_id,
-			'questionId'       => (string) ( $question['questionId'] ?? '' ),
-			'status'           => $final_status,
-			'category'         => $classification['category'],
-			'exercise'         => $classification['exercise'],
-			'type'             => $classification['type'],
-			'categoryVerified' => true,
-			'exerciseVerified' => true,
-			'acfVerified'      => true,
+		$this->record_population_coverage( $classification );
+
+		return array_merge(
+			array(
+				'postId'     => (int) $new_id,
+				'questionId' => (string) ( $question['questionId'] ?? '' ),
+				'status'     => $final_status,
+				'category'   => $classification['category'],
+				'exercise'   => $classification['exercise'],
+				'type'       => $classification['type'],
+			),
+			$diagnostics
 		);
 	}
 
@@ -777,19 +875,263 @@ class Citex_Populator {
 		update_field( $field_key, $value, $post_id );
 	}
 
-	private function write_acf_list( $post_id, $field_key, $values ) {
+	/**
+	 * Write a list of plain draggable text values into an ACF field. If the
+	 * field is a simple (non-repeater) list-type field, the values are
+	 * written directly. If it is a repeater, its real row shape is
+	 * discovered via resolve_repeater_text_row_shape() and every row is
+	 * written using that shape — never just the first sub-field, which
+	 * previously left a repeater's OTHER sub-field values (e.g. a
+	 * punctuation-selector cloned from a template) in place because only
+	 * one of a row's several required sub-fields was ever actually set.
+	 *
+	 * @return array|WP_Error The resolved shape (needed by
+	 *         verify_repeater_text_values() afterwards), or a WP_Error
+	 *         naming exactly what about the repeater's structure Citex
+	 *         could not determine.
+	 */
+	private function write_repeater_rows( $post_id, $field_key, $values ) {
 		$values = array_values( is_array( $values ) ? $values : array() );
 		$field  = function_exists( 'acf_get_field' ) ? acf_get_field( $field_key ) : null;
-		if ( is_array( $field ) && 'repeater' === ( $field['type'] ?? '' ) && ! empty( $field['sub_fields'][0]['key'] ) ) {
-			$sub_key = $field['sub_fields'][0]['key'];
-			$rows = array();
-			foreach ( $values as $value ) {
-				$rows[] = array( $sub_key => (string) $value );
-			}
-			update_field( $field_key, $rows, $post_id );
-			return;
+
+		if ( ! is_array( $field ) || 'repeater' !== ( $field['type'] ?? '' ) || empty( $field['sub_fields'] ) ) {
+			update_field( $field_key, $values, $post_id );
+			return array( 'textSubfieldKey' => '', 'typeSubfieldKey' => '', 'textChoiceValue' => '' );
 		}
-		update_field( $field_key, $values, $post_id );
+
+		$shape = $this->resolve_repeater_text_row_shape( $field['sub_fields'] );
+		if ( is_wp_error( $shape ) ) {
+			return $shape;
+		}
+
+		$rows = array();
+		foreach ( $values as $value ) {
+			$row = array( $shape['textSubfieldKey'] => (string) $value );
+			if ( '' !== $shape['typeSubfieldKey'] ) {
+				$row[ $shape['typeSubfieldKey'] ] = $shape['textChoiceValue'];
+			}
+			$rows[] = $row;
+		}
+		update_field( $field_key, $rows, $post_id );
+		return $shape;
+	}
+
+	/**
+	 * Determine which sub-field of a repeater holds the actual draggable
+	 * text, and — if the repeater has a row-type selector sub-field (a
+	 * select/radio/button_group with its own choices, e.g. the "Select
+	 * Element" field reported on the live site distinguishing Text rows
+	 * from Punctuation rows) — which of its choices marks a row as plain
+	 * text. Every fact used here comes from the field's own ACF definition
+	 * (acf_get_field()), never a guess: if the shape can't be determined
+	 * confidently, this fails with a diagnostic naming exactly what was
+	 * found, rather than picking a sub-field arbitrarily.
+	 *
+	 * @return array{textSubfieldKey: string, typeSubfieldKey: string, textChoiceValue: string}|WP_Error
+	 */
+	private function resolve_repeater_text_row_shape( $sub_fields ) {
+		$choice_fields = array();
+		foreach ( $sub_fields as $sub ) {
+			if ( ! is_array( $sub ) ) {
+				continue;
+			}
+			$type = (string) ( $sub['type'] ?? '' );
+			if ( in_array( $type, array( 'select', 'radio', 'button_group' ), true ) && ! empty( $sub['choices'] ) && is_array( $sub['choices'] ) ) {
+				$choice_fields[] = $sub;
+			}
+		}
+
+		// No row-type selector at all: a plain repeater where every row is
+		// just one value — use its only sub-field, matching a genuinely
+		// simple repeater shape.
+		if ( empty( $choice_fields ) ) {
+			if ( empty( $sub_fields[0]['key'] ) ) {
+				return new WP_Error( 'citex_repeater_shape_unknown', 'Citex could not identify a usable sub-field on this repeater.' );
+			}
+			return array(
+				'textSubfieldKey' => (string) $sub_fields[0]['key'],
+				'typeSubfieldKey' => '',
+				'textChoiceValue' => '',
+			);
+		}
+
+		// More than one choice-type sub-field is not automatically
+		// ambiguous — a repeater can legitimately have both a row-type
+		// selector (the discriminator we want) AND a separate choice-type
+		// VALUE field for one of the row types (e.g. the reported
+		// "Punctuation" picker, which selects a punctuation VALUE, not a
+		// row TYPE). Prefer whichever choice field's own label/name reads
+		// as a discriminator — "select", "element", "type" or "kind" — a
+		// common, recognisable ACF naming convention for exactly this kind
+		// of field, matching the reported "Select Element" field. Only if
+		// that naming convention does not narrow it to exactly one field is
+		// this a genuine ambiguity Citex will not guess through.
+		$discriminator = null;
+		if ( 1 === count( $choice_fields ) ) {
+			$discriminator = $choice_fields[0];
+		} else {
+			$discriminator_candidates = array();
+			foreach ( $choice_fields as $sub ) {
+				$label = $this->normalise_label( $sub['label'] ?? '' );
+				$name  = $this->normalise_label( $sub['name'] ?? '' );
+				foreach ( array( 'select', 'element', 'type', 'kind' ) as $needle ) {
+					if ( false !== strpos( $label, $needle ) || false !== strpos( $name, $needle ) ) {
+						$discriminator_candidates[] = $sub;
+						break;
+					}
+				}
+			}
+			if ( 1 === count( $discriminator_candidates ) ) {
+				$discriminator = $discriminator_candidates[0];
+			}
+		}
+
+		if ( null === $discriminator ) {
+			return new WP_Error(
+				'citex_repeater_shape_ambiguous',
+				sprintf(
+					'This repeater has more than one selectable sub-field (%s); Citex cannot determine which one selects the row type.',
+					implode( ', ', array_map( array( $this, 'describe_field' ), $choice_fields ) )
+				)
+			);
+		}
+
+		$text_choice_value = null;
+		foreach ( (array) $discriminator['choices'] as $choice_value => $choice_label ) {
+			if ( 'text' === $this->normalise_label( (string) $choice_value ) || 'text' === $this->normalise_label( (string) $choice_label ) ) {
+				$text_choice_value = (string) $choice_value;
+				break;
+			}
+		}
+		if ( null === $text_choice_value ) {
+			return new WP_Error(
+				'citex_repeater_text_choice_not_found',
+				sprintf(
+					'Citex could not find a "Text" choice on the "%1$s" sub-field. Available choices: %2$s.',
+					$this->describe_field( $discriminator ),
+					implode( ', ', $discriminator['choices'] )
+				)
+			);
+		}
+
+		$text_candidates = array();
+		foreach ( $sub_fields as $sub ) {
+			if ( ! is_array( $sub ) || ( $sub['key'] ?? null ) === ( $discriminator['key'] ?? null ) ) {
+				continue;
+			}
+			if ( in_array( (string) ( $sub['type'] ?? '' ), array( 'text', 'textarea', 'wysiwyg' ), true ) ) {
+				$text_candidates[] = $sub;
+			}
+		}
+		if ( empty( $text_candidates ) ) {
+			return new WP_Error( 'citex_repeater_text_field_not_found', 'Citex could not find a text sub-field on this repeater to hold the draggable value.' );
+		}
+
+		$preferred = null;
+		foreach ( $text_candidates as $sub ) {
+			$label = $this->normalise_label( $sub['label'] ?? '' );
+			$name  = $this->normalise_label( $sub['name'] ?? '' );
+			if ( 'text' === $label || 'text' === $name || false !== strpos( $label, 'text' ) || false !== strpos( $name, 'text' ) ) {
+				$preferred = $sub;
+				break;
+			}
+		}
+		if ( null === $preferred ) {
+			if ( 1 === count( $text_candidates ) ) {
+				$preferred = $text_candidates[0];
+			} else {
+				return new WP_Error(
+					'citex_repeater_text_field_ambiguous',
+					sprintf(
+						'Citex found more than one possible text sub-field (%s) and none is clearly labelled "Text".',
+						implode( ', ', array_map( array( $this, 'describe_field' ), $text_candidates ) )
+					)
+				);
+			}
+		}
+
+		return array(
+			'textSubfieldKey' => (string) $preferred['key'],
+			'typeSubfieldKey' => (string) $discriminator['key'],
+			'textChoiceValue' => $text_choice_value,
+		);
+	}
+
+	/**
+	 * Read a repeater's actual saved rows back from WordPress and confirm
+	 * the text sub-field of every row exactly matches the expected values,
+	 * in order. This is what catches a stray non-text value (such as a
+	 * template's cloned punctuation selection) surviving in a row Citex
+	 * intended to be plain text, and any missing, reordered, or truncated
+	 * draggable value.
+	 */
+	private function verify_repeater_text_values( $post_id, $field_key, $shape, $expected_values ) {
+		if ( ! function_exists( 'get_field' ) ) {
+			return true;
+		}
+		$text_key = is_array( $shape ) ? ( $shape['textSubfieldKey'] ?? '' ) : '';
+		$stored   = get_field( $field_key, $post_id, false );
+		$stored   = is_array( $stored ) ? $stored : array();
+
+		$actual_values = array();
+		foreach ( $stored as $row ) {
+			if ( '' !== $text_key && is_array( $row ) && array_key_exists( $text_key, $row ) ) {
+				$actual_values[] = trim( (string) $row[ $text_key ] );
+			} elseif ( is_scalar( $row ) ) {
+				$actual_values[] = trim( (string) $row );
+			} else {
+				$actual_values[] = '';
+			}
+		}
+
+		$expected_trimmed = array_map(
+			function ( $v ) {
+				return trim( (string) $v );
+			},
+			$expected_values
+		);
+
+		if ( $actual_values !== $expected_trimmed ) {
+			return new WP_Error(
+				'citex_repeater_verification_failed',
+				sprintf(
+					'Expected draggable values [%1$s] but found [%2$s] after saving.',
+					implode( ', ', $expected_trimmed ),
+					implode( ', ', $actual_values )
+				)
+			);
+		}
+		return true;
+	}
+
+	private function describe_field( $field ) {
+		$label = (string) ( $field['label'] ?? '' );
+		return '' !== $label ? $label : (string) ( $field['name'] ?? '' );
+	}
+
+	/**
+	 * Persistent Category x Exercise x Type population history, kept purely
+	 * in Citex's own WordPress option (never read from, or written to, any
+	 * WordPress taxonomy/ACF data) so exercise-coverage tracking survives a
+	 * pending question being populated and removed from the pending queue —
+	 * without it, Citex would forget a slot was ever filled the moment it
+	 * left the pending list, and the next batch could refill an
+	 * already-complete exercise while leaving another one empty.
+	 */
+	const OPTION_COVERAGE = 'citex_population_coverage';
+
+	public static function get_population_coverage() {
+		$coverage = get_option( self::OPTION_COVERAGE, array() );
+		return is_array( $coverage ) ? $coverage : array();
+	}
+
+	private function record_population_coverage( $classification ) {
+		$coverage = self::get_population_coverage();
+		$category = $classification['category'];
+		$exercise = $classification['exercise'];
+		$type     = $classification['type'];
+		$coverage[ $category ][ $exercise ][ $type ] = (int) ( $coverage[ $category ][ $exercise ][ $type ] ?? 0 ) + 1;
+		update_option( self::OPTION_COVERAGE, $coverage, false );
 	}
 
 	private function redirect_back() {

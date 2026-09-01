@@ -127,6 +127,29 @@ function wp_update_post( $args, $wp_error = false ) {
 	return $id;
 }
 
+function get_post_status( $post_id ) {
+	return $GLOBALS['__posts'][ $post_id ]['post_status'] ?? false;
+}
+
+function clean_post_cache( $post_id ) {
+	$GLOBALS['__clean_post_cache_calls'][] = $post_id;
+}
+
+function do_action( $hook, ...$args ) {
+	if ( 'acf/save_post' === $hook ) {
+		$GLOBALS['__acf_save_post_calls'][] = $args[0] ?? null;
+	}
+}
+
+function get_option( $key, $default = false ) {
+	return $GLOBALS['__options'][ $key ] ?? $default;
+}
+
+function update_option( $key, $value, $autoload = null ) {
+	$GLOBALS['__options'][ $key ] = $value;
+	return true;
+}
+
 function wp_delete_post( $id, $force = false ) {
 	if ( isset( $GLOBALS['__posts'][ $id ] ) ) {
 		unset( $GLOBALS['__posts'][ $id ] );
@@ -249,6 +272,9 @@ function reset_environment() {
 	$GLOBALS['__acf_write_blocked']             = array();
 	$GLOBALS['__next_post_id']                  = 100;
 	$GLOBALS['__deleted_posts']                 = array();
+	$GLOBALS['__clean_post_cache_calls']        = array();
+	$GLOBALS['__acf_save_post_calls']           = array();
+	$GLOBALS['__options']                       = array();
 
 	$GLOBALS['__acf_fields'] = array(
 		Citex_Populator::FIELD_FIXED_TEXT      => array( 'key' => Citex_Populator::FIELD_FIXED_TEXT, 'type' => 'text' ),

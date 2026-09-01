@@ -41,6 +41,86 @@ class Citex_Generator {
 		return count( self::get_pending_questions() );
 	}
 
+	const EXERCISES = array( 'Exercise 1', 'Exercise 2', 'Exercise 3', 'Exercise 4', 'Exercise 5' );
+
+	/**
+	 * Combined Category x Exercise x Type coverage: already-populated
+	 * records (Citex_Populator's own persistent count, since a populated
+	 * question leaves the pending queue and its WordPress taxonomy is not
+	 * otherwise visible to the scanner) plus not-yet-populated pending
+	 * questions already carrying this classification. Both count towards
+	 * "already covered" so a new batch does not pile more questions onto a
+	 * slot that is merely pending, nor onto one already populated.
+	 */
+	public static function compute_category_coverage( $category ) {
+		$coverage = array();
+		foreach ( self::EXERCISES as $exercise ) {
+			$coverage[ $exercise ] = array( 'DragDrop' => 0, 'MCQ' => 0 );
+		}
+
+		$populated = Citex_Populator::get_population_coverage();
+		foreach ( ( $populated[ $category ] ?? array() ) as $exercise => $types ) {
+			if ( ! isset( $coverage[ $exercise ] ) ) {
+				continue;
+			}
+			foreach ( $types as $type => $count ) {
+				if ( isset( $coverage[ $exercise ][ $type ] ) ) {
+					$coverage[ $exercise ][ $type ] += (int) $count;
+				}
+			}
+		}
+
+		foreach ( self::get_pending_questions() as $question ) {
+			if ( $category !== (string) ( $question['category'] ?? '' ) ) {
+				continue;
+			}
+			$exercise = (string) ( $question['exercise'] ?? '' );
+			$type     = (string) ( $question['type'] ?? '' );
+			if ( isset( $coverage[ $exercise ][ $type ] ) ) {
+				$coverage[ $exercise ][ $type ]++;
+			}
+		}
+
+		return $coverage;
+	}
+
+	/**
+	 * Deterministically assign each of $quantity generation slots to an
+	 * Exercise, based on current coverage — Gemini is never asked to choose
+	 * an exercise and nothing it returns is trusted for this (its response
+	 * schema has no exercise field at all). Greedily fills whichever
+	 * exercise currently has the fewest $type questions first (ties broken
+	 * by Exercise 1-5 order), decrementing the deficit as each slot is
+	 * assigned within this batch — so a 10-slot request naturally spreads
+	 * 2 across every exercise instead of concentrating in whichever is
+	 * lowest at the start, and a smaller request fills the most-needed
+	 * exercises first rather than always starting at Exercise 1.
+	 *
+	 * @return string[] Exercise name for each of the $quantity slots, in order.
+	 */
+	public static function build_exercise_assignments( $category, $type, $quantity ) {
+		$coverage = self::compute_category_coverage( $category );
+		$counts   = array();
+		foreach ( self::EXERCISES as $exercise ) {
+			$counts[ $exercise ] = (int) ( $coverage[ $exercise ][ $type ] ?? 0 );
+		}
+
+		$assignments = array();
+		for ( $i = 0; $i < $quantity; $i++ ) {
+			$lowest_exercise = self::EXERCISES[0];
+			$lowest_count    = $counts[ $lowest_exercise ];
+			foreach ( self::EXERCISES as $exercise ) {
+				if ( $counts[ $exercise ] < $lowest_count ) {
+					$lowest_exercise = $exercise;
+					$lowest_count    = $counts[ $exercise ];
+				}
+			}
+			$assignments[] = $lowest_exercise;
+			$counts[ $lowest_exercise ]++;
+		}
+		return $assignments;
+	}
+
 	/**
 	 * Called on admin_init (before any output) as well as at the top of
 	 * render(), so a redirect after submission always reaches the browser.
@@ -108,15 +188,20 @@ class Citex_Generator {
 			$difficulty = 'medium';
 		}
 
-		$pending  = self::get_pending_questions();
-		$used_ids = $this->collect_used_question_ids( $pending );
-		$result   = Citex_AI::generate_questions(
+		$pending     = self::get_pending_questions();
+		$used_ids    = $this->collect_used_question_ids( $pending );
+		// Citex — not Gemini — assigns each slot's Exercise, deterministically,
+		// before generation even starts. Gemini's response schema carries no
+		// exercise field, so there is nothing from it to trust or distrust here.
+		$assignments = self::build_exercise_assignments( 'Book', 'DragDrop', $quantity );
+		$result      = Citex_AI::generate_questions(
 			array(
-				'quantity'   => $quantity,
-				'starting_id'=> $starting_id,
-				'difficulty' => $difficulty,
-				'web_verify' => $web_verify,
-				'used_ids'   => array_keys( $used_ids ),
+				'quantity'            => $quantity,
+				'starting_id'         => $starting_id,
+				'difficulty'          => $difficulty,
+				'web_verify'          => $web_verify,
+				'used_ids'            => array_keys( $used_ids ),
+				'exercise_assignments'=> $assignments,
 			)
 		);
 
@@ -126,10 +211,27 @@ class Citex_Generator {
 		}
 
 		self::save_pending_questions( array_merge( $pending, $result ) );
-		Citex_Admin::set_notice(
-			sprintf( _n( '%d AI question generated. Validate it before population.', '%d AI questions generated. Validate them before population.', count( $result ), 'citex-tools' ), count( $result ) ),
-			'success'
+
+		$coverage_after = self::compute_category_coverage( 'Book' );
+		$dragdrop_covered = 0;
+		foreach ( $coverage_after as $counts ) {
+			if ( ( $counts['DragDrop'] ?? 0 ) > 0 ) {
+				$dragdrop_covered++;
+			}
+		}
+		$message = sprintf(
+			_n( '%d AI question generated. Validate it before population.', '%d AI questions generated. Validate them before population.', count( $result ), 'citex-tools' ),
+			count( $result )
 		);
+		$message .= ' ' . sprintf(
+			__( 'Book DragDrop exercise coverage: %1$d/5 exercises now have at least one question.', 'citex-tools' ),
+			$dragdrop_covered
+		);
+		if ( $dragdrop_covered < 5 ) {
+			$message .= ' ' . __( 'Coverage is not yet complete.', 'citex-tools' );
+		}
+		$message .= ' ' . __( 'MCQ generation is not yet supported, so complete 10-question (5 exercises x 2 types) coverage cannot be produced yet — only DragDrop.', 'citex-tools' );
+		Citex_Admin::set_notice( $message, 'success' );
 		$this->redirect_back();
 	}
 

@@ -47,6 +47,11 @@ class Citex_AI_V2 {
 		$verify = isset( $args['web_verify'] ) ? (bool) $args['web_verify'] : self::web_verification_enabled();
 		$ids = self::build_ids( strtoupper( sanitize_text_field( $args['starting_id'] ?? 'BK01' ) ), $quantity, $args['used_ids'] ?? array() );
 		if ( is_wp_error( $ids ) ) { return $ids; }
+		// Citex assigns each slot's Exercise deterministically before any
+		// Gemini request is made (see Citex_Generator::build_exercise_assignments());
+		// Gemini's schema has no exercise field, so nothing from its response
+		// is ever consulted for this.
+		$exercises = array_values( (array) ( $args['exercise_assignments'] ?? array() ) );
 
 		$last_error = '';
 		for ( $attempt = 1; $attempt <= self::MAX_QUALITY_ATTEMPTS; $attempt++ ) {
@@ -66,7 +71,7 @@ class Citex_AI_V2 {
 			if ( '' === $text || JSON_ERROR_NONE !== json_last_error() || ! is_array( $decoded ) ) { return new WP_Error( 'citex_ai_invalid_json', __( 'Gemini did not return valid structured question data.', 'citex-tools' ) ); }
 			$questions = isset( $decoded['questions'] ) && is_array( $decoded['questions'] ) ? $decoded['questions'] : array();
 			if ( count( $questions ) !== $quantity ) { $last_error = sprintf( 'The previous attempt returned %d questions instead of %d. Return exactly %d.', count( $questions ), $quantity, $quantity ); continue; }
-			$result = self::normalise( $questions, $ids, $difficulty );
+			$result = self::normalise( $questions, $ids, $difficulty, $exercises );
 			if ( ! is_wp_error( $result ) ) { return $result; }
 			$last_error = $result->get_error_message();
 		}
@@ -111,7 +116,7 @@ class Citex_AI_V2 {
 			default: return 3;
 		}
 	}
-	private static function normalise( $questions, $ids, $difficulty ) {
+	private static function normalise( $questions, $ids, $difficulty, $exercises = array() ) {
 		$out = array();
 		$expected_distractors = self::expected_distractor_count( $difficulty );
 		foreach ( $questions as $i => $item ) {
@@ -140,7 +145,10 @@ class Citex_AI_V2 {
 				$seen[ $normal ] = true;
 			}
 			$reference = sprintf( '%s, %s (%s) %s. %s: %s.', $surname, $initials, $year, $title, $place, $publisher );
-			$candidate = array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'type' => 'DragDrop', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'authorSurname' => sanitize_text_field( $surname ), 'authorInitials' => sanitize_text_field( $initials ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+			// Exercise is Citex-assigned only — resolved by slot index from the
+			// matrix built before generation began, never read from $item.
+			$exercise  = isset( $exercises[ $i ] ) ? sanitize_text_field( (string) $exercises[ $i ] ) : 'Exercise 1';
+			$candidate = array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'authorSurname' => sanitize_text_field( $surname ), 'authorInitials' => sanitize_text_field( $initials ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 			$validation = Citex_Generated_Validator::validate( $candidate );
 			if ( 'passed' !== $validation['status'] ) { $first_error = ! empty( $validation['errors'][0]['message'] ) ? $validation['errors'][0]['message'] : __( 'Generated question failed Citex validation.', 'citex-tools' ); return new WP_Error( 'citex_ai_validator_rejected', sprintf( __( 'Question %s failed the pre-queue quality gate: %s', 'citex-tools' ), $id, $first_error ) ); }
 			$candidate['validatedReference'] = $validation['reconstructedReference'];

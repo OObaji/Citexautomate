@@ -65,10 +65,10 @@ function check( $description, $actual, $expected ) {
 	}
 }
 
-function invoke_normalise( $questions, $ids, $difficulty ) {
+function invoke_normalise( $questions, $ids, $difficulty, $exercises = array() ) {
 	$reflection = new ReflectionMethod( 'Citex_AI_V2', 'normalise' );
 	$reflection->setAccessible( true );
-	return $reflection->invoke( null, $questions, $ids, $difficulty );
+	return $reflection->invoke( null, $questions, $ids, $difficulty, $exercises );
 }
 
 // ---------------------------------------------------------------------
@@ -123,6 +123,39 @@ $item_with_bad_scenario = array(
 $rejected = invoke_normalise( array( $item_with_bad_scenario ), array( 'BK02' ), 'medium' );
 check( '[scenario mismatch] normalise() rejects a scenario that does not match the bibliographic record', is_wp_error( $rejected ), true );
 check( '[scenario mismatch] error code identifies the pre-queue quality gate rejection', is_wp_error( $rejected ) ? $rejected->get_error_code() : null, 'citex_ai_validator_rejected' );
+
+// ---------------------------------------------------------------------
+// 3. Exercise is stamped from the pre-built assignment matrix by slot
+// index — never read from Gemini's own response (its schema has no
+// exercise field at all, so there is nothing there to trust or distrust).
+// ---------------------------------------------------------------------
+function make_valid_item( $suffix ) {
+	return array(
+		'scenario'       => "You are referencing a book titled Book $suffix by A. Smith, published in London by Example Press in 2020.",
+		'authorSurname'  => 'Smith',
+		'authorInitials' => 'A.',
+		'year'           => '2020',
+		'bookTitle'      => "Book $suffix",
+		'place'          => 'London',
+		'publisher'      => 'Example Press',
+		'confusingWords' => array( '2018', 'Manchester', 'Brown' ),
+	);
+}
+$batch_items = array( make_valid_item( 'One' ), make_valid_item( 'Two' ), make_valid_item( 'Three' ) );
+$batch_ids   = array( 'BK10', 'BK11', 'BK12' );
+$assignments = array( 'Exercise 3', 'Exercise 1', 'Exercise 5' );
+$batch_result = invoke_normalise( $batch_items, $batch_ids, 'medium', $assignments );
+check( '[exercise assignment] normalise() succeeds', is_wp_error( $batch_result ), false );
+if ( ! is_wp_error( $batch_result ) ) {
+	check( '[exercise assignment] slot 0 is stamped with its pre-assigned exercise', $batch_result[0]['exercise'], 'Exercise 3' );
+	check( '[exercise assignment] slot 1 is stamped with its pre-assigned exercise', $batch_result[1]['exercise'], 'Exercise 1' );
+	check( '[exercise assignment] slot 2 is stamped with its pre-assigned exercise', $batch_result[2]['exercise'], 'Exercise 5' );
+}
+
+// No assignment supplied at all defaults sensibly (today's only generation
+// target) rather than erroring or leaving the field unset.
+$no_assignment_result = invoke_normalise( array( make_valid_item( 'Four' ) ), array( 'BK13' ), 'medium' );
+check( '[exercise assignment] a missing assignment array defaults to Exercise 1', is_wp_error( $no_assignment_result ) ? null : $no_assignment_result[0]['exercise'], 'Exercise 1' );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
