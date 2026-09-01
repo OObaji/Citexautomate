@@ -1,3 +1,4 @@
-questionId,authorSurname,authorInitials,year,bookTitle,place,publisher,confusingWords,difficulty
-BK01,Lopez,M.,2019,Global Health,Oxford,Oxford University Press,"2017;;2020;;London",Medium
-BK02,Chen,E.,2020,Urban Planning,Berlin,Springer,"2018;;2021;;Manchester",Medium
+questionId,scenario,authorSurname,authorInitials,year,bookTitle,place,publisher,confusingWords,difficulty
+BK01,"You are creating a reference for a book titled Global Health, written by Maria Lopez. It was published in 2019 by Oxford University Press in Oxford.",Lopez,M.,2019,Global Health,Oxford,Oxford University Press,"2017;;2020;;London",Medium
+BK02,"You are referencing a book titled Modern Economics, written by John Smith. It was published in 2018 by Pearson in New York.",Smith,J.,2018,Modern Economics,New York,Pearson,"2017;;2020;;Oxford",Medium
+BK03,"You are creating a reference for a book titled Environmental Economics, written by Peter Hall. It was published in 2015 by Elsevier in Amsterdam.",Hall,P.,2015,Environmental Economics,Amsterdam,Elsevier,"2014;;2018;;London",Medium
