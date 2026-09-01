@@ -22,10 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * 2. If no such record exists, Citex does not require one. The Question
  *    Parts / Fixed Text / Confusing Words ACF fields are addressed by the
  *    already-known field keys, and the Question/Scenario field is located
- *    by inspecting the ACF field groups registered against the Reference
- *    List post type (the same label/name matching find_acf_field_key()
- *    already used against a template post, just sourced from the field
- *    group definitions instead of one post's values). No meta is cloned in
+ *    by discover_scenario_field() (see its docblock). No meta is cloned in
  *    this path — Citex has no way to know which of an arbitrary template
  *    post's other meta keys would apply to an unrelated question. Any
  *    taxonomy attached to the post type is inspected for terms literally
@@ -34,9 +31,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  *    plugin's discovered schema shows classification ever depends on a
  *    taxonomy (the scanner and validator both classify purely from the
  *    post title), so no taxonomy assignment is treated as required.
- * 3. If the Question/Scenario ACF field cannot be located by either path,
- *    Citex stops with a clear error rather than writing a record with a
- *    missing field.
+ * 3. If the Question/Scenario ACF field cannot be located by any of
+ *    discover_scenario_field()'s strategies, Citex stops with a clear,
+ *    diagnostic error rather than writing a record with a missing field.
  */
 class Citex_Populator {
 
@@ -135,7 +132,7 @@ class Citex_Populator {
 
 		$template_id = $this->find_template_post_id( $post_type, $scan );
 		$field_map   = $template_id
-			? $this->resolve_population_fields( $template_id )
+			? $this->resolve_population_fields( $template_id, $post_type )
 			: $this->resolve_population_fields_without_template( $post_type );
 		if ( is_wp_error( $field_map ) ) {
 			Citex_Admin::set_notice( $field_map->get_error_message(), 'error' );
@@ -232,12 +229,19 @@ class Citex_Populator {
 			$this->write_acf_list( $new_id, $field_map['confusingWords'], $question['confusingWords'] ?? array() );
 			$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
 
-			// Verify the most important field against the real ACF value before the
-			// post can ever be published.
+			// Verify the fields that make the question actually usable against
+			// the real ACF values before the post can ever be published. A
+			// record whose Scenario did not persist must never be published —
+			// it would show students a blank or stale prompt with real
+			// draggable answers.
 			if ( function_exists( 'get_field' ) ) {
 				$stored_fixed = get_field( $field_map['fixedText'], $new_id, false );
 				if ( trim( (string) $stored_fixed ) !== trim( (string) ( $question['fixedText'] ?? '' ) ) ) {
 					throw new Exception( 'Fixed Text did not persist to the new Reference List record.' );
+				}
+				$stored_scenario = get_field( $field_map['scenario'], $new_id, false );
+				if ( trim( (string) $stored_scenario ) !== trim( (string) ( $question['scenario'] ?? '' ) ) ) {
+					throw new Exception( 'Scenario did not persist to the new Reference List record.' );
 				}
 			}
 
@@ -296,15 +300,15 @@ class Citex_Populator {
 		return 0;
 	}
 
-	private function resolve_population_fields( $template_id ) {
+	private function resolve_population_fields( $template_id, $post_type ) {
 		$known = $this->assert_known_acf_fields_registered();
 		if ( is_wp_error( $known ) ) {
 			return $known;
 		}
 
-		$scenario_key = $this->find_acf_field_key( $template_id, array( 'question', 'scenario', 'question text' ) );
-		if ( ! $scenario_key ) {
-			return new WP_Error( 'citex_question_field_not_found', 'Citex could not identify the ACF Question/Scenario field on the Book/DragDrop template. No posts were created.' );
+		$scenario_key = $this->discover_scenario_field( $post_type, $template_id );
+		if ( is_wp_error( $scenario_key ) ) {
+			return $scenario_key;
 		}
 
 		return array(
@@ -317,10 +321,7 @@ class Citex_Populator {
 
 	/**
 	 * Same field map as resolve_population_fields(), but discovered without
-	 * any existing template post. The three known ACF field keys are used
-	 * directly; the Question/Scenario field is located by inspecting the
-	 * ACF field groups registered against the Reference List post type
-	 * itself, so no real question record needs to exist first.
+	 * any existing template post.
 	 */
 	private function resolve_population_fields_without_template( $post_type ) {
 		$known = $this->assert_known_acf_fields_registered();
@@ -328,9 +329,9 @@ class Citex_Populator {
 			return $known;
 		}
 
-		$scenario_key = $this->find_acf_field_key_by_post_type( $post_type, array( 'question', 'scenario', 'question text' ) );
-		if ( ! $scenario_key ) {
-			return new WP_Error( 'citex_question_field_not_found', 'Citex could not identify the ACF Question/Scenario field for this Reference List post type. No posts were created.' );
+		$scenario_key = $this->discover_scenario_field( $post_type, 0 );
+		if ( is_wp_error( $scenario_key ) ) {
+			return $scenario_key;
 		}
 
 		return array(
@@ -350,59 +351,171 @@ class Citex_Populator {
 		return true;
 	}
 
-	private function find_acf_field_key( $post_id, $wanted_labels ) {
+	/**
+	 * Robust Question/Scenario field discovery.
+	 *
+	 * A single ACF lookup mechanism can miss a field that another finds —
+	 * for example, a field group whose location rule depends on more than
+	 * "Post Type is equal to X" may not resolve under a post-type-only
+	 * location context, while it still resolves against a specific post's
+	 * full location context (or vice-versa). So every safe, ACF-native
+	 * mechanism is tried and the results are merged into one candidate set
+	 * before matching, rather than trusting any single one to be complete:
+	 *
+	 * 1. Field GROUP definitions located by post type
+	 *    (acf_get_field_groups(['post_type' => ...])) — works even before
+	 *    any matching Reference List record exists.
+	 * 2. Field GROUP definitions located by the specific post's full
+	 *    location context (acf_get_field_groups(['post_id' => ...])) — this
+	 *    is the same location-rule resolution ACF itself uses to decide
+	 *    what actually renders on that post's edit screen, so it can
+	 *    succeed where a post-type-only rule fails.
+	 * 3. get_field_objects() against the template post directly — ACF's own
+	 *    "what fields does this specific post have" API.
+	 *
+	 * Each field definition tree is walked through repeater/group
+	 * sub_fields AND flexible-content layouts' sub_fields, so a Scenario
+	 * field nested inside either is still found.
+	 *
+	 * Matching is by normalised (lowercased, non-alphanumeric-collapsed)
+	 * label or field name, tried in priority order "scenario", then
+	 * "question text", then the more generic "question" — the most likely
+	 * match wins first. If more than one field matches within the same
+	 * priority tier, that is a genuine ambiguity: Citex does not guess
+	 * which one is correct, it fails with every candidate label listed.
+	 *
+	 * @param string $post_type Reference List post type.
+	 * @param int    $post_id   A real post to also inspect directly, or 0
+	 *                          to only use post-type-level discovery
+	 *                          (the no-template path).
+	 * @return string|WP_Error Field key, or a WP_Error describing every ACF
+	 *         field Citex could actually discover, so a failure is
+	 *         diagnosable instead of a bare "not found".
+	 */
+	private function discover_scenario_field( $post_type, $post_id = 0 ) {
+		$candidates = array();
+		$this->collect_fields_by_post_type( $post_type, $candidates );
+		if ( $post_id ) {
+			$this->collect_fields_by_post_id( $post_id, $candidates );
+			$this->collect_fields_from_post_objects( $post_id, $candidates );
+		}
+
+		foreach ( array( 'scenario', 'question text', 'question' ) as $wanted_label ) {
+			$tier = array();
+			foreach ( $candidates as $key => $field ) {
+				$label = $this->normalise_label( $field['label'] );
+				$name  = $this->normalise_label( $field['name'] );
+				if ( $wanted_label === $label || $wanted_label === $name ) {
+					$tier[ $key ] = $field;
+				}
+			}
+			if ( 1 === count( $tier ) ) {
+				return (string) array_key_first( $tier );
+			}
+			if ( count( $tier ) > 1 ) {
+				return new WP_Error(
+					'citex_question_field_ambiguous',
+					sprintf(
+						'Citex found more than one ACF field matching "%1$s". Candidates: %2$s. Rename the intended field so it is unique, or narrow the others.',
+						$wanted_label,
+						$this->describe_candidates( $tier )
+					)
+				);
+			}
+		}
+
+		if ( empty( $candidates ) ) {
+			return new WP_Error(
+				'citex_question_field_not_found',
+				'Citex could not identify the Scenario ACF field: no ACF fields were discovered at all for this Reference List post type. Confirm Advanced Custom Fields is active and its field group is attached to this post type.'
+			);
+		}
+
+		return new WP_Error(
+			'citex_question_field_not_found',
+			sprintf( 'Citex could not identify the Scenario ACF field. Discovered ACF fields: %s.', $this->describe_candidates( $candidates ) )
+		);
+	}
+
+	private function collect_fields_by_post_type( $post_type, array &$candidates ) {
+		if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) ) {
+			return;
+		}
+		$groups = acf_get_field_groups( array( 'post_type' => $post_type ) );
+		$this->collect_from_groups( is_array( $groups ) ? $groups : array(), $candidates );
+	}
+
+	private function collect_fields_by_post_id( $post_id, array &$candidates ) {
+		if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) ) {
+			return;
+		}
+		$groups = acf_get_field_groups( array( 'post_id' => $post_id ) );
+		$this->collect_from_groups( is_array( $groups ) ? $groups : array(), $candidates );
+	}
+
+	private function collect_from_groups( $groups, array &$candidates ) {
+		foreach ( $groups as $group ) {
+			$fields = acf_get_fields( $group );
+			if ( is_array( $fields ) ) {
+				$this->collect_fields_tree( $fields, $candidates );
+			}
+		}
+	}
+
+	private function collect_fields_from_post_objects( $post_id, array &$candidates ) {
 		if ( ! function_exists( 'get_field_objects' ) ) {
-			return '';
+			return;
 		}
 		$fields = get_field_objects( $post_id, false, false );
-		return $this->search_fields_tree( is_array( $fields ) ? $fields : array(), $wanted_labels );
+		if ( is_array( $fields ) ) {
+			$this->collect_fields_tree( $fields, $candidates );
+		}
 	}
 
 	/**
-	 * Locate an ACF field key from the field GROUP definitions registered
-	 * against a post type, rather than from one post's populated values.
-	 * This is what lets Citex find the Question/Scenario field before any
-	 * matching Reference List record exists.
+	 * Walk a field definition tree — repeater/group sub_fields AND
+	 * flexible-content layouts' sub_fields — recording every field once by
+	 * key. Deliberately does not stop at the first match: the caller needs
+	 * every candidate, both to detect ambiguity and to report diagnostics.
 	 */
-	private function find_acf_field_key_by_post_type( $post_type, $wanted_labels ) {
-		if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) ) {
-			return '';
-		}
-		$groups = acf_get_field_groups( array( 'post_type' => $post_type ) );
-		if ( ! is_array( $groups ) ) {
-			return '';
-		}
-		foreach ( $groups as $group ) {
-			$fields = acf_get_fields( $group );
-			if ( ! is_array( $fields ) ) {
-				continue;
-			}
-			$found = $this->search_fields_tree( $fields, $wanted_labels );
-			if ( '' !== $found ) {
-				return $found;
-			}
-		}
-		return '';
-	}
-
-	private function search_fields_tree( $fields, $wanted_labels ) {
-		$wanted = array_map( array( $this, 'normalise_label' ), $wanted_labels );
-		$stack  = array_values( $fields );
+	private function collect_fields_tree( $fields, array &$candidates ) {
+		$stack = array_values( $fields );
 		while ( ! empty( $stack ) ) {
 			$field = array_shift( $stack );
 			if ( ! is_array( $field ) ) {
 				continue;
 			}
-			$label = $this->normalise_label( $field['label'] ?? '' );
-			$name  = $this->normalise_label( $field['name'] ?? '' );
-			if ( in_array( $label, $wanted, true ) || in_array( $name, $wanted, true ) ) {
-				return (string) ( $field['key'] ?? '' );
+			$key = (string) ( $field['key'] ?? '' );
+			if ( '' !== $key && ! isset( $candidates[ $key ] ) ) {
+				$candidates[ $key ] = array(
+					'key'   => $key,
+					'label' => (string) ( $field['label'] ?? '' ),
+					'name'  => (string) ( $field['name'] ?? '' ),
+				);
 			}
 			if ( ! empty( $field['sub_fields'] ) && is_array( $field['sub_fields'] ) ) {
 				$stack = array_merge( $stack, $field['sub_fields'] );
 			}
+			if ( ! empty( $field['layouts'] ) && is_array( $field['layouts'] ) ) {
+				foreach ( $field['layouts'] as $layout ) {
+					if ( is_array( $layout ) && ! empty( $layout['sub_fields'] ) && is_array( $layout['sub_fields'] ) ) {
+						$stack = array_merge( $stack, $layout['sub_fields'] );
+					}
+				}
+			}
 		}
-		return '';
+	}
+
+	private function describe_candidates( $candidates ) {
+		$labels = array();
+		foreach ( $candidates as $field ) {
+			$label = '' !== $field['label'] ? $field['label'] : $field['name'];
+			if ( '' !== trim( (string) $label ) ) {
+				$labels[] = trim( (string) $label );
+			}
+		}
+		$labels = array_values( array_unique( $labels ) );
+		return empty( $labels ) ? '(none)' : implode( ', ', $labels );
 	}
 
 	/**

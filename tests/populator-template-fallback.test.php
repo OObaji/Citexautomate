@@ -332,7 +332,7 @@ $scan_with_template = array(
 $template_id = invoke_private( $populator, 'find_template_post_id', array( 'question', $scan_with_template ) );
 check( '[template] find_template_post_id finds the real Book/DragDrop record', $template_id, 500 );
 
-$field_map = invoke_private( $populator, 'resolve_population_fields', array( $template_id ) );
+$field_map = invoke_private( $populator, 'resolve_population_fields', array( $template_id, 'question' ) );
 check( '[template] resolve_population_fields discovers the scenario field from the template post', $field_map['scenario'], 'field_scenario_tmpl' );
 
 $question = sample_question();
