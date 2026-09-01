@@ -9,13 +9,34 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Safety contract:
  * - only generated questions with validationStatus=passed are eligible;
  * - each new Reference List record is created as Draft first;
- * - fields/taxonomies are copied from a real Book/DragDrop template so Citex
- *   preserves site-specific metadata such as Harvard/source/category setup;
- * - generated Fixed Text, Question Parts, Confusing Words and Question text
- *   are then written through ACF;
  * - only after a successful field write can the requested final post status
  *   be applied;
  * - failed records are not removed from the pending queue.
+ *
+ * Template hierarchy (see resolve_population_fields()/resolve_population_fields_without_template()
+ * and populate_one()):
+ * 1. If a real Harvard/ReferenceList/Book/DragDrop record already exists
+ *    (active or in Bin), it is used as a template: its post meta and
+ *    taxonomy terms are cloned so unknown site-specific setup survives.
+ *    This remains the safest path and is preferred whenever available.
+ * 2. If no such record exists, Citex does not require one. The Question
+ *    Parts / Fixed Text / Confusing Words ACF fields are addressed by the
+ *    already-known field keys, and the Question/Scenario field is located
+ *    by inspecting the ACF field groups registered against the Reference
+ *    List post type (the same label/name matching find_acf_field_key()
+ *    already used against a template post, just sourced from the field
+ *    group definitions instead of one post's values). No meta is cloned in
+ *    this path — Citex has no way to know which of an arbitrary template
+ *    post's other meta keys would apply to an unrelated question. Any
+ *    taxonomy attached to the post type is inspected for terms literally
+ *    named Harvard / ReferenceList / Book / DragDrop, and only terms that
+ *    already exist are applied; this is best effort, since nothing in this
+ *    plugin's discovered schema shows classification ever depends on a
+ *    taxonomy (the scanner and validator both classify purely from the
+ *    post title), so no taxonomy assignment is treated as required.
+ * 3. If the Question/Scenario ACF field cannot be located by either path,
+ *    Citex stops with a clear error rather than writing a record with a
+ *    missing field.
  */
 class Citex_Populator {
 
@@ -113,12 +134,9 @@ class Citex_Populator {
 		}
 
 		$template_id = $this->find_template_post_id( $post_type, $scan );
-		if ( ! $template_id ) {
-			Citex_Admin::set_notice( __( 'Citex needs one existing Harvard / ReferenceList / Book / DragDrop record (active or in Bin) as a field/taxonomy template before it can populate generated questions.', 'citex-tools' ), 'error' );
-			$this->redirect_back();
-		}
-
-		$field_map = $this->resolve_population_fields( $template_id );
+		$field_map   = $template_id
+			? $this->resolve_population_fields( $template_id )
+			: $this->resolve_population_fields_without_template( $post_type );
 		if ( is_wp_error( $field_map ) ) {
 			Citex_Admin::set_notice( $field_map->get_error_message(), 'error' );
 			$this->redirect_back();
@@ -202,8 +220,12 @@ class Citex_Populator {
 		}
 
 		try {
-			$this->clone_template_meta( $template_id, $new_id );
-			$this->clone_template_terms( $template_id, $new_id, $post_type );
+			if ( $template_id ) {
+				$this->clone_template_meta( $template_id, $new_id );
+				$this->clone_template_terms( $template_id, $new_id, $post_type );
+			} else {
+				$this->apply_classification_terms( $new_id, $post_type );
+			}
 
 			$this->write_acf_value( $new_id, $field_map['fixedText'], (string) ( $question['fixedText'] ?? '' ) );
 			$this->write_acf_list( $new_id, $field_map['questionParts'], $question['questionParts'] ?? array() );
@@ -275,10 +297,9 @@ class Citex_Populator {
 	}
 
 	private function resolve_population_fields( $template_id ) {
-		foreach ( array( self::FIELD_FIXED_TEXT, self::FIELD_QUESTION_PARTS, self::FIELD_CONFUSING_WORDS ) as $field_key ) {
-			if ( function_exists( 'acf_get_field' ) && ! acf_get_field( $field_key ) ) {
-				return new WP_Error( 'citex_missing_acf_field', 'Required ACF field is not registered: ' . $field_key );
-			}
+		$known = $this->assert_known_acf_fields_registered();
+		if ( is_wp_error( $known ) ) {
+			return $known;
 		}
 
 		$scenario_key = $this->find_acf_field_key( $template_id, array( 'question', 'scenario', 'question text' ) );
@@ -294,17 +315,79 @@ class Citex_Populator {
 		);
 	}
 
+	/**
+	 * Same field map as resolve_population_fields(), but discovered without
+	 * any existing template post. The three known ACF field keys are used
+	 * directly; the Question/Scenario field is located by inspecting the
+	 * ACF field groups registered against the Reference List post type
+	 * itself, so no real question record needs to exist first.
+	 */
+	private function resolve_population_fields_without_template( $post_type ) {
+		$known = $this->assert_known_acf_fields_registered();
+		if ( is_wp_error( $known ) ) {
+			return $known;
+		}
+
+		$scenario_key = $this->find_acf_field_key_by_post_type( $post_type, array( 'question', 'scenario', 'question text' ) );
+		if ( ! $scenario_key ) {
+			return new WP_Error( 'citex_question_field_not_found', 'Citex could not identify the ACF Question/Scenario field for this Reference List post type. No posts were created.' );
+		}
+
+		return array(
+			'fixedText'      => self::FIELD_FIXED_TEXT,
+			'questionParts'  => self::FIELD_QUESTION_PARTS,
+			'confusingWords' => self::FIELD_CONFUSING_WORDS,
+			'scenario'       => $scenario_key,
+		);
+	}
+
+	private function assert_known_acf_fields_registered() {
+		foreach ( array( self::FIELD_FIXED_TEXT, self::FIELD_QUESTION_PARTS, self::FIELD_CONFUSING_WORDS ) as $field_key ) {
+			if ( function_exists( 'acf_get_field' ) && ! acf_get_field( $field_key ) ) {
+				return new WP_Error( 'citex_missing_acf_field', 'Required ACF field is not registered: ' . $field_key );
+			}
+		}
+		return true;
+	}
+
 	private function find_acf_field_key( $post_id, $wanted_labels ) {
 		if ( ! function_exists( 'get_field_objects' ) ) {
 			return '';
 		}
 		$fields = get_field_objects( $post_id, false, false );
-		if ( ! is_array( $fields ) ) {
+		return $this->search_fields_tree( is_array( $fields ) ? $fields : array(), $wanted_labels );
+	}
+
+	/**
+	 * Locate an ACF field key from the field GROUP definitions registered
+	 * against a post type, rather than from one post's populated values.
+	 * This is what lets Citex find the Question/Scenario field before any
+	 * matching Reference List record exists.
+	 */
+	private function find_acf_field_key_by_post_type( $post_type, $wanted_labels ) {
+		if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) ) {
 			return '';
 		}
-		$wanted = array_map( array( $this, 'normalise_label' ), $wanted_labels );
+		$groups = acf_get_field_groups( array( 'post_type' => $post_type ) );
+		if ( ! is_array( $groups ) ) {
+			return '';
+		}
+		foreach ( $groups as $group ) {
+			$fields = acf_get_fields( $group );
+			if ( ! is_array( $fields ) ) {
+				continue;
+			}
+			$found = $this->search_fields_tree( $fields, $wanted_labels );
+			if ( '' !== $found ) {
+				return $found;
+			}
+		}
+		return '';
+	}
 
-		$stack = array_values( $fields );
+	private function search_fields_tree( $fields, $wanted_labels ) {
+		$wanted = array_map( array( $this, 'normalise_label' ), $wanted_labels );
+		$stack  = array_values( $fields );
 		while ( ! empty( $stack ) ) {
 			$field = array_shift( $stack );
 			if ( ! is_array( $field ) ) {
@@ -320,6 +403,38 @@ class Citex_Populator {
 			}
 		}
 		return '';
+	}
+
+	/**
+	 * Best-effort classification tagging for the no-template path. Every
+	 * taxonomy already attached to the Reference List post type is checked
+	 * for a term literally named Harvard, ReferenceList, Book or DragDrop;
+	 * only terms that already exist are applied. Nothing discovered
+	 * elsewhere in this plugin shows classification ever depending on a
+	 * taxonomy (the scanner and validator both classify from the post
+	 * title), so a taxonomy/term not existing here is not an error.
+	 */
+	private function apply_classification_terms( $new_id, $post_type ) {
+		if ( ! function_exists( 'get_object_taxonomies' ) || ! function_exists( 'get_term_by' ) || ! function_exists( 'wp_set_object_terms' ) ) {
+			return;
+		}
+		$taxonomies = get_object_taxonomies( $post_type, 'names' );
+		if ( ! is_array( $taxonomies ) ) {
+			return;
+		}
+
+		$terms_by_taxonomy = array();
+		foreach ( $taxonomies as $taxonomy ) {
+			foreach ( array( 'Harvard', 'ReferenceList', 'Book', 'DragDrop' ) as $label ) {
+				$term = get_term_by( 'name', $label, $taxonomy );
+				if ( $term && ! is_wp_error( $term ) ) {
+					$terms_by_taxonomy[ $taxonomy ][] = (int) $term->term_id;
+				}
+			}
+		}
+		foreach ( $terms_by_taxonomy as $taxonomy => $term_ids ) {
+			wp_set_object_terms( $new_id, array_values( array_unique( $term_ids ) ), $taxonomy, false );
+		}
 	}
 
 	private function normalise_label( $value ) {
