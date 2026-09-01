@@ -17,11 +17,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 		</div>
 		<div class="citex-card">
 			<span class="citex-card-label"><?php esc_html_e( 'Passed validation', 'citex-tools' ); ?></span>
-			<span class="citex-card-value"><?php echo esc_html( number_format_i18n( count( array_filter( $imported_pending, function ( $q ) { return 'passed' === ( $q['validationStatus'] ?? '' ); } ) ) ); ?></span>
+			<span class="citex-card-value"><?php echo esc_html( number_format_i18n( count( array_filter( $imported_pending, function ( $q ) { return 'passed' === ( $q['validationStatus'] ?? '' ); } ) ) ) ); ?></span>
 		</div>
 		<div class="citex-card">
 			<span class="citex-card-label"><?php esc_html_e( 'Failed validation', 'citex-tools' ); ?></span>
-			<span class="citex-card-value"><?php echo esc_html( number_format_i18n( count( array_filter( $imported_pending, function ( $q ) { return 'failed' === ( $q['validationStatus'] ?? '' ); } ) ) ); ?></span>
+			<span class="citex-card-value"><?php echo esc_html( number_format_i18n( count( array_filter( $imported_pending, function ( $q ) { return 'failed' === ( $q['validationStatus'] ?? '' ); } ) ) ) ); ?></span>
 		</div>
 	</div>
 
