@@ -92,6 +92,9 @@ $breakdown_sections = array(
 		<a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-generate' ) ); ?>">
 			<?php esc_html_e( 'Generate Questions', 'citex-tools' ); ?>
 		</a>
+		<a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-import' ) ); ?>">
+			<?php esc_html_e( 'Import Questions', 'citex-tools' ); ?>
+		</a>
 		<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-questions' ) ); ?>">
 			<?php esc_html_e( 'View Question Bank', 'citex-tools' ); ?>
 		</a>
