@@ -33,6 +33,8 @@ define( 'ABSPATH', '/tmp/fake-wp/' );
 $GLOBALS['__posts']                          = array();
 $GLOBALS['__post_meta']                      = array();
 $GLOBALS['__post_terms']                     = array();
+$GLOBALS['__terms_full']                     = array();
+$GLOBALS['__taxonomies_by_post_type']        = array();
 $GLOBALS['__acf_fields']                     = array();
 $GLOBALS['__acf_field_groups_by_post_type']  = array();
 $GLOBALS['__acf_field_groups_by_post_id']    = array();
@@ -146,16 +148,39 @@ function maybe_unserialize( $v ) {
 	return $v;
 }
 function get_object_taxonomies( $post_type, $output = 'names' ) {
-	return array();
+	return $GLOBALS['__taxonomies_by_post_type'][ $post_type ] ?? array();
 }
 function wp_get_object_terms( $post_id, $taxonomy, $args = array() ) {
-	return array();
+	return $GLOBALS['__post_terms'][ $post_id ][ $taxonomy ] ?? array();
 }
 function wp_set_object_terms( $post_id, $term_ids, $taxonomy, $append = false ) {
+	$GLOBALS['__post_terms'][ $post_id ][ $taxonomy ] = array_values( (array) $term_ids );
 	return $term_ids;
 }
 function get_term_by( $field, $value, $taxonomy ) {
+	foreach ( ( $GLOBALS['__terms_full'][ $taxonomy ] ?? array() ) as $term_id => $t ) {
+		if ( 'name' === $field && ( $t['name'] ?? '' ) === $value ) {
+			return (object) array( 'term_id' => $term_id, 'name' => $t['name'], 'taxonomy' => $taxonomy );
+		}
+	}
 	return false;
+}
+function get_terms( $args = array() ) {
+	$taxonomy      = $args['taxonomy'] ?? '';
+	$parent_filter = array_key_exists( 'parent', $args ) ? $args['parent'] : null;
+	$out = array();
+	foreach ( ( $GLOBALS['__terms_full'][ $taxonomy ] ?? array() ) as $term_id => $t ) {
+		if ( null !== $parent_filter && (int) ( $t['parent'] ?? 0 ) !== (int) $parent_filter ) {
+			continue;
+		}
+		$out[] = (object) array(
+			'term_id'  => $term_id,
+			'name'     => $t['name'] ?? '',
+			'parent'   => (int) ( $t['parent'] ?? 0 ),
+			'taxonomy' => $taxonomy,
+		);
+	}
+	return $out;
 }
 
 function acf_get_field( $key ) {
@@ -216,6 +241,7 @@ function reset_environment() {
 	$GLOBALS['__posts']                         = array();
 	$GLOBALS['__post_meta']                     = array();
 	$GLOBALS['__post_terms']                    = array();
+	$GLOBALS['__terms_full']                    = array();
 	$GLOBALS['__acf_field_groups_by_post_type'] = array();
 	$GLOBALS['__acf_field_groups_by_post_id']   = array();
 	$GLOBALS['__post_field_objects']            = array();
@@ -228,6 +254,16 @@ function reset_environment() {
 		Citex_Populator::FIELD_FIXED_TEXT      => array( 'key' => Citex_Populator::FIELD_FIXED_TEXT, 'type' => 'text' ),
 		Citex_Populator::FIELD_QUESTION_PARTS  => array( 'key' => Citex_Populator::FIELD_QUESTION_PARTS, 'type' => 'repeater' ),
 		Citex_Populator::FIELD_CONFUSING_WORDS => array( 'key' => Citex_Populator::FIELD_CONFUSING_WORDS, 'type' => 'repeater' ),
+	);
+
+	// Default Reference Category taxonomy (Book, with Exercise 1-5 as
+	// child terms) so populate_one() tests here — whose focus is Scenario
+	// field discovery, not classification — get a working Category/Exercise
+	// default without needing to set this up individually.
+	$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'reference_category' );
+	$GLOBALS['__terms_full']['reference_category']    = array(
+		1 => array( 'name' => 'Book', 'parent' => 0 ),
+		2 => array( 'name' => 'Exercise 1', 'parent' => 1 ),
 	);
 }
 

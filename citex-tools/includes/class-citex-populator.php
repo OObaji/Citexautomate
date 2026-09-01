@@ -9,31 +9,38 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Safety contract:
  * - only generated questions with validationStatus=passed are eligible;
  * - each new Reference List record is created as Draft first;
- * - only after a successful field write can the requested final post status
- *   be applied;
- * - failed records are not removed from the pending queue.
+ * - the generated question's own Category/Exercise/Type classification is
+ *   always authoritative — assign_generated_classification() applies it
+ *   unconditionally (see below), after any template-clone, and REPLACES
+ *   (never appends to) that taxonomy's term set, so a template's own
+ *   Category/Exercise can never leak into, or survive alongside, the
+ *   generated question's;
+ * - after every field/taxonomy write, the actual saved state is read back
+ *   from WordPress and verified before the record is ever published;
+ * - only after every verification passes can the requested final post
+ *   status be applied;
+ * - failed records are not removed from the pending queue, and a
+ *   partially-created post is always rolled back (force-deleted), never
+ *   left behind half-configured.
  *
  * Template hierarchy (see resolve_population_fields()/resolve_population_fields_without_template()
  * and populate_one()):
  * 1. If a real Harvard/ReferenceList/Book/DragDrop record already exists
  *    (active or in Bin), it is used as a template: its post meta and
  *    taxonomy terms are cloned so unknown site-specific setup survives.
- *    This remains the safest path and is preferred whenever available.
+ *    This remains the safest path and is preferred whenever available —
+ *    but only for metadata Citex has no way to know otherwise. Its
+ *    Category/Exercise/Type is never trusted; see assign_generated_classification().
  * 2. If no such record exists, Citex does not require one. The Question
  *    Parts / Fixed Text / Confusing Words ACF fields are addressed by the
  *    already-known field keys, and the Question/Scenario field is located
  *    by discover_scenario_field() (see its docblock). No meta is cloned in
  *    this path — Citex has no way to know which of an arbitrary template
- *    post's other meta keys would apply to an unrelated question. Any
- *    taxonomy attached to the post type is inspected for terms literally
- *    named Harvard / ReferenceList / Book / DragDrop, and only terms that
- *    already exist are applied; this is best effort, since nothing in this
- *    plugin's discovered schema shows classification ever depends on a
- *    taxonomy (the scanner and validator both classify purely from the
- *    post title), so no taxonomy assignment is treated as required.
- * 3. If the Question/Scenario ACF field cannot be located by any of
- *    discover_scenario_field()'s strategies, Citex stops with a clear,
- *    diagnostic error rather than writing a record with a missing field.
+ *    post's other meta keys would apply to an unrelated question.
+ * 3. If the Question/Scenario ACF field, or the Category/Exercise taxonomy
+ *    terms named by the generated question, cannot be located, Citex stops
+ *    with a clear, diagnostic error rather than writing a record with a
+ *    missing or incorrect classification.
  */
 class Citex_Populator {
 
@@ -171,6 +178,19 @@ class Citex_Populator {
 			count( $created ),
 			count( $failed )
 		);
+		if ( ! empty( $created ) ) {
+			$summaries = array();
+			foreach ( array_slice( $created, 0, 3 ) as $c ) {
+				$summaries[] = sprintf(
+					'%1$s (Category: %2$s ✓, Exercise: %3$s ✓, Type: %4$s ✓, ACF: Verified ✓)',
+					$c['questionId'],
+					$c['category'],
+					$c['exercise'],
+					$c['type']
+				);
+			}
+			$message .= ' ' . implode( ' | ', $summaries );
+		}
 		if ( ! empty( $failed ) ) {
 			$message .= ' ' . implode( ' | ', array_slice( $failed, 0, 3 ) );
 		}
@@ -185,6 +205,14 @@ class Citex_Populator {
 		$title = sanitize_text_field( (string) ( $question['title'] ?? '' ) );
 		if ( '' === $title ) {
 			return new WP_Error( 'citex_missing_title', 'Generated question title is missing.' );
+		}
+
+		$classification = $this->resolve_classification( $question );
+		if ( 'DragDrop' !== $classification['type'] ) {
+			return new WP_Error(
+				'citex_unsupported_question_type',
+				sprintf( 'Citex population does not yet support question type "%s" — its real ACF structure has not been supplied. Only DragDrop is currently supported. No post was created.', $classification['type'] )
+			);
 		}
 
 		$duplicates = get_posts(
@@ -224,6 +252,16 @@ class Citex_Populator {
 				$this->apply_classification_terms( $new_id, $post_type );
 			}
 
+			// Category/Exercise are authoritative from the GENERATED question,
+			// never from the template: this runs unconditionally, after any
+			// template-clone above, and replaces (never appends to) that
+			// taxonomy's term set — so a template's own Category/Exercise can
+			// never leak into, or survive alongside, the generated question's.
+			$classification_result = $this->assign_generated_classification( $new_id, $post_type, $classification );
+			if ( is_wp_error( $classification_result ) ) {
+				throw new Exception( $classification_result->get_error_message() );
+			}
+
 			$this->write_acf_value( $new_id, $field_map['fixedText'], (string) ( $question['fixedText'] ?? '' ) );
 			$this->write_acf_list( $new_id, $field_map['questionParts'], $question['questionParts'] ?? array() );
 			$this->write_acf_list( $new_id, $field_map['confusingWords'], $question['confusingWords'] ?? array() );
@@ -245,6 +283,29 @@ class Citex_Populator {
 				}
 			}
 
+			// Mandatory post-creation verification: read the Category/Exercise
+			// terms back from WordPress rather than trusting wp_set_object_terms()'s
+			// return value. This is exactly the class of bug this fix addresses —
+			// a post created without its Category/Exercise actually attached must
+			// never be left behind or considered populated.
+			$category_terms = wp_get_object_terms( $new_id, $classification_result['categoryTaxonomy'], array( 'fields' => 'ids' ) );
+			$exercise_terms = $classification_result['exerciseTaxonomy'] === $classification_result['categoryTaxonomy']
+				? $category_terms
+				: wp_get_object_terms( $new_id, $classification_result['exerciseTaxonomy'], array( 'fields' => 'ids' ) );
+			$category_verified = ! is_wp_error( $category_terms ) && in_array( $classification_result['categoryTermId'], (array) $category_terms, true );
+			$exercise_verified = ! is_wp_error( $exercise_terms ) && in_array( $classification_result['exerciseTermId'], (array) $exercise_terms, true );
+			if ( ! $category_verified || ! $exercise_verified ) {
+				throw new Exception(
+					sprintf(
+						'Category/Exercise assignment did not verify after saving: "%1$s" (%2$s), "%3$s" (%4$s).',
+						$classification['category'],
+						$category_verified ? 'confirmed' : 'MISSING',
+						$classification['exercise'],
+						$exercise_verified ? 'confirmed' : 'MISSING'
+					)
+				);
+			}
+
 			if ( 'publish' === $final_status ) {
 				$publish_result = wp_update_post( array( 'ID' => $new_id, 'post_status' => 'publish' ), true );
 				if ( is_wp_error( $publish_result ) ) {
@@ -257,9 +318,15 @@ class Citex_Populator {
 		}
 
 		return array(
-			'postId'     => (int) $new_id,
-			'questionId' => (string) ( $question['questionId'] ?? '' ),
-			'status'     => $final_status,
+			'postId'           => (int) $new_id,
+			'questionId'       => (string) ( $question['questionId'] ?? '' ),
+			'status'           => $final_status,
+			'category'         => $classification['category'],
+			'exercise'         => $classification['exercise'],
+			'type'             => $classification['type'],
+			'categoryVerified' => true,
+			'exerciseVerified' => true,
+			'acfVerified'      => true,
 		);
 	}
 
@@ -519,13 +586,140 @@ class Citex_Populator {
 	}
 
 	/**
+	 * Derive the generated question's own Category/Exercise/Type,
+	 * defaulting to today's only generation target (Book / Exercise 1 /
+	 * DragDrop) when a pending record predates the Exercise field or
+	 * otherwise omits one of these. This is what makes classification
+	 * authoritative from the question itself rather than any template.
+	 */
+	private function resolve_classification( $question ) {
+		$category = trim( (string) ( $question['category'] ?? '' ) );
+		$exercise = trim( (string) ( $question['exercise'] ?? '' ) );
+		$type     = trim( (string) ( $question['type'] ?? '' ) );
+		return array(
+			'category' => '' !== $category ? $category : 'Book',
+			'exercise' => '' !== $exercise ? $exercise : 'Exercise 1',
+			'type'     => '' !== $type ? $type : 'DragDrop',
+		);
+	}
+
+	/**
+	 * Assign the real WordPress Category/Exercise taxonomy terms named by
+	 * the generated question's own classification — never inherited from a
+	 * template. Uses only dynamic, name-based lookup (find_taxonomy_term_by_name())
+	 * so no taxonomy slug or term ID is ever hard-coded or guessed.
+	 *
+	 * The real Reference List edit screen shows Exercise 1-5 nested under
+	 * each Category in a single hierarchical taxonomy's checkbox metabox
+	 * (Book -> Exercise 1, Website -> Exercise 1, etc.), so Exercise is
+	 * looked up as a CHILD term of the resolved Category term first — this
+	 * matters because "Exercise 1" is plausibly not a globally unique term
+	 * name across categories. If that does not find a match, a flat,
+	 * taxonomy-wide search is tried as a fallback in case Exercise is not
+	 * actually nested under Category on this site after all.
+	 *
+	 * wp_set_object_terms() is called with $append = false (replace, not
+	 * add) for every taxonomy touched, so a template's own Category/Exercise
+	 * terms for that same taxonomy can never survive alongside — or leak
+	 * into — the generated question's classification.
+	 *
+	 * @return array|WP_Error {categoryTaxonomy, categoryTermId,
+	 *         exerciseTaxonomy, exerciseTermId} on success, or a WP_Error
+	 *         naming exactly which term could not be found.
+	 */
+	private function assign_generated_classification( $new_id, $post_type, $classification ) {
+		if ( ! function_exists( 'wp_set_object_terms' ) ) {
+			return new WP_Error( 'citex_taxonomy_unavailable', 'WordPress taxonomy functions are unavailable.' );
+		}
+
+		$category_match = $this->find_taxonomy_term_by_name( $post_type, $classification['category'] );
+		if ( null === $category_match ) {
+			return new WP_Error(
+				'citex_category_term_not_found',
+				sprintf( 'Citex could not find a "%s" Reference Category term for this post type.', $classification['category'] )
+			);
+		}
+
+		$exercise_match = $this->find_taxonomy_term_by_name( $post_type, $classification['exercise'], $category_match['taxonomy'], $category_match['termId'] );
+		if ( null === $exercise_match ) {
+			$exercise_match = $this->find_taxonomy_term_by_name( $post_type, $classification['exercise'] );
+		}
+		if ( null === $exercise_match ) {
+			return new WP_Error(
+				'citex_exercise_term_not_found',
+				sprintf( 'Citex could not find an "%1$s" term (checked under "%2$s" and across the post type).', $classification['exercise'], $classification['category'] )
+			);
+		}
+
+		$terms_by_taxonomy = array();
+		$terms_by_taxonomy[ $category_match['taxonomy'] ][] = $category_match['termId'];
+		$terms_by_taxonomy[ $exercise_match['taxonomy'] ][] = $exercise_match['termId'];
+		foreach ( $terms_by_taxonomy as $taxonomy => $term_ids ) {
+			wp_set_object_terms( $new_id, array_values( array_unique( $term_ids ) ), $taxonomy, false );
+		}
+
+		return array(
+			'categoryTaxonomy' => $category_match['taxonomy'],
+			'categoryTermId'   => $category_match['termId'],
+			'exerciseTaxonomy' => $exercise_match['taxonomy'],
+			'exerciseTermId'   => $exercise_match['termId'],
+		);
+	}
+
+	/**
+	 * Dynamically resolve a term by its exact (case-insensitive) name —
+	 * never a hard-coded slug or term ID. Searches every taxonomy attached
+	 * to $post_type unless $parent_taxonomy is given, in which case only
+	 * that taxonomy is searched, optionally constrained to children of
+	 * $parent_term_id.
+	 *
+	 * @return array{taxonomy: string, termId: int}|null
+	 */
+	private function find_taxonomy_term_by_name( $post_type, $label, $parent_taxonomy = null, $parent_term_id = null ) {
+		if ( ! function_exists( 'get_object_taxonomies' ) || ! function_exists( 'get_terms' ) ) {
+			return null;
+		}
+		$label = trim( (string) $label );
+		if ( '' === $label ) {
+			return null;
+		}
+		$taxonomies = null !== $parent_taxonomy ? array( $parent_taxonomy ) : get_object_taxonomies( $post_type, 'names' );
+		if ( ! is_array( $taxonomies ) ) {
+			return null;
+		}
+		foreach ( $taxonomies as $taxonomy ) {
+			$args = array(
+				'taxonomy'   => $taxonomy,
+				'hide_empty' => false,
+			);
+			if ( null !== $parent_term_id ) {
+				$args['parent'] = $parent_term_id;
+			}
+			$terms = get_terms( $args );
+			if ( is_wp_error( $terms ) || ! is_array( $terms ) ) {
+				continue;
+			}
+			foreach ( $terms as $term ) {
+				if ( is_object( $term ) && isset( $term->name, $term->term_id ) && 0 === strcasecmp( trim( (string) $term->name ), $label ) ) {
+					return array(
+						'taxonomy' => $taxonomy,
+						'termId'   => (int) $term->term_id,
+					);
+				}
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Best-effort classification tagging for the no-template path. Every
 	 * taxonomy already attached to the Reference List post type is checked
 	 * for a term literally named Harvard, ReferenceList, Book or DragDrop;
-	 * only terms that already exist are applied. Nothing discovered
-	 * elsewhere in this plugin shows classification ever depending on a
-	 * taxonomy (the scanner and validator both classify from the post
-	 * title), so a taxonomy/term not existing here is not an error.
+	 * only terms that already exist are applied. This predates — and is
+	 * superseded for Category/Exercise by — assign_generated_classification(),
+	 * which runs unconditionally afterwards and is authoritative; this is
+	 * left in place only as harmless, best-effort tagging for any of the
+	 * other three words that happen to exist as terms too.
 	 */
 	private function apply_classification_terms( $new_id, $post_type ) {
 		if ( ! function_exists( 'get_object_taxonomies' ) || ! function_exists( 'get_term_by' ) || ! function_exists( 'wp_set_object_terms' ) ) {

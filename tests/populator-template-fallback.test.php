@@ -26,6 +26,7 @@ $GLOBALS['__posts']                        = array();
 $GLOBALS['__post_meta']                    = array();
 $GLOBALS['__post_terms']                   = array();
 $GLOBALS['__terms']                        = array();
+$GLOBALS['__terms_full']                   = array();
 $GLOBALS['__taxonomies_by_post_type']      = array();
 $GLOBALS['__acf_fields']                   = array();
 $GLOBALS['__acf_field_groups_by_post_type']= array();
@@ -193,6 +194,9 @@ function wp_get_object_terms( $post_id, $taxonomy, $args = array() ) {
 }
 
 function wp_set_object_terms( $post_id, $term_ids, $taxonomy, $append = false ) {
+	if ( ! empty( $GLOBALS['__taxonomy_write_blocked'][ $post_id ][ $taxonomy ] ) ) {
+		return $term_ids; // simulate a write WordPress accepts but never actually persists
+	}
 	$GLOBALS['__post_terms'][ $post_id ][ $taxonomy ] = array_values( (array) $term_ids );
 	return $term_ids;
 }
@@ -203,7 +207,36 @@ function get_term_by( $field, $value, $taxonomy ) {
 			return (object) array( 'term_id' => $term_id, 'name' => $name, 'taxonomy' => $taxonomy );
 		}
 	}
+	foreach ( ( $GLOBALS['__terms_full'][ $taxonomy ] ?? array() ) as $term_id => $t ) {
+		if ( 'name' === $field && ( $t['name'] ?? '' ) === $value ) {
+			return (object) array( 'term_id' => $term_id, 'name' => $t['name'], 'taxonomy' => $taxonomy );
+		}
+	}
 	return false;
+}
+
+/**
+ * Richer term store (name + parent) backing the Category/Exercise
+ * discovery mechanism (find_taxonomy_term_by_name()), distinct from the
+ * flat $GLOBALS['__terms'] used by the older get_term_by()-based
+ * best-effort tagging.
+ */
+function get_terms( $args = array() ) {
+	$taxonomy      = $args['taxonomy'] ?? '';
+	$parent_filter = array_key_exists( 'parent', $args ) ? $args['parent'] : null;
+	$out = array();
+	foreach ( ( $GLOBALS['__terms_full'][ $taxonomy ] ?? array() ) as $term_id => $t ) {
+		if ( null !== $parent_filter && (int) ( $t['parent'] ?? 0 ) !== (int) $parent_filter ) {
+			continue;
+		}
+		$out[] = (object) array(
+			'term_id'  => $term_id,
+			'name'     => $t['name'] ?? '',
+			'parent'   => (int) ( $t['parent'] ?? 0 ),
+			'taxonomy' => $taxonomy,
+		);
+	}
+	return $out;
 }
 
 function acf_get_field( $key ) {
@@ -258,12 +291,14 @@ function reset_environment() {
 	$GLOBALS['__post_meta']                      = array();
 	$GLOBALS['__post_terms']                     = array();
 	$GLOBALS['__terms']                          = array();
+	$GLOBALS['__terms_full']                     = array();
 	$GLOBALS['__taxonomies_by_post_type']        = array();
 	$GLOBALS['__acf_fields']                     = array();
 	$GLOBALS['__acf_field_groups_by_post_type']  = array();
 	$GLOBALS['__post_field_objects']             = array();
 	$GLOBALS['__acf_values']                     = array();
 	$GLOBALS['__acf_write_blocked']              = array();
+	$GLOBALS['__taxonomy_write_blocked']         = array();
 	$GLOBALS['__registered_post_types']          = array( 'question' );
 	$GLOBALS['__next_post_id']                   = 100;
 	$GLOBALS['__deleted_posts']                  = array();
@@ -274,6 +309,21 @@ function reset_environment() {
 	$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_FIXED_TEXT ]      = array( 'key' => Citex_Populator::FIELD_FIXED_TEXT, 'type' => 'text' );
 	$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_QUESTION_PARTS ]  = array( 'key' => Citex_Populator::FIELD_QUESTION_PARTS, 'type' => 'repeater' );
 	$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_CONFUSING_WORDS ] = array( 'key' => Citex_Populator::FIELD_CONFUSING_WORDS, 'type' => 'repeater' );
+
+	// Default Reference Category taxonomy: Book (top-level) with Exercise
+	// 1-5 as child terms, mirroring the real site's "Reference Categories"
+	// hierarchical checkbox metabox. Every scenario below gets this by
+	// default (populate_one() now requires it to succeed); scenarios that
+	// override __taxonomies_by_post_type['question'] re-include it.
+	$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'reference_category' );
+	$GLOBALS['__terms_full']['reference_category'] = array(
+		1 => array( 'name' => 'Book', 'parent' => 0 ),
+		2 => array( 'name' => 'Exercise 1', 'parent' => 1 ),
+		3 => array( 'name' => 'Exercise 2', 'parent' => 1 ),
+		4 => array( 'name' => 'Exercise 3', 'parent' => 1 ),
+		5 => array( 'name' => 'Exercise 4', 'parent' => 1 ),
+		6 => array( 'name' => 'Exercise 5', 'parent' => 1 ),
+	);
 }
 
 function invoke_private( $object, $method, array $args = array() ) {
@@ -316,8 +366,12 @@ $GLOBALS['__post_meta'][500] = array(
 	'_citex_custom_meta' => array( 'keep-me' ),
 	'_edit_lock'         => array( '111:1' ),
 );
-$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'quiz_topic' );
+$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'quiz_topic', 'reference_category' );
 $GLOBALS['__post_terms'][500]['quiz_topic'] = array( 11, 22 );
+// The template itself belongs to Book / Exercise 3 (ids 1, 4) — the
+// generated question below defaults to Exercise 1, and the resulting post
+// must end up with Exercise 1, never the template's Exercise 3.
+$GLOBALS['__post_terms'][500]['reference_category'] = array( 1, 4 );
 $GLOBALS['__post_field_objects'][500] = array(
 	array( 'key' => 'field_scenario_tmpl', 'label' => 'Question', 'name' => 'question', 'sub_fields' => array() ),
 );
@@ -343,9 +397,11 @@ check( '[template] new post created as draft', $GLOBALS['__posts'][ $new_id ]['p
 check( '[template] post content cloned from template', $GLOBALS['__posts'][ $new_id ]['post_content'] ?? null, 'TemplateContent' );
 check( '[template] non-internal meta cloned from template', $GLOBALS['__post_meta'][ $new_id ]['_citex_custom_meta'][0] ?? null, 'keep-me' );
 check( '[template] internal _edit_lock meta NOT cloned', isset( $GLOBALS['__post_meta'][ $new_id ]['_edit_lock'] ), false );
-check( '[template] taxonomy terms cloned from template', $GLOBALS['__post_terms'][ $new_id ]['quiz_topic'] ?? null, array( 11, 22 ) );
+check( '[template] unrelated taxonomy terms cloned from template', $GLOBALS['__post_terms'][ $new_id ]['quiz_topic'] ?? null, array( 11, 22 ) );
 check( '[template] Fixed Text written and verified', $GLOBALS['__acf_values'][ $new_id ][ Citex_Populator::FIELD_FIXED_TEXT ] ?? null, $question['fixedText'] );
 check( '[template] Scenario field written to the discovered key', $GLOBALS['__acf_values'][ $new_id ]['field_scenario_tmpl'] ?? null, $question['scenario'] );
+check( "[template] generated question's own Book/Exercise 1 (ids 1,2) replace the template's Book/Exercise 3 (ids 1,4) — no leak", $GLOBALS['__post_terms'][ $new_id ]['reference_category'] ?? null, array( 1, 2 ) );
+check( '[template] result reports the verified classification', $result['category'] . '|' . $result['exercise'] . '|' . $result['type'], 'Book|Exercise 1|DragDrop' );
 
 // ---------------------------------------------------------------------
 // 2 & 6. No-template fallback path creates the correct Draft record
@@ -359,7 +415,7 @@ $GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
 		),
 	),
 );
-$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'quiz_topic' );
+$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'quiz_topic', 'reference_category' );
 $GLOBALS['__terms']['quiz_topic'] = array( 99 => 'Book' ); // only "Book" happens to exist as a term name
 
 $scan_without_template = array( 'postType' => 'question', 'questions' => array() );
@@ -377,8 +433,9 @@ $new_id_2 = is_array( $result_2 ) ? $result_2['postId'] : null;
 check( '[fallback] new post created as Draft', $GLOBALS['__posts'][ $new_id_2 ]['post_status'] ?? null, 'draft' );
 check( '[fallback] no content is fabricated (no template to clone from)', $GLOBALS['__posts'][ $new_id_2 ]['post_content'] ?? null, '' );
 check( '[fallback] no arbitrary meta is cloned', $GLOBALS['__post_meta'][ $new_id_2 ] ?? array(), array() );
-check( '[fallback] only the classification term that actually exists ("Book") is applied', $GLOBALS['__post_terms'][ $new_id_2 ]['quiz_topic'] ?? null, array( 99 ) );
+check( '[fallback] only the classification term that actually exists ("Book") is applied by the best-effort tagger', $GLOBALS['__post_terms'][ $new_id_2 ]['quiz_topic'] ?? null, array( 99 ) );
 check( '[fallback] Fixed Text written and verified', $GLOBALS['__acf_values'][ $new_id_2 ][ Citex_Populator::FIELD_FIXED_TEXT ] ?? null, $question_2['fixedText'] );
+check( '[fallback] generated Category/Exercise (Book/Exercise 1) authoritatively assigned', $GLOBALS['__post_terms'][ $new_id_2 ]['reference_category'] ?? null, array( 1, 2 ) );
 
 // ---------------------------------------------------------------------
 // 3. Missing required ACF field
@@ -393,21 +450,81 @@ check( '[missing field] resolve_population_fields_without_template stops with an
 check( '[missing field] error code identifies the missing ACF field', is_wp_error( $field_map_missing ) ? $field_map_missing->get_error_code() : null, 'citex_missing_acf_field' );
 
 // ---------------------------------------------------------------------
-// 4. Missing required taxonomy/term — best effort, must NOT block
+// 4a. Best-effort tagging (Harvard/ReferenceList/DragDrop-word terms) is
+// still not required and must not block population on its own — but the
+// mandatory Category term (Book) below is what actually decides success.
 // ---------------------------------------------------------------------
 reset_environment();
 $GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
 	array( 'key' => 'group_1', 'fields' => array( array( 'key' => 'field_scenario_fallback', 'label' => 'Scenario', 'name' => 'scenario', 'sub_fields' => array() ) ) ),
 );
-$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'quiz_topic' );
-$GLOBALS['__terms']['quiz_topic'] = array( 5 => 'Unrelated Term' ); // none of Harvard/ReferenceList/Book/DragDrop exist
+$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'quiz_topic', 'reference_category' );
+$GLOBALS['__terms']['quiz_topic'] = array( 5 => 'Unrelated Term' ); // none of Harvard/ReferenceList/DragDrop exist here
 
 $field_map_3 = invoke_private( $populator, 'resolve_population_fields_without_template', array( 'question' ) );
 $question_3  = sample_question( array( 'key' => 'k3', 'title' => 'Harvard | ReferenceList | Book | DragDrop | BK03' ) );
 $result_3    = invoke_private( $populator, 'populate_one', array( $question_3, 'question', 0, $field_map_3, 'draft' ) );
-check( '[missing taxonomy] population is NOT blocked by an absent classification term', is_wp_error( $result_3 ), false );
+check( '[best-effort tagging] population succeeds since the mandatory Category (Book) is still resolvable elsewhere', is_wp_error( $result_3 ), false );
 $new_id_3 = is_array( $result_3 ) ? $result_3['postId'] : null;
-check( '[missing taxonomy] no terms are fabricated when none match', $GLOBALS['__post_terms'][ $new_id_3 ]['quiz_topic'] ?? array(), array() );
+check( '[best-effort tagging] no terms are fabricated in the unrelated taxonomy when none match', $GLOBALS['__post_terms'][ $new_id_3 ]['quiz_topic'] ?? array(), array() );
+
+// ---------------------------------------------------------------------
+// 9. Missing required Category term causes rollback (THE reported
+// production bug's underlying mechanism: population must not succeed —
+// let alone leave a post behind — when the Category cannot be resolved).
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
+	array( 'key' => 'group_1', 'fields' => array( array( 'key' => 'field_scenario_fallback', 'label' => 'Scenario', 'name' => 'scenario', 'sub_fields' => array() ) ) ),
+);
+$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'reference_category' );
+$GLOBALS['__terms_full']['reference_category']    = array( 2 => array( 'name' => 'Exercise 1', 'parent' => 0 ) ); // no "Book" term at all
+
+$field_map_cat = invoke_private( $populator, 'resolve_population_fields_without_template', array( 'question' ) );
+$question_cat  = sample_question( array( 'key' => 'k-cat', 'title' => 'Harvard | ReferenceList | Book | DragDrop | BK-CAT' ) );
+$result_cat    = invoke_private( $populator, 'populate_one', array( $question_cat, 'question', 0, $field_map_cat, 'draft' ) );
+check( '[missing category] populate_one fails when the Category term cannot be found', is_wp_error( $result_cat ), true );
+check( '[missing category] error names the missing Category', is_wp_error( $result_cat ) && false !== strpos( $result_cat->get_error_message(), 'Book' ), true );
+check( '[missing category] no post was left behind (id 100 never persists)', isset( $GLOBALS['__posts'][100] ), false );
+
+// ---------------------------------------------------------------------
+// 10. Missing required Exercise term (Category resolves fine, but no
+// child term for the requested Exercise exists anywhere) causes rollback.
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
+	array( 'key' => 'group_1', 'fields' => array( array( 'key' => 'field_scenario_fallback', 'label' => 'Scenario', 'name' => 'scenario', 'sub_fields' => array() ) ) ),
+);
+$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'reference_category' );
+$GLOBALS['__terms_full']['reference_category']    = array( 1 => array( 'name' => 'Book', 'parent' => 0 ) ); // Book exists, no Exercise terms at all
+
+$field_map_ex = invoke_private( $populator, 'resolve_population_fields_without_template', array( 'question' ) );
+$question_ex  = sample_question( array( 'key' => 'k-ex', 'title' => 'Harvard | ReferenceList | Book | DragDrop | BK-EX' ) );
+$result_ex    = invoke_private( $populator, 'populate_one', array( $question_ex, 'question', 0, $field_map_ex, 'draft' ) );
+check( '[missing exercise] populate_one fails when the Exercise term cannot be found', is_wp_error( $result_ex ), true );
+check( '[missing exercise] error names the missing Exercise', is_wp_error( $result_ex ) && false !== strpos( $result_ex->get_error_message(), 'Exercise 1' ), true );
+check( '[missing exercise] no post was left behind (id 100 never persists)', isset( $GLOBALS['__posts'][100] ), false );
+
+// ---------------------------------------------------------------------
+// 11. Post-creation verification detects a taxonomy assignment that was
+// accepted by wp_set_object_terms() but did not actually persist (e.g. a
+// plugin silently rejecting the write) — this must roll back exactly like
+// any other verification failure, never be reported as populated.
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
+	array( 'key' => 'group_1', 'fields' => array( array( 'key' => 'field_scenario_fallback', 'label' => 'Scenario', 'name' => 'scenario', 'sub_fields' => array() ) ) ),
+);
+// wp_set_object_terms() "succeeds" (returns normally) but the write never
+// actually persists — simulating a site where something silently rejects
+// the taxonomy change.
+$GLOBALS['__taxonomy_write_blocked'][100]['reference_category'] = true;
+$field_map_verify = invoke_private( $populator, 'resolve_population_fields_without_template', array( 'question' ) );
+$question_verify  = sample_question( array( 'key' => 'k-verify', 'title' => 'Harvard | ReferenceList | Book | DragDrop | BK-VERIFY' ) );
+$result_verify    = invoke_private( $populator, 'populate_one', array( $question_verify, 'question', 0, $field_map_verify, 'draft' ) );
+check( '[verification] a taxonomy write that does not actually persist is detected and fails', is_wp_error( $result_verify ), true );
+check( '[verification] error identifies the missing terms as "MISSING" not silently accepted', is_wp_error( $result_verify ) && false !== strpos( $result_verify->get_error_message(), 'MISSING' ), true );
+check( '[verification] no post was left behind', isset( $GLOBALS['__posts'][100] ), false );
 
 // ---------------------------------------------------------------------
 // 5. ACF write failure rolls back the new post
