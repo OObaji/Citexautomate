@@ -16,8 +16,6 @@ class Citex_Questions {
 	const SYNC_NONCE_ACTION = 'citex_sync_reference_list';
 
 	public function render() {
-		$sync_notice = null;
-
 		if ( isset( $_POST['citex_sync_reference_list'] ) ) {
 			check_admin_referer( self::SYNC_NONCE_ACTION, 'citex_sync_nonce' );
 
@@ -27,24 +25,23 @@ class Citex_Questions {
 
 			$result = Citex_Scanner::sync_from_wordpress();
 			if ( is_wp_error( $result ) ) {
-				$sync_notice = array(
-					'type'    => 'error',
-					'message' => $result->get_error_message(),
-				);
+				Citex_Admin::set_notice( $result->get_error_message(), 'error' );
 			} else {
 				$counts = $result['statusCounts'] ?? array();
-				$sync_notice = array(
-					'type'    => 'success',
-					'message' => sprintf(
-						/* translators: 1: active count, 2: published count, 3: draft count, 4: bin count. */
+				Citex_Admin::set_notice(
+					sprintf(
 						__( 'Reference List synced from WordPress. All: %1$d, Published: %2$d, Drafts: %3$d, Bin: %4$d.', 'citex-tools' ),
 						(int) ( $counts['all'] ?? 0 ),
 						(int) ( $counts['publish'] ?? 0 ),
 						(int) ( $counts['draft'] ?? 0 ),
 						(int) ( $counts['trash'] ?? 0 )
 					),
+					'success'
 				);
 			}
+
+			wp_safe_redirect( admin_url( 'admin.php?page=citex-questions' ) );
+			exit;
 		}
 
 		$scan              = Citex_Scanner::get_last_scan();
