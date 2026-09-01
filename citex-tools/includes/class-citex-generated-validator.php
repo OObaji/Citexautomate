@@ -106,7 +106,118 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'RECONSTRUCTED_REFERENCE_MISMATCH', 'The generated expected reference does not match the reference reconstructed from Fixed Text and Question Parts.' );
 		}
 
+		$errors = array_merge( $errors, self::validate_bibliographic_consistency( $question, $question_parts, $reference ) );
+
 		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $reference );
+	}
+
+	/**
+	 * BIBLIOGRAPHIC_CONSISTENCY — the safety net for the academic-integrity
+	 * bug where a generated question's scenario described one real book while
+	 * its Question Parts/Fixed Text were built from a different one (both
+	 * internally self-consistent, so earlier checks never caught it). This
+	 * only runs when the pending record actually carries a canonical
+	 * bibliographic record (authorSurname/bookTitle) — Citex-generated
+	 * questions always do (see Citex_AI_V2::normalise()); externally
+	 * imported records that never captured one are unaffected, so nothing
+	 * that previously passed import validation is weakened.
+	 *
+	 * A generated record's Question Parts and Fixed Text are themselves now
+	 * *constructed* from this same canonical record (Citex is the sole
+	 * source of truth for both — see Citex_AI_V2::normalise()), so checks
+	 * 1-10 below are a deliberate, defensive second confirmation rather than
+	 * the only line of defence. Check 11 (the scenario) is the one novel
+	 * gap: nothing else in this class, or in Citex_AI_V2, ever inspects the
+	 * scenario's own wording against the bibliographic facts.
+	 */
+	private static function validate_bibliographic_consistency( $question, $question_parts, $reference ) {
+		$errors = array();
+
+		$canonical = array(
+			'authorSurname'  => trim( (string) ( $question['authorSurname'] ?? '' ) ),
+			'authorInitials' => trim( (string) ( $question['authorInitials'] ?? '' ) ),
+			'year'           => trim( (string) ( $question['year'] ?? '' ) ),
+			'bookTitle'      => trim( (string) ( $question['bookTitle'] ?? '' ) ),
+			'place'          => trim( (string) ( $question['place'] ?? '' ) ),
+			'publisher'      => trim( (string) ( $question['publisher'] ?? '' ) ),
+		);
+
+		if ( '' === $canonical['authorSurname'] && '' === $canonical['bookTitle'] ) {
+			return $errors;
+		}
+
+		// 1-4: Question Parts must be exactly [surname, initials, year, title].
+		$parts_padded  = array_slice( array_pad( array_map( 'trim', $question_parts ), 4, '' ), 0, 4 );
+		$expected_parts = array( $canonical['authorSurname'], $canonical['authorInitials'], $canonical['year'], $canonical['bookTitle'] );
+		if ( $expected_parts !== $parts_padded ) {
+			$errors[] = self::error(
+				'BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH',
+				'Question Parts do not exactly match the canonical bibliographic record (surname, initials, year, title).'
+			);
+		}
+
+		// 5-10: the reconstructed reference must contain every canonical fact.
+		foreach (
+			array(
+				'authorSurname'  => 'author surname',
+				'authorInitials' => 'author initials',
+				'year'           => 'publication year',
+				'bookTitle'      => 'book title',
+				'place'          => 'place of publication',
+				'publisher'      => 'publisher',
+			) as $field => $label
+		) {
+			if ( '' !== $canonical[ $field ] && ! self::text_contains( $reference, $canonical[ $field ] ) ) {
+				$errors[] = self::error(
+					'BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH',
+					sprintf( 'The reconstructed reference does not contain the canonical %s: "%s".', $label, $canonical[ $field ] )
+				);
+			}
+		}
+
+		// 11: the scenario must identify the same bibliographic record. Author
+		// initials are deliberately excluded here: a natural scenario names the
+		// author (e.g. "Stella Cottrell"), not their initials, so checking
+		// initials against the scenario text would reject genuinely correct
+		// scenarios.
+		$scenario = (string) ( $question['scenario'] ?? '' );
+		foreach (
+			array(
+				'bookTitle'     => 'book title',
+				'authorSurname' => 'author surname',
+				'year'          => 'publication year',
+				'place'         => 'place of publication',
+				'publisher'     => 'publisher',
+			) as $field => $label
+		) {
+			if ( '' !== $canonical[ $field ] && ! self::text_contains( $scenario, $canonical[ $field ] ) ) {
+				$errors[] = self::error(
+					'BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH',
+					sprintf( 'The scenario does not mention the canonical %s: "%s".', $label, $canonical[ $field ] )
+				);
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Case-insensitive substring containment, not exact string matching —
+	 * natural-language scenario phrasing varies ("You are referencing..." vs
+	 * "You are creating a reference for..."), so each canonical fact only
+	 * needs to appear somewhere in the text, not match it word-for-word.
+	 */
+	private static function text_contains( $haystack, $needle ) {
+		$haystack = self::normalise_for_match( $haystack );
+		$needle   = self::normalise_for_match( $needle );
+		return '' !== $needle && false !== mb_stripos( $haystack, $needle );
+	}
+
+	private static function normalise_for_match( $value ) {
+		$value = (string) $value;
+		$value = str_replace( array( "\xE2\x80\x99", "\xE2\x80\x98" ), "'", $value ); // curly quotes -> straight
+		$value = preg_replace( '/\s+/', ' ', $value );
+		return trim( (string) $value );
 	}
 
 	/**
