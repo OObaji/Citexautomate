@@ -3,7 +3,7 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — generation, import, validation, population and the question bank overview.
- * Version:     0.10.0
+ * Version:     0.10.1
  * Author:      Citex
  * Text Domain: citex-tools
  *
@@ -17,13 +17,14 @@
  * v0.10.0: external question import pipeline. CSV/TSV/JSON files and pasted
  * JSON enter the same pending queue, can be validated immediately, and only
  * passed questions are eligible for population into the real Reference List.
+ * v0.10.1: Gemini-friendly import workflow, import shortcut and CSV template.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'CITEX_TOOLS_VERSION', '0.10.0' );
+define( 'CITEX_TOOLS_VERSION', '0.10.1' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
