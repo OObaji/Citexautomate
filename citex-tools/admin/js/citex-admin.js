@@ -15,7 +15,32 @@
 		wireScannerSettings();
 		wireScanButtons();
 		wireValidation();
+		wireActionToast();
 	} );
+
+	/**
+	 * Auto-dismiss the Citex action toast (server-rendered by
+	 * Citex_Admin::render_notice()) after a few seconds. The notice stays
+	 * manually dismissible the whole time via WordPress's own "×" button
+	 * (wp-admin's common.js already wires that up for any .is-dismissible
+	 * notice), this only adds the auto-disappear behaviour on top.
+	 */
+	function wireActionToast() {
+		var toast = document.querySelector( '.citex-action-notice' );
+
+		if ( ! toast ) {
+			return;
+		}
+
+		window.setTimeout( function () {
+			toast.classList.add( 'citex-toast-hide' );
+			window.setTimeout( function () {
+				if ( toast.parentNode ) {
+					toast.parentNode.removeChild( toast );
+				}
+			}, 250 );
+		}, 6000 );
+	}
 
 	function wireSelectAll() {
 		var selectAll = document.getElementById( 'citex-select-all' );

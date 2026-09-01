@@ -317,12 +317,23 @@ class Citex_Validator {
 	 * so a stale or tampered client payload can't record a false pass/fail.
 	 */
 	public function ajax_save_result() {
-		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
+		if ( ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
+			wp_send_json_error( array( 'message' => __( 'Your session has expired. Please refresh the page and try again.', 'citex-tools' ) ), 403 );
+		}
 
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( array( 'message' => __( 'You are not allowed to do this.', 'citex-tools' ) ), 403 );
 		}
 
+		try {
+			$this->save_result_body();
+		} catch ( Throwable $e ) {
+			error_log( '[Citex Tools] ajax_save_result failed: ' . $e->getMessage() );
+			wp_send_json_error( array( 'message' => sprintf( __( 'Citex: saving the validation result failed — %s.', 'citex-tools' ), $e->getMessage() ) ), 500 );
+		}
+	}
+
+	private function save_result_body() {
 		$key = isset( $_POST['key'] ) ? sanitize_key( wp_unslash( $_POST['key'] ) ) : '';
 		$raw = isset( $_POST['result'] ) ? wp_unslash( $_POST['result'] ) : '';
 		$data = json_decode( $raw, true );

@@ -31,8 +31,55 @@ class Citex_Admin {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'admin_notices', array( $this, 'render_notice' ) );
 
+		// Form submissions must be processed on admin_init — before WordPress
+		// prints the admin header/menu/notices — so a redirect back to the
+		// Citex page actually reaches the browser. Doing this from inside a
+		// page's own render callback is too late: admin-header.php has
+		// already streamed output by the time that callback runs, so
+		// wp_safe_redirect() silently fails (headers already sent) and the
+		// user is left looking at a half-printed, effectively blank page.
+		add_action( 'admin_init', array( $this, 'handle_admin_actions' ) );
+
 		if ( is_admin() ) {
 			register_shutdown_function( array( $this, 'handle_admin_shutdown' ) );
+		}
+	}
+
+	/**
+	 * Run every Citex action handler before any admin output has started.
+	 * Each handler only acts when its own $_POST marker is present, so it is
+	 * safe to call all of them unconditionally on every wp-admin request.
+	 * A Throwable here still can't be avoided by the shutdown handler alone
+	 * (which gives up once headers are already sent), so it is caught here
+	 * instead, while output can still be safely redirected.
+	 */
+	public function handle_admin_actions() {
+		$handlers = array(
+			array( $this->generator, 'maybe_handle_submit' ),
+			array( $this->importer, 'maybe_handle_submit' ),
+			array( $this->populator, 'maybe_handle_submit' ),
+			array( $this->questions, 'maybe_handle_sync_submit' ),
+			array( 'Citex_AI_V2', 'maybe_handle_submit' ),
+		);
+
+		foreach ( $handlers as $handler ) {
+			try {
+				call_user_func( $handler );
+			} catch ( Throwable $e ) {
+				error_log( '[Citex Tools] Admin action failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() );
+				self::set_notice(
+					sprintf(
+						/* translators: %s: error message */
+						__( 'Citex: action failed — %s. See the WordPress/PHP error log for full details.', 'citex-tools' ),
+						$e->getMessage()
+					),
+					'error'
+				);
+				if ( ! headers_sent() ) {
+					wp_safe_redirect( admin_url( 'admin.php?page=citex' ) );
+					exit;
+				}
+			}
 		}
 	}
 
@@ -127,9 +174,13 @@ class Citex_Admin {
 	}
 
 	/**
-	 * Catch fatal PHP errors and avoid a white-screen response. If the request
-	 * is a normal Citex admin form, redirect to the Citex dashboard with the
-	 * error stored in a transient. AJAX requests are left as JSON requests.
+	 * Secondary safety net only. handle_admin_actions() (hooked to admin_init,
+	 * before any output) is what actually prevents blank Citex screens, by
+	 * catching Throwables and redirecting while it's still safe to do so.
+	 * This shutdown handler only helps with fatals that occur outside those
+	 * handlers (for example while a view template itself is rendering) and
+	 * gives up once headers are already sent, so it cannot recover a request
+	 * on its own.
 	 */
 	public function handle_admin_shutdown() {
 		$error = error_get_last();

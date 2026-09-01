@@ -10,6 +10,38 @@
 	max-width: 1200px;
 }
 
+/*
+ * Action feedback toast. Reuses WordPress's own dismissible-notice markup
+ * and behaviour (admin/js/common.js already wires the "×" button and
+ * `is-dismissible` class) — this only repositions that same notice as a
+ * floating, auto-disappearing toast near the top-right of the screen
+ * instead of an inline banner, so it always appears in the same place
+ * whether the request succeeded or failed.
+ */
+.citex-action-notice {
+	position: fixed;
+	top: 40px;
+	right: 20px;
+	z-index: 100000;
+	max-width: 420px;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+	animation: citex-toast-in 0.2s ease-out;
+}
+
+.citex-action-notice.citex-toast-hide {
+	animation: citex-toast-out 0.2s ease-in forwards;
+}
+
+@keyframes citex-toast-in {
+	from { opacity: 0; transform: translateY(-8px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes citex-toast-out {
+	from { opacity: 1; }
+	to { opacity: 0; }
+}
+
 .citex-page-title {
 	margin-bottom: 16px;
 }

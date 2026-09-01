@@ -216,36 +216,51 @@ class Citex_Scanner {
 	}
 
 	public function ajax_save_settings() {
-		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
+		if ( ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
+			wp_send_json_error( array( 'message' => __( 'Your session has expired. Please refresh the page and try again.', 'citex-tools' ) ), 403 );
+		}
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( array( 'message' => __( 'You are not allowed to do this.', 'citex-tools' ) ), 403 );
 		}
-		$url = isset( $_POST['question_list_url'] ) ? esc_url_raw( wp_unslash( $_POST['question_list_url'] ) ) : '';
-		update_option( self::OPTION_URL, $url, false );
-		wp_send_json_success( array( 'questionListUrl' => $url ) );
+
+		try {
+			$url = isset( $_POST['question_list_url'] ) ? esc_url_raw( wp_unslash( $_POST['question_list_url'] ) ) : '';
+			update_option( self::OPTION_URL, $url, false );
+			wp_send_json_success( array( 'questionListUrl' => $url ) );
+		} catch ( Throwable $e ) {
+			error_log( '[Citex Tools] ajax_save_settings failed: ' . $e->getMessage() );
+			wp_send_json_error( array( 'message' => sprintf( __( 'Citex: saving the setting failed — %s.', 'citex-tools' ), $e->getMessage() ) ), 500 );
+		}
 	}
 
 	public function ajax_save_scan() {
-		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
+		if ( ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
+			wp_send_json_error( array( 'message' => __( 'Your session has expired. Please refresh the page and try again.', 'citex-tools' ) ), 403 );
+		}
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( array( 'message' => __( 'You are not allowed to do this.', 'citex-tools' ) ), 403 );
 		}
 
-		$raw  = isset( $_POST['scan'] ) ? wp_unslash( $_POST['scan'] ) : '';
-		$data = json_decode( $raw, true );
-		if ( ! is_array( $data ) || ! isset( $data['questions'] ) || ! is_array( $data['questions'] ) ) {
-			wp_send_json_error( array( 'message' => __( 'Invalid scan data.', 'citex-tools' ) ), 400 );
-		}
+		try {
+			$raw  = isset( $_POST['scan'] ) ? wp_unslash( $_POST['scan'] ) : '';
+			$data = json_decode( $raw, true );
+			if ( ! is_array( $data ) || ! isset( $data['questions'] ) || ! is_array( $data['questions'] ) ) {
+				wp_send_json_error( array( 'message' => __( 'Invalid scan data.', 'citex-tools' ) ), 400 );
+			}
 
-		$scan = self::sanitize_scan( $data );
-		update_option( self::OPTION_SCAN, $scan, false );
-		wp_send_json_success(
-			array(
-				'scannedAt'    => $scan['scannedAt'],
-				'total'        => $scan['total'],
-				'statusCounts' => $scan['statusCounts'],
-			)
-		);
+			$scan = self::sanitize_scan( $data );
+			update_option( self::OPTION_SCAN, $scan, false );
+			wp_send_json_success(
+				array(
+					'scannedAt'    => $scan['scannedAt'],
+					'total'        => $scan['total'],
+					'statusCounts' => $scan['statusCounts'],
+				)
+			);
+		} catch ( Throwable $e ) {
+			error_log( '[Citex Tools] ajax_save_scan failed: ' . $e->getMessage() );
+			wp_send_json_error( array( 'message' => sprintf( __( 'Citex: saving the scan failed — %s.', 'citex-tools' ), $e->getMessage() ) ), 500 );
+		}
 	}
 
 	private static function sanitize_scan( $data ) {

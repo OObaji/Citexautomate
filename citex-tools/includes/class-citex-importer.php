@@ -31,7 +31,11 @@ class Citex_Importer {
 		require CITEX_TOOLS_PATH . 'admin/views/import.php';
 	}
 
-	private function maybe_handle_submit() {
+	/**
+	 * Called on admin_init (before any output) as well as at the top of
+	 * render(), so a redirect after submission always reaches the browser.
+	 */
+	public function maybe_handle_submit() {
 		if ( empty( $_POST['citex_import_file_submit'] ) && empty( $_POST['citex_import_json_submit'] ) ) {
 			return;
 		}

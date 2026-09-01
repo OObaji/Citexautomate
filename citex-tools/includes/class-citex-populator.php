@@ -51,7 +51,11 @@ class Citex_Populator {
 		require CITEX_TOOLS_PATH . 'admin/views/populate.php';
 	}
 
-	private function maybe_handle_submit() {
+	/**
+	 * Called on admin_init (before any output) as well as at the top of
+	 * render(), so a redirect after submission always reaches the browser.
+	 */
+	public function maybe_handle_submit() {
 		if ( empty( $_POST['citex_populate_submit'] ) ) {
 			return;
 		}

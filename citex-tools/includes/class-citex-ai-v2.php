@@ -22,14 +22,25 @@ class Citex_AI_V2 {
 		update_option( self::OPTION_MODEL, '' !== trim( (string) $model ) ? sanitize_text_field( $model ) : self::DEFAULT_MODEL, false );
 		update_option( self::OPTION_WEB_VERIFY, ! empty( $web_verify ), false );
 	}
+	/**
+	 * Called on admin_init (before any output) as well as at the top of
+	 * render_settings(), so a redirect after submission always reaches the
+	 * browser.
+	 */
+	public static function maybe_handle_submit() {
+		if ( empty( $_POST['citex_ai_save_settings'] ) ) {
+			return;
+		}
+		if ( ! current_user_can( 'manage_options' ) ) { wp_die( esc_html__( 'You are not allowed to manage Citex AI settings.', 'citex-tools' ) ); }
+		check_admin_referer( 'citex_ai_settings', 'citex_ai_settings_nonce' );
+		self::save_settings( isset( $_POST['citex_gemini_api_key'] ) ? wp_unslash( $_POST['citex_gemini_api_key'] ) : '', isset( $_POST['citex_gemini_model'] ) ? wp_unslash( $_POST['citex_gemini_model'] ) : self::DEFAULT_MODEL, ! empty( $_POST['citex_gemini_web_verify'] ) );
+		Citex_Admin::set_notice( __( 'Gemini AI settings saved.', 'citex-tools' ), 'success' );
+		wp_safe_redirect( admin_url( 'admin.php?page=citex-ai' ) ); exit;
+	}
+
 	public static function render_settings() {
 		if ( ! current_user_can( 'manage_options' ) ) { wp_die( esc_html__( 'You are not allowed to manage Citex AI settings.', 'citex-tools' ) ); }
-		if ( ! empty( $_POST['citex_ai_save_settings'] ) ) {
-			check_admin_referer( 'citex_ai_settings', 'citex_ai_settings_nonce' );
-			self::save_settings( isset( $_POST['citex_gemini_api_key'] ) ? wp_unslash( $_POST['citex_gemini_api_key'] ) : '', isset( $_POST['citex_gemini_model'] ) ? wp_unslash( $_POST['citex_gemini_model'] ) : self::DEFAULT_MODEL, ! empty( $_POST['citex_gemini_web_verify'] ) );
-			Citex_Admin::set_notice( __( 'Gemini AI settings saved.', 'citex-tools' ), 'success' );
-			wp_safe_redirect( admin_url( 'admin.php?page=citex-ai' ) ); exit;
-		}
+		self::maybe_handle_submit();
 		$has_key = '' !== self::get_api_key(); $model = self::get_model(); $web_verify = self::web_verification_enabled();
 		require CITEX_TOOLS_PATH . 'admin/views/ai-settings.php';
 	}

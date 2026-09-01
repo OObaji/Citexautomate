@@ -39,12 +39,23 @@ class Citex_Bulk_Editor {
 	 * Reference List > Bin. Nothing is permanently deleted here.
 	 */
 	public function ajax_update_status() {
-		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
+		if ( ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
+			wp_send_json_error( array( 'message' => __( 'Your session has expired. Please refresh the page and try again.', 'citex-tools' ) ), 403 );
+		}
 
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( array( 'message' => __( 'You are not allowed to bulk edit questions.', 'citex-tools' ) ), 403 );
 		}
 
+		try {
+			$this->update_status_body();
+		} catch ( Throwable $e ) {
+			error_log( '[Citex Tools] ajax_update_status failed: ' . $e->getMessage() );
+			wp_send_json_error( array( 'message' => sprintf( __( 'Citex: the bulk update failed — %s.', 'citex-tools' ), $e->getMessage() ) ), 500 );
+		}
+	}
+
+	private function update_status_body() {
 		$status  = isset( $_POST['status'] ) ? sanitize_key( wp_unslash( $_POST['status'] ) ) : '';
 		$choices = self::status_choices();
 		if ( ! isset( $choices[ $status ] ) ) {

@@ -15,34 +15,44 @@ class Citex_Questions {
 	const PER_PAGE = 20;
 	const SYNC_NONCE_ACTION = 'citex_sync_reference_list';
 
-	public function render() {
-		if ( isset( $_POST['citex_sync_reference_list'] ) ) {
-			check_admin_referer( self::SYNC_NONCE_ACTION, 'citex_sync_nonce' );
-
-			if ( ! current_user_can( 'manage_options' ) ) {
-				wp_die( esc_html__( 'You are not allowed to synchronise the Reference List.', 'citex-tools' ) );
-			}
-
-			$result = Citex_Scanner::sync_from_wordpress();
-			if ( is_wp_error( $result ) ) {
-				Citex_Admin::set_notice( $result->get_error_message(), 'error' );
-			} else {
-				$counts = $result['statusCounts'] ?? array();
-				Citex_Admin::set_notice(
-					sprintf(
-						__( 'Reference List synced from WordPress. All: %1$d, Published: %2$d, Drafts: %3$d, Bin: %4$d.', 'citex-tools' ),
-						(int) ( $counts['all'] ?? 0 ),
-						(int) ( $counts['publish'] ?? 0 ),
-						(int) ( $counts['draft'] ?? 0 ),
-						(int) ( $counts['trash'] ?? 0 )
-					),
-					'success'
-				);
-			}
-
-			wp_safe_redirect( admin_url( 'admin.php?page=citex-questions' ) );
-			exit;
+	/**
+	 * Called on admin_init (before any output) as well as at the top of
+	 * render(), so a redirect after submission always reaches the browser.
+	 */
+	public function maybe_handle_sync_submit() {
+		if ( ! isset( $_POST['citex_sync_reference_list'] ) ) {
+			return;
 		}
+
+		check_admin_referer( self::SYNC_NONCE_ACTION, 'citex_sync_nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You are not allowed to synchronise the Reference List.', 'citex-tools' ) );
+		}
+
+		$result = Citex_Scanner::sync_from_wordpress();
+		if ( is_wp_error( $result ) ) {
+			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
+		} else {
+			$counts = $result['statusCounts'] ?? array();
+			Citex_Admin::set_notice(
+				sprintf(
+					__( 'Reference List synced from WordPress. All: %1$d, Published: %2$d, Drafts: %3$d, Bin: %4$d.', 'citex-tools' ),
+					(int) ( $counts['all'] ?? 0 ),
+					(int) ( $counts['publish'] ?? 0 ),
+					(int) ( $counts['draft'] ?? 0 ),
+					(int) ( $counts['trash'] ?? 0 )
+				),
+				'success'
+			);
+		}
+
+		wp_safe_redirect( admin_url( 'admin.php?page=citex-questions' ) );
+		exit;
+	}
+
+	public function render() {
+		$this->maybe_handle_sync_submit();
 
 		$scan              = Citex_Scanner::get_last_scan();
 		$question_list_url = Citex_Scanner::get_question_list_url();

@@ -41,7 +41,11 @@ class Citex_Generator {
 		return count( self::get_pending_questions() );
 	}
 
-	private function maybe_handle_submit() {
+	/**
+	 * Called on admin_init (before any output) as well as at the top of
+	 * render(), so a redirect after submission always reaches the browser.
+	 */
+	public function maybe_handle_submit() {
 		if (
 			empty( $_POST['citex_generate_submit'] ) &&
 			empty( $_POST['citex_clear_pending'] ) &&
