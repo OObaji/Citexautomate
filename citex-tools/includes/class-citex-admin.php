@@ -36,6 +36,7 @@ class Citex_Admin {
 		$this->page_hooks[] = add_menu_page( __( 'Citex', 'citex-tools' ), __( 'Citex', 'citex-tools' ), 'manage_options', 'citex', array( $this->dashboard, 'render' ), 'dashicons-book-alt', 30 );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Dashboard', 'citex-tools' ), __( 'Dashboard', 'citex-tools' ), 'manage_options', 'citex', array( $this->dashboard, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Generate Questions', 'citex-tools' ), __( 'Generate Questions', 'citex-tools' ), 'manage_options', 'citex-generate', array( $this->generator, 'render' ) );
+		$this->page_hooks[] = add_submenu_page( 'citex', __( 'AI Settings', 'citex-tools' ), __( 'AI Settings', 'citex-tools' ), 'manage_options', 'citex-ai', array( 'Citex_AI', 'render_settings' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Import Questions', 'citex-tools' ), __( 'Import Questions', 'citex-tools' ), 'manage_options', 'citex-import', array( $this->importer, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Questions', 'citex-tools' ), __( 'Questions', 'citex-tools' ), 'manage_options', 'citex-questions', array( $this->questions, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Validation', 'citex-tools' ), __( 'Validation', 'citex-tools' ), 'manage_options', 'citex-validation', array( $this->validator, 'render' ) );
@@ -112,19 +113,13 @@ class Citex_Admin {
 	}
 
 	public static function set_notice( $message, $type = 'info' ) {
-		set_transient(
-			self::NOTICE_TRANSIENT_PREFIX . get_current_user_id(),
-			array( 'message' => $message, 'type' => $type ),
-			60
-		);
+		set_transient( self::NOTICE_TRANSIENT_PREFIX . get_current_user_id(), array( 'message' => $message, 'type' => $type ), 60 );
 	}
 
 	public function render_notice() {
-		$key    = self::NOTICE_TRANSIENT_PREFIX . get_current_user_id();
+		$key = self::NOTICE_TRANSIENT_PREFIX . get_current_user_id();
 		$notice = get_transient( $key );
-		if ( ! $notice ) {
-			return;
-		}
+		if ( ! $notice ) { return; }
 		delete_transient( $key );
 		printf( '<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>', esc_attr( $notice['type'] ), esc_html( $notice['message'] ) );
 	}
