@@ -30,6 +30,14 @@ class Citex_Admin {
 		add_action( 'admin_menu', array( $this, 'register_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'admin_notices', array( $this, 'render_notice' ) );
+
+		// A PHP fatal during an admin action used to leave the browser on a
+		// completely blank page. Capture the fatal, log the useful details, and
+		// send the administrator back to Citex with a visible error notice when
+		// headers are still available.
+		if ( is_admin() ) {
+			register_shutdown_function( array( $this, 'handle_admin_shutdown' ) );
+		}
 	}
 
 	public function register_menu() {
@@ -119,8 +127,55 @@ class Citex_Admin {
 	public function render_notice() {
 		$key = self::NOTICE_TRANSIENT_PREFIX . get_current_user_id();
 		$notice = get_transient( $key );
-		if ( ! $notice ) { return; }
+		if ( ! $notice ) {
+			return;
+		}
 		delete_transient( $key );
-		printf( '<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>', esc_attr( $notice['type'] ), esc_html( $notice['message'] ) );
+		$type = isset( $notice['type'] ) && in_array( $notice['type'], array( 'success', 'error', 'warning', 'info' ), true ) ? $notice['type'] : 'info';
+		$message = isset( $notice['message'] ) ? (string) $notice['message'] : '';
+		if ( '' === $message ) {
+			return;
+		}
+		printf( '<div class="notice notice-%1$s is-dismissible citex-action-notice"><p>%2$s</p></div>', esc_attr( $type ), esc_html( $message ) );
+	}
+
+	/**
+	 * Convert an otherwise blank PHP fatal admin response into a useful Citex
+	 * error notice where it is still safe to redirect.
+	 */
+	public function handle_admin_shutdown() {
+		$error = error_get_last();
+		if ( ! is_array( $error ) ) {
+			return;
+		}
+
+		$fatal_types = array( E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR );
+		if ( ! in_array( (int) $error['type'], $fatal_types, true ) ) {
+			return;
+		}
+
+		$uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+		if ( false === strpos( $uri, 'wp-admin' ) && false === strpos( $uri, 'admin-ajax.php' ) ) {
+			return;
+		}
+
+		$message = sprintf(
+			'Citex encountered a server error while processing that action: %s (line %d). Check the WordPress/PHP error log for the full details.',
+			isset( $error['message'] ) ? wp_strip_all_tags( (string) $error['message'] ) : 'Unknown PHP error',
+			isset( $error['line'] ) ? (int) $error['line'] : 0
+		);
+
+		error_log( '[Citex Tools] ' . $message . ' File: ' . ( isset( $error['file'] ) ? $error['file'] : 'unknown' ) );
+
+		// Do not attempt an HTML redirect for AJAX requests; their callers need
+		// the JSON response. The normal Citex admin forms use a redirect below.
+		if ( false !== strpos( $uri, 'admin-ajax.php' ) || headers_sent() ) {
+			return;
+		}
+
+		self::set_notice( $message, 'error' );
+		$target = admin_url( 'admin.php?page=citex' );
+		wp_safe_redirect( $target );
+		exit;
 	}
 }
