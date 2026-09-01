@@ -18,6 +18,7 @@ require_once CITEX_TOOLS_PATH . 'includes/class-citex-validator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-generated-validator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-dashboard.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-ai-v2.php';
+if ( ! class_exists( 'Citex_AI', false ) ) { class Citex_AI extends Citex_AI_V2 {} }
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-generator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-importer.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-bulk-editor.php';
