@@ -132,6 +132,21 @@ $wp_status_labels = array(
 		<p id="citex-bulk-status-progress" aria-live="polite"></p>
 	</div>
 
+	<div id="citex-clear-question-bank-panel" class="citex-scan-panel" data-all-post-ids="<?php echo esc_attr( wp_json_encode( $all_indexed_post_ids ) ); ?>" style="border-color:#d63638;">
+		<h2><?php esc_html_e( 'Clear Question Bank', 'citex-tools' ); ?></h2>
+		<p class="description">
+			<?php
+			printf(
+				/* translators: %s: number of indexed questions */
+				esc_html__( 'Move ALL %s indexed Reference List questions to the WordPress Bin — regardless of any search/filter above. This does not permanently delete anything; every question can be restored from Bin afterwards.', 'citex-tools' ),
+				esc_html( number_format_i18n( count( $all_indexed_post_ids ) ) )
+			);
+			?>
+		</p>
+		<button type="button" id="citex-clear-question-bank" class="button" style="color:#d63638;border-color:#d63638;" <?php disabled( empty( $all_indexed_post_ids ) ); ?>><?php esc_html_e( 'Move All Questions to Bin', 'citex-tools' ); ?></button>
+		<p id="citex-clear-question-bank-progress" aria-live="polite"></p>
+	</div>
+
 	<table class="wp-list-table widefat fixed striped citex-table">
 		<thead>
 			<tr>

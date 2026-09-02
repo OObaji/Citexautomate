@@ -28,6 +28,8 @@
 			filteredIds = [];
 		}
 
+		wireClearQuestionBank();
+
 		if ( ! button || ! scope || ! statusSelect ) {
 			return;
 		}
@@ -239,6 +241,71 @@
 				}
 				return true;
 			} );
+		}
+
+		/**
+		 * "Clear Question Bank" — moves every indexed Reference List post to
+		 * Bin, regardless of the filtered/selected scope above. Reuses the
+		 * same authenticated server batching (runServerBatches/postServerBatch)
+		 * as the "Move to Bin" status option, rather than duplicating it.
+		 */
+		function wireClearQuestionBank() {
+			var clearButton = document.getElementById( 'citex-clear-question-bank' );
+			var clearPanel = document.getElementById( 'citex-clear-question-bank-panel' );
+			var clearProgress = document.getElementById( 'citex-clear-question-bank-progress' );
+			if ( ! clearButton || ! clearPanel ) {
+				return;
+			}
+
+			var allIds = [];
+			try {
+				allIds = JSON.parse( clearPanel.getAttribute( 'data-all-post-ids' ) || '[]' );
+			} catch ( error ) {
+				allIds = [];
+			}
+
+			clearButton.addEventListener( 'click', async function () {
+				var ids = uniquePositiveIntegers( allIds );
+				if ( ! ids.length ) {
+					setClearProgress( 'No indexed questions to clear.' );
+					return;
+				}
+				if ( ! citexTools.questionListUrl ) {
+					setClearProgress( 'Reference List URL is not configured.' );
+					return;
+				}
+				if ( ! window.confirm( 'Move ALL ' + ids.length + ' Reference List question(s) to the WordPress Bin? This clears the entire Question Bank, regardless of any filter. They can still be restored from Bin afterwards.' ) ) {
+					return;
+				}
+
+				clearButton.disabled = true;
+				try {
+					setClearProgress( 'Moving all Reference List questions to Bin…' );
+					var summary = await runServerBatches( ids, 'trash' );
+					if ( summary.failed.length ) {
+						var sample = summary.failed.slice( 0, 3 ).map( function ( item ) {
+							return '#' + item.postId + ': ' + item.reason;
+						} ).join( ' | ' );
+						setClearProgress(
+							'WordPress cleared ' + summary.updated + ' of ' + ids.length +
+							'. Failed: ' + summary.failed.length + '. ' + sample +
+							' Synchronising Citex from WordPress…'
+						);
+					} else {
+						setClearProgress( 'WordPress cleared ' + summary.updated + ' of ' + ids.length + '. Synchronising Citex from WordPress…' );
+					}
+					window.setTimeout( submitServerSync, 350 );
+				} catch ( error ) {
+					setClearProgress( citexBulkEdit.strings.failed + ' ' + error.message );
+					clearButton.disabled = false;
+				}
+			} );
+
+			function setClearProgress( message ) {
+				if ( clearProgress ) {
+					clearProgress.textContent = message;
+				}
+			}
 		}
 
 		function submitServerSync() {

@@ -77,18 +77,11 @@ class Citex_Questions {
 		$total_filtered = count( $filtered );
 		$total_pages    = max( 1, (int) ceil( $total_filtered / self::PER_PAGE ) );
 
-		$filtered_post_ids = array_values(
-			array_unique(
-				array_filter(
-					array_map(
-						function ( $question ) {
-							return absint( $question['wpPostId'] ?? 0 );
-						},
-						$filtered
-					)
-				)
-			)
-		);
+		$filtered_post_ids    = self::extract_post_ids( $filtered );
+		// Every indexed Reference List post, regardless of the current
+		// search/filter — this is what "Clear Question Bank" moves to Bin,
+		// distinct from the existing filtered/selected bulk-status editor.
+		$all_indexed_post_ids = self::extract_post_ids( $all_questions );
 
 		$paged     = isset( $_GET['citex_paged'] ) ? max( 1, absint( $_GET['citex_paged'] ) ) : 1;
 		$paged     = min( $paged, $total_pages );
@@ -98,6 +91,26 @@ class Citex_Questions {
 		$wordpress_statuses = Citex_Bulk_Editor::status_choices();
 
 		require CITEX_TOOLS_PATH . 'admin/views/questions.php';
+	}
+
+	/**
+	 * Every unique, positive WordPress post ID present on a list of
+	 * questions — shared by both the filtered scope and the "Clear Question
+	 * Bank" (all indexed questions, regardless of filter) scope.
+	 */
+	private static function extract_post_ids( $questions ) {
+		return array_values(
+			array_unique(
+				array_filter(
+					array_map(
+						function ( $question ) {
+							return absint( $question['wpPostId'] ?? 0 );
+						},
+						$questions
+					)
+				)
+			)
+		);
 	}
 
 	private static function attach_validation( $questions ) {
