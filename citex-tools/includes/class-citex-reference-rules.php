@@ -294,4 +294,22 @@ class Citex_Reference_Rules {
 		}
 		return 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the title, place and publisher.';
 	}
+
+	/**
+	 * The fixed, non-revealing hint for the "Identify the error" MCQ
+	 * scenario — Citex authors this itself for the exact same reason as
+	 * mcq_hint(): the student sees a reference with one deliberate mistake
+	 * in it, and this hint must help them reason about HOW to check a
+	 * reference rule-by-rule without ever naming which specific rule was
+	 * broken or which option is correct (see mcq_hint()'s docblock for the
+	 * full "hint never reveals" rationale — identical here, just phrased
+	 * for a "spot the error" question instead of a "pick the correct
+	 * reference" one).
+	 */
+	public static function identify_error_hint( $category ) {
+		if ( self::CATEGORY_EDITED_BOOK === $category ) {
+			return 'Work through the reference rule by rule: the editor designation and whether it matches the editor count, how the editor(s) are joined, the position of the year, and the punctuation between title, place and publisher.';
+		}
+		return 'Work through the reference rule by rule: the order of surname and initials, how multiple authors are joined (if there is more than one), the position of the year, and the punctuation between title, place and publisher.';
+	}
 }

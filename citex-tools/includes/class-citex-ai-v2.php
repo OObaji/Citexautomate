@@ -86,9 +86,9 @@ class Citex_AI_V2 {
 		for ( $attempt = 1; $attempt <= self::MAX_QUALITY_ATTEMPTS; $attempt++ ) {
 			$body = array(
 				'model' => self::get_model(),
-				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction ),
-				'system_instruction' => self::system_instruction_for( $type, $category ),
-				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => self::schema_for( $type, $category ) ) ),
+				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction, $scenario_id ),
+				'system_instruction' => self::system_instruction_for( $type, $category, $scenario_id ),
+				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => self::schema_for( $type, $category, $scenario_id ) ) ),
 				'generation_config' => array( 'max_output_tokens' => max( 4000, min( 24000, $quantity * 650 ) ) ),
 			);
 			if ( $verify ) { $body['tools'] = array( array( 'type' => 'google_search' ) ); }
@@ -147,7 +147,10 @@ class Citex_AI_V2 {
 	 * methods) — the request/response handling in generate_questions() above
 	 * never changes.
 	 */
-	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction = '' ) {
+	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction = '', $scenario_id = '' ) {
+		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
+			return self::build_prompt_identify_error( $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return 'MCQ' === $type
 				? self::build_prompt_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
@@ -179,14 +182,20 @@ class Citex_AI_V2 {
 		);
 	}
 
-	private static function schema_for( $type, $category ) {
+	private static function schema_for( $type, $category, $scenario_id = '' ) {
+		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
+			return self::schema_identify_error( $category );
+		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return 'MCQ' === $type ? self::schema_edited_book_mcq() : self::schema_edited_book();
 		}
 		return 'MCQ' === $type ? self::schema_mcq() : self::schema();
 	}
 
-	private static function system_instruction_for( $type, $category ) {
+	private static function system_instruction_for( $type, $category, $scenario_id = '' ) {
+		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
+			return self::system_instruction_identify_error( $category );
+		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return 'MCQ' === $type
 				? 'You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList Edited Book multiple-choice questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, editors, years, publishers, or places. Every question must describe exactly ONE canonical bibliographic record with ONE OR MORE editors: editorFullNames (an array of one or two full names), year, bookTitle, place and publisher must all refer to the same real edited book — never a different edition or a different book. You are NOT asked for a scenario or question text at all; Citex supplies the entire student-facing question itself (a fixed "Which of the following is the correct Harvard reference for an edited book?" stem), so there is nothing for you to write and nothing for you to leak the answer through. Citex constructs the single correctly-formatted Harvard reference itself, including the correct editor designation ("(ed.)" for exactly one editor, "(eds)" for two) — you only ever provide THREE plausible but incorrectly-formatted `distractors`, each as {reference, errorReason} naming the SPECIFIC Harvard rule it breaks, never the correct one itself, and never one that swaps "(ed.)"/"(eds)" for the wrong editor count in a way that would make two options simultaneously look correct. Your goal is never "make four references that look different" — it is "one correct reference, three references each with one deliberate, identifiable Harvard error." For every distractor, re-read it end-to-end against the full correct format before returning it: a distractor that is wrong in your head but technically satisfies every Harvard rule when read literally must be rebuilt, since Citex independently re-validates every option and rejects the whole question if more than one is fully valid. Before returning each question, perform a strict self-check: editorFullNames, year, bookTitle, place and publisher all describe the same book with no contradictions; and all three distractors are clearly wrong (a formatting, punctuation, ordering, or wrong-designation mistake) with a specific errorReason each, mutually distinct from each other, and distinct from the correct reference you did not provide. Return only the requested JSON.'
@@ -277,6 +286,60 @@ class Citex_AI_V2 {
 		return $prompt;
 	}
 
+	/**
+	 * "Identify the error" MCQ mechanic (Citex_Question_Scenarios'
+	 * `identify_error`, both categories) — the scenario shown to the
+	 * student is ONE deliberately broken reference; the 4 options are
+	 * plain-English descriptions of what might be wrong with it, not
+	 * reference strings. Reuses the exact same distractor-construction
+	 * skill Gemini already has for `select_correct` (one broken reference +
+	 * a specific named errorReason, drawn from
+	 * Citex_Reference_Rules::mcq_distractor_patterns()) — the only new
+	 * thing asked of Gemini is `wrongDescriptions`: three plausible but
+	 * untrue descriptions of what else could be wrong, so the 4 options
+	 * (3 wrong descriptions + Citex's own blank 4th slot) and the Answer
+	 * field (the TRUE description, i.e. errorReason) slot into exactly the
+	 * same "3 distractors, 1 blank, answer = full text, never duplicated
+	 * into an option" shape every other MCQ pattern already uses.
+	 */
+	private static function build_prompt_identify_error( $category, $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$is_edited_book = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category;
+		$person_field   = $is_edited_book ? 'editorFullNames' : 'authorFullNames';
+		$person_noun    = $is_edited_book ? 'editor' : 'author';
+		$correct_format = $is_edited_book
+			? 'Editor(s), Initials. (ed.|eds) (YYYY) Title. Place: Publisher.'
+			: 'Surname, I. (YYYY) Book Title. Place: Publisher.';
+		$patterns  = Citex_Reference_Rules::mcq_distractor_patterns( $category );
+		$catalogue = '';
+		foreach ( $patterns as $index => $pattern ) {
+			$catalogue .= "\n  " . ( $index + 1 ) . '. ' . $pattern;
+		}
+		$canonical_intro = $is_edited_book
+			? "ONE QUESTION = ONE CANONICAL EDITED BOOK RECORD — CRITICAL:\n- editorFullNames is an array of real editor full name(s). Do NOT provide a surname or initials separately for any editor — Citex derives both itself from each full name.\n- year, bookTitle, place and publisher must all describe the exact same real edited book as editorFullNames.\n"
+			: "ONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames is an array of real author full name(s). Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- year, bookTitle, place and publisher must all describe the exact same real book as authorFullNames.\n";
+
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / " . ( $is_edited_book ? 'Edited Book' : 'Book' ) . " \"Identify the error\" multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify every bibliographic record.' : 'Do not invent bibliographic records.' ) . "\n\n"
+			. $canonical_intro
+			. "\nTHIS QUESTION SHOWS THE STUDENT ONE BROKEN REFERENCE AND ASKS \"What is incorrect about this reference?\" — it is NOT a \"pick the correct reference\" question:\n"
+			. '- Provide exactly ONE `brokenReference`: { "reference": "...", "errorReason": "..." } — a reference for the SAME canonical record, built by deliberately applying ONE of the following known Harvard error patterns (correct format: ' . $correct_format . ') — do not invent an unrelated kind of mistake:' . $catalogue . "\n"
+			. "- errorReason must name the SPECIFIC rule brokenReference breaks (e.g. \"Missing the editor designation (ed.)\") — never a vague label like \"formatting error\".\n"
+			. "- brokenReference must still contain every canonical fact — every $person_noun's surname and initials, the year, title, place and publisher. The ONLY thing wrong with it is the ONE mistake named in errorReason; do not also change or omit any bibliographic fact.\n"
+			. "- Provide exactly THREE `wrongDescriptions`: plain-English descriptions of OTHER things that COULD be wrong with a Harvard reference (drawn from the same list of error patterns above, or a similar realistic mistake), but which are NOT actually true of brokenReference. Each must read like a genuine, plausible answer choice — never nonsensical, never obviously wrong on its face.\n"
+			. "- wrongDescriptions must be mutually distinct from each other and from errorReason (reworded, not a copy).\n"
+			. "- Before finalising: re-read brokenReference end-to-end against the full correct format and confirm errorReason is the ONLY true description of what is wrong with it — none of the three wrongDescriptions may also happen to be true of brokenReference (that would create a second correct answer).\n"
+			. "\nFINAL SELF-CHECK — DO NOT SKIP:\n1. " . ucfirst( $person_field ) . ", year, bookTitle, place and publisher all describe the same real record — no contradictions.\n2. brokenReference genuinely contains every canonical fact and exactly ONE deliberate mistake, correctly named by errorReason.\n3. Exactly 3 wrongDescriptions are provided, each plausible, mutually distinct, and NOT true of brokenReference.\n4. Only return questions that pass all four checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	private static function system_instruction_identify_error( $category ) {
+		$is_edited_book = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category;
+		$noun            = $is_edited_book ? 'editor' : 'author';
+		$plural_field    = $is_edited_book ? 'editorFullNames' : 'authorFullNames';
+		return "You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList \"Identify the error\" multiple-choice questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, {$noun}s, years, publishers, or places. This question type shows the student ONE deliberately broken reference and asks what is wrong with it — you provide that one broken reference (brokenReference: {reference, errorReason}, built by deliberately applying exactly one named Harvard error pattern to the real record described by {$plural_field}/year/bookTitle/place/publisher) plus THREE plausible-but-untrue `wrongDescriptions` of other things that could be wrong but are not actually true of brokenReference. Citex is the sole authority for the correct answer (errorReason itself) and never asks you for it separately — your job is only to make brokenReference genuinely, specifically broken in exactly the one way you claim, and to make the three wrongDescriptions plausible distractors that are demonstrably NOT true of brokenReference when re-read carefully. Before returning each question, perform a strict self-check: brokenReference contains every canonical fact with exactly one deliberate mistake; errorReason names that mistake specifically; and none of the three wrongDescriptions is also true of brokenReference (that would create a second correct answer, which Citex will reject). Return only the requested JSON.";
+	}
+
 	private static function schema_edited_book() {
 		$s = array( 'type' => 'string' );
 		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
@@ -327,6 +390,35 @@ class Citex_AI_V2 {
 			'questionId' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'place' => $s, 'publisher' => $s,
 			'distractors' => self::distractor_schema()
 		), 'required' => array( 'questionId','authorFullNames','year','bookTitle','place','publisher','distractors' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/**
+	 * Schema for the "Identify the error" MCQ mechanic — one canonical
+	 * record, one deliberately broken reference (brokenReference, the same
+	 * {reference, errorReason} shape as one distractor_schema() entry), and
+	 * three plausible-but-untrue wrongDescriptions. No `scenario` field:
+	 * Citex constructs the student-facing question text itself from
+	 * brokenReference (see normalise_identify_error_item()), the same
+	 * "Citex authors the fixed stem" principle already used for
+	 * schema_mcq()/schema_edited_book_mcq().
+	 */
+	private static function schema_identify_error( $category ) {
+		$s = array( 'type' => 'string' );
+		$person_field = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editorFullNames' : 'authorFullNames';
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId'  => $s,
+			$person_field => array( 'type' => 'array', 'items' => $s ),
+			'year'        => $s,
+			'bookTitle'   => $s,
+			'place'       => $s,
+			'publisher'   => $s,
+			'brokenReference' => array(
+				'type'       => 'object',
+				'properties' => array( 'reference' => $s, 'errorReason' => $s ),
+				'required'   => array( 'reference', 'errorReason' ),
+			),
+			'wrongDescriptions' => array( 'type' => 'array', 'items' => $s ),
+		), 'required' => array( 'questionId', $person_field, 'year', 'bookTitle', 'place', 'publisher', 'brokenReference', 'wrongDescriptions' ) ) ) ), 'required' => array( 'questions' ) );
 	}
 
 	/**
@@ -472,7 +564,27 @@ class Citex_AI_V2 {
 			// matrix built before generation began, never read from $item.
 			$exercise = isset( $exercises[ $i ] ) ? sanitize_text_field( (string) $exercises[ $i ] ) : 'Exercise 1';
 
-			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
+				// "Identify the error" has its own normaliser (a
+				// fundamentally different data shape — a shown broken
+				// reference plus text descriptions, not a generic fixed
+				// stem) but shares the same person-array extraction/
+				// derivation and target-count enforcement as every other
+				// MCQ pattern, just for whichever field name this
+				// category's people live under.
+				if ( '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
+				$is_edited_book = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category;
+				$person_names = array_values( array_filter( array_map( 'trim', (array) ( $item[ $is_edited_book ? 'editorFullNames' : 'authorFullNames' ] ?? array() ) ), 'strlen' ) );
+				if ( empty( $person_names ) || count( $person_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_author_count', sprintf( __( 'Question %s must have 1 or more %2$s (12 at most); %3$d were provided.', 'citex-tools' ), $id, $is_edited_book ? 'editors' : 'authors', count( $person_names ) ) ); }
+				if ( null !== $target_count && count( $person_names ) !== $target_count ) { return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d %3$s for this scenario; %4$d were provided.', 'citex-tools' ), $id, $target_count, $is_edited_book ? 'editors' : 'authors', count( $person_names ) ) ); }
+				$people = array();
+				foreach ( $person_names as $full_name ) {
+					$parts = self::derive_author_parts( $full_name );
+					if ( is_wp_error( $parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $parts->get_error_message() ) ); }
+					$people[] = array( 'fullName' => $full_name, 'surname' => $parts['surname'], 'initials' => $parts['initials'] );
+				}
+				$candidate = self::normalise_identify_error_item( $item, $id, $category, $people, $year, $title, $place, $publisher, $exercise, $difficulty );
+			} elseif ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 				if ( '' === $scenario || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
 				$editor_names = array_values( array_filter( array_map( 'trim', (array) ( $item['editorFullNames'] ?? array() ) ), 'strlen' ) );
 				if ( empty( $editor_names ) || count( $editor_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_editor_count', sprintf( __( 'Question %s must have 1 or more editors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $editor_names ) ) ); }
@@ -689,6 +801,121 @@ class Citex_AI_V2 {
 		return $distractors;
 	}
 
+	/**
+	 * "Identify the error" MCQ mechanic (Citex_Question_Scenarios'
+	 * `identify_error`, both categories) — see build_prompt_identify_error()'s
+	 * docblock for the full mechanic description. Citex builds the
+	 * canonical correct reference itself (needed only for the candidate's
+	 * own record-keeping; validation checks the shown brokenReference
+	 * against the canonical facts directly, not against this string) via
+	 * Citex_Reference_Rules::build_reference(), and authors the
+	 * student-facing question text itself: a fixed "What is incorrect about
+	 * the following Harvard reference?" stem followed by Gemini's
+	 * (validated) brokenReference — the same "Citex is the sole authority
+	 * for fixed question text" principle already used for
+	 * mcq_question_stem(), just with the broken reference appended since
+	 * the student needs to see it to answer.
+	 *
+	 * wrongDescriptions become options 1-3 (order preserved), option 4
+	 * stays blank, and the Answer field (reconstructedReference) holds the
+	 * TRUE description (brokenReference's own errorReason) — never
+	 * duplicated into any option, exactly like every other MCQ pattern's
+	 * correct answer (see Citex_Generated_Validator::validate_identify_error()).
+	 *
+	 * @param array $people array<{fullName, surname, initials}> — authors
+	 *              (Book) or editors (Edited Book), 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_identify_error_item( $item, $id, $category, $people, $year, $title, $place, $publisher, $exercise, $difficulty ) {
+		$broken_raw       = is_array( $item['brokenReference'] ?? null ) ? $item['brokenReference'] : array();
+		$broken_reference = trim( (string) ( $broken_raw['reference'] ?? '' ) );
+		$true_description = trim( (string) ( $broken_raw['errorReason'] ?? '' ) );
+		if ( '' === $broken_reference ) {
+			return new WP_Error( 'citex_ai_identify_error_missing_reference', sprintf( __( 'Question %s is missing its brokenReference text.', 'citex-tools' ), $id ) );
+		}
+		if ( '' === $true_description ) {
+			return new WP_Error( 'citex_ai_identify_error_missing_reason', sprintf( __( 'Question %s\'s brokenReference has no specific errorReason.', 'citex-tools' ), $id ) );
+		}
+
+		$wrong_descriptions = array_values( array_filter( array_map( 'trim', (array) ( $item['wrongDescriptions'] ?? array() ) ), 'strlen' ) );
+		if ( 3 !== count( $wrong_descriptions ) ) {
+			return new WP_Error( 'citex_ai_identify_error_bad_option_count', sprintf( __( 'Question %1$s has %2$d wrongDescriptions; exactly 3 are required.', 'citex-tools' ), $id, count( $wrong_descriptions ) ) );
+		}
+
+		$true_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $true_description ) ) );
+		$seen        = array( $true_normal => true );
+		foreach ( $wrong_descriptions as $description ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $description ) ) );
+			if ( $normal === $true_normal ) {
+				return new WP_Error( 'citex_ai_identify_error_option_matches_answer', sprintf( __( 'Question %s has a "wrong" description identical to the true one.', 'citex-tools' ), $id ) );
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				return new WP_Error( 'citex_ai_identify_error_duplicate_option', sprintf( __( 'Question %s has a duplicate wrongDescription.', 'citex-tools' ), $id ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		// Option 1-3 hold the 3 wrong descriptions, in the order Gemini
+		// supplied them; Option 4 is ALWAYS blank — the same shape (and the
+		// same reason) as every other MCQ pattern's options. The true
+		// description lives only in the Answer field, below.
+		$options   = $wrong_descriptions;
+		$options[] = '';
+
+		$is_edited_book = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category;
+		$fields         = $is_edited_book
+			? array( 'editors' => $people, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher )
+			: array( 'authors' => $people, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
+		$correct_reference = Citex_Reference_Rules::build_reference( $category, $fields );
+
+		$scenario = sprintf( "What is incorrect about the following Harvard reference?\n\n%s", $broken_reference );
+		$hint     = Citex_Reference_Rules::identify_error_hint( $category );
+		$answer_explanation = sprintf( 'The reference shown breaks the following Harvard rule: %s', $true_description );
+
+		$category_label = $is_edited_book ? 'Edited Book' : 'Book';
+		$person_key     = $is_edited_book ? 'editors' : 'authors';
+		$full_name_key  = $is_edited_book ? 'editorFullNames' : 'authorFullNames';
+		$person_projection = array_map(
+			function ( $person ) {
+				return array( 'fullName' => sanitize_text_field( $person['fullName'] ), 'surname' => sanitize_text_field( $person['surname'] ), 'initials' => sanitize_text_field( $person['initials'] ) );
+			},
+			$people
+		);
+
+		return array(
+			'key' => wp_generate_uuid4(),
+			'questionId' => $id,
+			'title' => sprintf( 'Harvard | ReferenceList | %s | MCQ | %s', $category_label, $id ),
+			'source' => 'Harvard',
+			'group' => 'ReferenceList',
+			'category' => $category_label,
+			'exercise' => $exercise,
+			'type' => 'MCQ',
+			'institution' => 'Liverpool Hope University',
+			'difficulty' => ucfirst( $difficulty ),
+			'scenario' => sanitize_textarea_field( $scenario ),
+			$person_key => $person_projection,
+			$full_name_key => array_values( array_map( 'sanitize_text_field', array_column( $people, 'fullName' ) ) ),
+			'year' => sanitize_text_field( $year ),
+			'bookTitle' => sanitize_text_field( $title ),
+			'place' => sanitize_text_field( $place ),
+			'publisher' => sanitize_text_field( $publisher ),
+			'brokenReference' => sanitize_text_field( $broken_reference ),
+			'correctReference' => sanitize_text_field( $correct_reference ),
+			'options' => array_values( array_map( 'sanitize_text_field', $options ) ),
+			'hint' => sanitize_textarea_field( $hint ),
+			'answerExplanation' => sanitize_textarea_field( $answer_explanation ),
+			'reconstructedReference' => sanitize_text_field( $true_description ),
+			'mcqPattern' => 'identify_error',
+			'status' => 'pending',
+			'validationStatus' => 'not_validated',
+			'validationErrors' => array(),
+			'origin' => 'generated_ai',
+			'aiProvider' => 'Gemini',
+			'aiModel' => self::get_model(),
+			'generatedAt' => gmdate( 'c' ),
+		);
+	}
 
 	/**
 	 * Edited Book counterpart to normalise_dragdrop_item(). Citex — never

@@ -236,5 +236,47 @@ check( '[5] the recorded entry names the one_author scenario', $history_after[0]
 $next_assignment = Citex_Question_Diversity::assign_scenarios( Citex_Reference_Rules::CATEGORY_BOOK, 'MCQ', 1 );
 check( '[5] the next scenario assignment avoids the just-generated one_author scenario', $next_assignment[0], 'two_authors' );
 
+// ---------------------------------------------------------------------
+// 6. The "identify_error" scenario routes through generate_questions() to
+// its own prompt/schema/system-instruction/normaliser end-to-end — a
+// completely different Gemini response shape (brokenReference +
+// wrongDescriptions, no `distractors` array at all) from every other MCQ
+// scenario, proving build_prompt_for()/schema_for()/system_instruction_for()
+// correctly dispatch on scenario id, not just type/category.
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__next_response'] = gemini_response_for( array( array(
+	'questionId'      => 'BK06',
+	'authorFullNames' => array( 'Alan Bryman' ),
+	'year'            => '2012',
+	'bookTitle'       => 'Social Research Methods',
+	'place'           => 'Oxford',
+	'publisher'       => 'Oxford University Press',
+	'brokenReference' => array(
+		'reference'   => 'Bryman A. (2012) Social Research Methods. Oxford: Oxford University Press.',
+		'errorReason' => 'Uses the author\'s full first name instead of initials, and is missing the comma after the surname.',
+	),
+	'wrongDescriptions' => array(
+		'The publication year is not enclosed in parentheses.',
+		'The place of publication and publisher have been swapped.',
+		'The book title is missing its final full stop.',
+	),
+) ) );
+$identify_error_result = Citex_AI_V2::generate_questions( array(
+	'quantity'    => 1,
+	'starting_id' => 'BK06',
+	'difficulty'  => 'medium',
+	'type'        => 'mcq',
+	'category'    => 'book',
+	'scenario'    => 'identify_error',
+) );
+check( '[6] generation succeeds for the identify_error scenario', is_wp_error( $identify_error_result ), false );
+if ( ! is_wp_error( $identify_error_result ) ) {
+	$identify_error_candidate = $identify_error_result[0];
+	check( '[6] mcqPattern is identify_error', $identify_error_candidate['mcqPattern'], 'identify_error' );
+	check( '[6] blueprint scenario is identify_error', $identify_error_candidate['blueprint']['scenario'], 'identify_error' );
+	check( '[6] the Answer field holds the true description, not a reference', $identify_error_candidate['reconstructedReference'], 'Uses the author\'s full first name instead of initials, and is missing the comma after the surname.' );
+}
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

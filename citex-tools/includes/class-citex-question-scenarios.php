@@ -50,7 +50,34 @@ class Citex_Question_Scenarios {
 			$bucket['questionType'] = $question_type;
 			$out[]                  = $bucket;
 		}
+
+		// MCQ-only scenarios: mechanics that have no DragDrop equivalent
+		// (DragDrop only ever constructs a complete reference — see
+		// Citex_Reference_Rules::dragdrop_shape() — so it has nothing
+		// analogous to "identify the error in this shown reference").
+		if ( 'MCQ' === $question_type ) {
+			foreach ( self::mcq_only_scenarios( $category ) as $scenario ) {
+				$scenario['questionType'] = 'MCQ';
+				$out[]                    = $scenario;
+			}
+		}
+
 		return $out;
+	}
+
+	/**
+	 * MCQ mechanics beyond "select the correct reference" (which itself
+	 * lives in the count buckets above, tagged by author/editor count).
+	 * Deliberately kept to a single real author/editor count (targetCounts
+	 * = [1]) for now — combining "identify a deliberately broken reference"
+	 * with "and also vary the author count" compounds two kinds of
+	 * complexity in the same question; author-count variation for this
+	 * mechanic is explicit backlog, not silently out of scope.
+	 */
+	private static function mcq_only_scenarios( $category ) {
+		return array(
+			array( 'id' => 'identify_error', 'ruleTested' => 'error_identification', 'targetCounts' => array( 1 ), 'label' => 'Identify the error' ),
+		);
 	}
 
 	/**

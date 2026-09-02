@@ -41,6 +41,19 @@ class Citex_Generated_Validator {
 			return self::validate_dragdrop( $question );
 		}
 		if ( 'MCQ' === $type ) {
+			// The "Identify the error" MCQ mechanic has a fundamentally
+			// different option shape (plain-English error descriptions, not
+			// Harvard reference strings) — see normalise_identify_error_item()
+			// in class-citex-ai-v2.php — so it is routed to its own
+			// validator rather than forcing validate_mcq()'s
+			// reference-format checks onto text that was never meant to be
+			// a reference. Dispatched on the candidate's own `mcqPattern`
+			// field (set only by that normaliser), not on blueprint, since
+			// blueprint is optional/empty for any caller outside the
+			// dynamic-generation framework.
+			if ( 'identify_error' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_identify_error( $question );
+			}
 			return self::validate_mcq( $question );
 		}
 
@@ -318,6 +331,127 @@ class Citex_Generated_Validator {
 		}
 
 		return $errors;
+	}
+
+	/**
+	 * "Identify the error" MCQ counterpart to validate_mcq(): same 4-option
+	 * shape and "never duplicate the answer into an option" rule, but the
+	 * options are plain-English error DESCRIPTIONS, not Harvard reference
+	 * strings — so none of validate_mcq()'s Harvard-format-per-option
+	 * checks apply to them. What this validates instead: the reference
+	 * SHOWN to the student (brokenReference) must genuinely fail Harvard
+	 * format validation (it would defeat the question if it were actually
+	 * correct) while still containing every canonical bibliographic fact —
+	 * the ONLY thing wrong with it should be the one deliberate mistake
+	 * named in the answer, never a substituted fact. Reuses
+	 * validate_mcq_hint_safety() unchanged: it already only compares the
+	 * hint against "the answer text", which works identically whether that
+	 * text is a full reference or an error description.
+	 */
+	private static function validate_identify_error( $question ) {
+		$errors   = array();
+		$category = (string) ( $question['category'] ?? Citex_Reference_Rules::CATEGORY_BOOK );
+		$options  = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong descriptions + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong description.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the true description belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$true_description = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $true_description ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The true error description (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$true_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $true_description ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $true_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the true description — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$broken_reference = trim( (string) ( $question['brokenReference'] ?? '' ) );
+		if ( '' === $broken_reference ) {
+			$errors[] = self::error( 'IDENTIFY_ERROR_BROKEN_REFERENCE_MISSING', 'The broken reference shown to the student is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		// Pass the full check set (place/publisher/designation/editor-join)
+		// — the same one validate_mcq() gives every distractor — so a
+		// mistake only those specific checks can see (a place/publisher
+		// swap, or a wrong editor designation) is not missed here, which
+		// would otherwise let validate_reference_format() come back empty
+		// and wrongly flag a genuinely broken reference as "not broken".
+		$place       = $question['place'] ?? null;
+		$publisher   = $question['publisher'] ?? null;
+		$designation = self::expected_designation_for( $question, $category );
+		$editor_join = self::expected_editor_join_for( $question, $category );
+		if ( empty( self::validate_reference_format( $broken_reference, $category, $place, $publisher, $designation, $editor_join ) ) ) {
+			$errors[] = self::error(
+				'IDENTIFY_ERROR_REFERENCE_NOT_BROKEN',
+				'The reference shown to the student passes every Harvard format rule — it must contain the one deliberate mistake named in the answer, or this is not a valid "identify the error" question.'
+			);
+		}
+
+		$people_key = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editors' : 'authors';
+		$people     = is_array( $question[ $people_key ] ?? null ) ? $question[ $people_key ] : array();
+		foreach ( $people as $index => $person ) {
+			$surname  = trim( (string) ( $person['surname'] ?? '' ) );
+			$initials = trim( (string) ( $person['initials'] ?? '' ) );
+			if ( '' !== $surname && ! self::text_contains( $broken_reference, $surname ) ) {
+				$errors[] = self::error( 'IDENTIFY_ERROR_REFERENCE_MISMATCH', sprintf( 'The broken reference does not contain person %1$d\'s surname: "%2$s".', $index + 1, $surname ) );
+			}
+			if ( '' !== $initials && ! self::text_contains( $broken_reference, $initials ) ) {
+				$errors[] = self::error( 'IDENTIFY_ERROR_REFERENCE_MISMATCH', sprintf( 'The broken reference does not contain person %1$d\'s initials: "%2$s".', $index + 1, $initials ) );
+			}
+		}
+		foreach (
+			array(
+				'year'      => array( trim( (string) ( $question['year'] ?? '' ) ), 'publication year' ),
+				'title'     => array( trim( (string) ( $question['bookTitle'] ?? '' ) ), 'book title' ),
+				'place'     => array( trim( (string) ( $question['place'] ?? '' ) ), 'place of publication' ),
+				'publisher' => array( trim( (string) ( $question['publisher'] ?? '' ) ), 'publisher' ),
+			) as $pair
+		) {
+			list( $value, $label ) = $pair;
+			if ( '' !== $value && ! self::text_contains( $broken_reference, $value ) ) {
+				$errors[] = self::error( 'IDENTIFY_ERROR_REFERENCE_MISMATCH', sprintf( 'The broken reference does not contain the canonical %1$s: "%2$s".', $label, $value ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $true_description ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $true_description );
 	}
 
 	/**

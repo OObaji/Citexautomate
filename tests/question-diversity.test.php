@@ -47,11 +47,17 @@ $book = Citex_Reference_Rules::CATEGORY_BOOK;
 // ---------------------------------------------------------------------
 reset_options();
 check( '[1] no history recorded yet', Citex_Question_Diversity::get_history( $book ), array() );
-$assignment_4 = Citex_Question_Diversity::assign_scenarios( $book, 'MCQ', 4 );
-check( '[1] a 4-slot batch covers all 4 Book scenarios, each exactly once', $assignment_4, array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors' ) );
+// Book MCQ has 5 scenarios: the 4 author-count buckets plus identify_error.
+$assignment_5 = Citex_Question_Diversity::assign_scenarios( $book, 'MCQ', 5 );
+check( '[1] a 5-slot batch covers all 5 Book MCQ scenarios, each exactly once', $assignment_5, array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors', 'identify_error' ) );
 
-$assignment_8 = Citex_Question_Diversity::assign_scenarios( $book, 'MCQ', 8 );
-check( '[1] an 8-slot batch cycles through all 4 scenarios exactly twice each', array_count_values( $assignment_8 ), array( 'one_author' => 2, 'two_authors' => 2, 'three_authors' => 2, 'four_or_more_authors' => 2 ) );
+$assignment_10 = Citex_Question_Diversity::assign_scenarios( $book, 'MCQ', 10 );
+check( '[1] a 10-slot batch cycles through all 5 scenarios exactly twice each', array_count_values( $assignment_10 ), array( 'one_author' => 2, 'two_authors' => 2, 'three_authors' => 2, 'four_or_more_authors' => 2, 'identify_error' => 2 ) );
+
+// DragDrop has no identify_error mechanic, so a 4-slot DragDrop batch still
+// covers exactly the 4 count buckets, each once.
+$dragdrop_assignment_4 = Citex_Question_Diversity::assign_scenarios( $book, 'DragDrop', 4 );
+check( '[1] a 4-slot DragDrop batch covers all 4 count-bucket scenarios, each exactly once', $dragdrop_assignment_4, array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors' ) );
 
 // ---------------------------------------------------------------------
 // 2. record_batch() persists blueprints, and a scenario that was already

@@ -26,13 +26,14 @@ function check( $description, $actual, $expected ) {
 }
 
 // ---------------------------------------------------------------------
-// 1. Book MCQ catalogue: exactly the four author-count buckets, each
-// carrying the ruleTested the user specified.
+// 1. Book MCQ catalogue: the four author-count buckets PLUS the MCQ-only
+// "identify_error" mechanic (5 total), each carrying the ruleTested the
+// user specified.
 // ---------------------------------------------------------------------
 $book_mcq = Citex_Question_Scenarios::catalog( Citex_Reference_Rules::CATEGORY_BOOK, 'MCQ' );
-check( '[1] Book MCQ has exactly 4 scenarios', count( $book_mcq ), 4 );
+check( '[1] Book MCQ has exactly 5 scenarios (4 count buckets + identify_error)', count( $book_mcq ), 5 );
 $book_mcq_ids = array_column( $book_mcq, 'id' );
-check( '[1] Book MCQ scenario ids are the 4 author-count buckets', $book_mcq_ids, array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors' ) );
+check( '[1] Book MCQ scenario ids are the 4 author-count buckets plus identify_error', $book_mcq_ids, array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors', 'identify_error' ) );
 foreach ( $book_mcq as $entry ) {
 	check( '[1] every Book MCQ scenario is tagged questionType MCQ: ' . $entry['id'], $entry['questionType'], 'MCQ' );
 }
@@ -41,15 +42,16 @@ check( '[1] one_author -> author_formatting', $book_rule_by_id['one_author'], 'a
 check( '[1] two_authors -> author_joining', $book_rule_by_id['two_authors'], 'author_joining' );
 check( '[1] three_authors -> author_joining', $book_rule_by_id['three_authors'], 'author_joining' );
 check( '[1] four_or_more_authors -> reference_list_all_authors', $book_rule_by_id['four_or_more_authors'], 'reference_list_all_authors' );
+check( '[1] identify_error -> error_identification', $book_rule_by_id['identify_error'], 'error_identification' );
 
 // ---------------------------------------------------------------------
-// 2. Book DragDrop catalogue: same 4 scenario ids, tagged questionType
-// DragDrop instead — the catalogue is type-specific but scenario-id-stable
-// across types (an admin comparing MCQ and DragDrop coverage sees the same
-// scenario names).
+// 2. Book DragDrop catalogue: only the 4 count-bucket scenario ids —
+// "identify_error" is MCQ-only (DragDrop only ever constructs a complete
+// reference; there is no DragDrop equivalent of "spot the error in this
+// shown reference").
 // ---------------------------------------------------------------------
 $book_dragdrop = Citex_Question_Scenarios::catalog( Citex_Reference_Rules::CATEGORY_BOOK, 'DragDrop' );
-check( '[2] Book DragDrop has the same 4 scenario ids as MCQ', array_column( $book_dragdrop, 'id' ), $book_mcq_ids );
+check( '[2] Book DragDrop has only the 4 count-bucket scenarios', array_column( $book_dragdrop, 'id' ), array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors' ) );
 foreach ( $book_dragdrop as $entry ) {
 	check( '[2] every Book DragDrop scenario is tagged questionType DragDrop: ' . $entry['id'], $entry['questionType'], 'DragDrop' );
 }
@@ -57,15 +59,20 @@ foreach ( $book_dragdrop as $entry ) {
 // ---------------------------------------------------------------------
 // 3. Edited Book catalogue: 3 editor-count buckets, matching the rule
 // engine's already-supported 1/2/3+ editor range (join_editors() already
-// handles 3+; only the AI-v2 prompt cap needed lifting).
+// handles 3+; only the AI-v2 prompt cap needed lifting) — plus
+// identify_error for MCQ only, same as Book.
 // ---------------------------------------------------------------------
 $edited_book_mcq = Citex_Question_Scenarios::catalog( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'MCQ' );
-check( '[3] Edited Book has exactly 3 scenarios', count( $edited_book_mcq ), 3 );
-check( '[3] Edited Book scenario ids are the 3 editor-count buckets', array_column( $edited_book_mcq, 'id' ), array( 'one_editor', 'two_editors', 'three_or_more_editors' ) );
+check( '[3] Edited Book MCQ has exactly 4 scenarios (3 count buckets + identify_error)', count( $edited_book_mcq ), 4 );
+check( '[3] Edited Book MCQ scenario ids are the 3 editor-count buckets plus identify_error', array_column( $edited_book_mcq, 'id' ), array( 'one_editor', 'two_editors', 'three_or_more_editors', 'identify_error' ) );
 $edited_rule_by_id = array_combine( array_column( $edited_book_mcq, 'id' ), array_column( $edited_book_mcq, 'ruleTested' ) );
 check( '[3] one_editor -> editor_designation', $edited_rule_by_id['one_editor'], 'editor_designation' );
 check( '[3] two_editors -> editor_designation', $edited_rule_by_id['two_editors'], 'editor_designation' );
 check( '[3] three_or_more_editors -> editor_joining', $edited_rule_by_id['three_or_more_editors'], 'editor_joining' );
+check( '[3] identify_error -> error_identification', $edited_rule_by_id['identify_error'], 'error_identification' );
+
+$edited_book_dragdrop = Citex_Question_Scenarios::catalog( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'DragDrop' );
+check( '[3] Edited Book DragDrop has only the 3 count-bucket scenarios (no identify_error)', array_column( $edited_book_dragdrop, 'id' ), array( 'one_editor', 'two_editors', 'three_or_more_editors' ) );
 
 // ---------------------------------------------------------------------
 // 4. targetCounts: exact-count buckets carry a single value; the "N or
