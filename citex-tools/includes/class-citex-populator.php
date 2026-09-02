@@ -510,14 +510,21 @@ class Citex_Populator {
 
 	/**
 	 * Write MCQ's ACF fields: option_1-4 and Scenario (the confirmed real
-	 * field keys — see FIELD_OPTION_1..4), Hint (holding the explanation —
-	 * there is no separate "explanation" field on this site; Hint is the
-	 * real, confirmed field that plays that role), Question Class (fixed
+	 * field keys — see FIELD_OPTION_1..4), Hint (the category's fixed,
+	 * non-revealing clue — see Citex_Reference_Rules::mcq_hint() — there is
+	 * no separate "explanation" field on this site; Hint is the real,
+	 * confirmed field, and it is shown to the student BEFORE they answer,
+	 * so it must never identify the correct option), Question Class (fixed
 	 * "Harvard" — DragDrop already works without Citex setting this
 	 * explicitly via its own ACF default, but MCQ sets it directly since it
-	 * has no such track record yet), and the Answer field that identifies
-	 * which option is correct. The Answer field's own accepted value shape
-	 * is not assumed — see resolve_mcq_answer_choice().
+	 * has no such track record yet), and the Answer field.
+	 *
+	 * The Answer field holds the FULL TEXT of the correct option — the same
+	 * string written to that option's own Option N field — never a letter,
+	 * number, or other short identifier. This is what lets the frontend
+	 * grade a submission with a direct value comparison
+	 * (selectedOptionText === answer) instead of needing to translate a
+	 * letter back into option text.
 	 *
 	 * @throws Exception on any write-shape failure.
 	 * @return array {options: string[4], correctIndex: int, answerValue: string, hint: string}
@@ -538,14 +545,11 @@ class Citex_Populator {
 		$this->write_acf_value( $new_id, $field_map['option4'], (string) $options[3] );
 		$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
 
-		$hint = (string) ( $question['explanation'] ?? '' );
+		$hint = (string) ( $question['hint'] ?? '' );
 		$this->write_acf_value( $new_id, $field_map['hint'], $hint );
 		$this->write_acf_value( $new_id, $field_map['questionClass'], 'Harvard' );
 
-		$answer_value = $this->resolve_mcq_answer_choice( $field_map['answer'], $correct_index + 1 );
-		if ( is_wp_error( $answer_value ) ) {
-			throw new Exception( 'Answer: ' . $answer_value->get_error_message() );
-		}
+		$answer_value = (string) $options[ $correct_index ];
 		$this->write_acf_value( $new_id, $field_map['answer'], $answer_value );
 
 		return array( 'options' => $options, 'correctIndex' => $correct_index, 'answerValue' => $answer_value, 'hint' => $hint );
@@ -574,7 +578,7 @@ class Citex_Populator {
 		$stored_hint = get_field( $field_map['hint'], $new_id, false );
 		$diagnostics['hintVerified'] = trim( (string) $stored_hint ) === trim( (string) $write_result['hint'] );
 		if ( ! $diagnostics['hintVerified'] ) {
-			throw new Exception( 'Hint/explanation did not persist to the new Reference List record.' );
+			throw new Exception( 'Hint did not persist to the new Reference List record.' );
 		}
 
 		$stored_answer = get_field( $field_map['answer'], $new_id, false );
@@ -584,71 +588,6 @@ class Citex_Populator {
 		}
 
 		return $diagnostics;
-	}
-
-	/**
-	 * The MCQ "Answer" field (FIELD_ANSWER) identifies which of the 4
-	 * options is correct, but its accepted value shape is site-specific and
-	 * was not knowable in advance — unlike Question Parts/Confusing Words,
-	 * no real MCQ example existed on the live site to capture via
-	 * Diagnostics before this was written (the real "Answer" field on the
-	 * live edit screen is a plain single-line text input, not a
-	 * dropdown/radio, but that alone does not reveal what string it
-	 * expects). So, exactly like resolve_repeater_text_row_shape(), the
-	 * value is discovered from the field's own ACF definition rather than
-	 * assumed:
-	 *
-	 * - If Answer is a choice-type field (select/radio/button_group), the
-	 *   one choice whose key or label unambiguously names this option — by
-	 *   number ("option_2", "Option 2", "2") or by letter ("B", "Option B")
-	 *   — is used. More than one equally-plausible match is a genuine
-	 *   ambiguity Citex will not guess through.
-	 * - Otherwise (a plain text field, matching what the live site actually
-	 *   shows), the option LETTER ("A"/"B"/"C"/"D") is written — a stable,
-	 *   human-readable option identifier, matching how this is meant to be
-	 *   graded (never by comparing option text).
-	 *
-	 * @return string|WP_Error
-	 */
-	private function resolve_mcq_answer_choice( $answer_field_key, $option_number ) {
-		$letter = chr( 64 + max( 1, min( 4, (int) $option_number ) ) ); // 1..4 -> A..D
-		$field  = function_exists( 'acf_get_field' ) ? acf_get_field( $answer_field_key ) : null;
-		if ( ! is_array( $field ) ) {
-			return $letter;
-		}
-
-		$type = (string) ( $field['type'] ?? '' );
-		if ( ! in_array( $type, array( 'select', 'radio', 'button_group' ), true ) || empty( $field['choices'] ) || ! is_array( $field['choices'] ) ) {
-			return $letter;
-		}
-
-		$needle_number = (string) $option_number;
-		$needle_letter = $this->normalise_label( $letter );
-		$needle_word    = $this->normalise_label( 'option ' . $option_number );
-		$needle_word_ltr = $this->normalise_label( 'option ' . $letter );
-		$candidates    = array();
-		foreach ( $field['choices'] as $choice_value => $choice_label ) {
-			$normalised_value = $this->normalise_label( (string) $choice_value );
-			$normalised_label = $this->normalise_label( (string) $choice_label );
-			$needles = array( $needle_number, $needle_letter, $needle_word, $needle_word_ltr );
-			if ( in_array( $normalised_value, $needles, true ) || in_array( $normalised_label, $needles, true ) ) {
-				$candidates[] = (string) $choice_value;
-			}
-		}
-
-		if ( 1 === count( $candidates ) ) {
-			return $candidates[0];
-		}
-
-		return new WP_Error(
-			'citex_mcq_answer_choice_ambiguous',
-			sprintf(
-				'Citex could not determine which Answer choice corresponds to option %1$d (%2$s). Available choices: %3$s.',
-				$option_number,
-				$letter,
-				implode( ', ', array_keys( $field['choices'] ) )
-			)
-		);
 	}
 
 	private function find_template_post_id( $post_type, $scan ) {

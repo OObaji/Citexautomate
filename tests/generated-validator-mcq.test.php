@@ -88,11 +88,16 @@ function mcq_question( $overrides = array() ) {
 			'bookTitle'              => 'Social Research Methods',
 			'place'                  => 'Oxford',
 			'publisher'              => 'Oxford University Press',
-			'scenario'               => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
+			// Citex's own fixed, category-generic MCQ question stem — never a
+			// per-book scenario (Gemini is not even asked for one for MCQ
+			// any more; see schema_mcq()).
+			'scenario'               => 'Which of the following is the correct Harvard reference for a book?',
 			'options'                => $options,
 			'correctOptionIndex'     => 1,
 			'reconstructedReference' => $correct,
-			'explanation'            => 'B is correct because it follows the required Harvard reference structure: Surname, Initials. (Year) Title. Place: Publisher.',
+			// A non-revealing hint — never names a letter or reproduces the
+			// correct reference (see Citex_Reference_Rules::mcq_hint()).
+			'hint'                   => 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the title, place and publisher.',
 		),
 		$overrides
 	);
@@ -145,12 +150,38 @@ check( '[5] a duplicated correct option fails', $duplicate['status'], 'failed' )
 check( '[5] reports MCQ_DUPLICATE_OPTION', has_error_code( $duplicate, 'mcq_duplicate_option' ), true );
 
 // ---------------------------------------------------------------------
-// 5b. A missing explanation fails — it is written into the real "Hint"
-// field on population, so a missing one is a structural gap.
+// 5b. A missing hint fails — it is written into the real "Hint" field on
+// population, so a missing one is a structural gap.
 // ---------------------------------------------------------------------
-$missing_explanation = Citex_Generated_Validator::validate( mcq_question( array( 'explanation' => '' ) ) );
-check( '[5b] a missing explanation fails', $missing_explanation['status'], 'failed' );
-check( '[5b] reports MCQ_EXPLANATION_MISSING', has_error_code( $missing_explanation, 'mcq_explanation_missing' ), true );
+$missing_hint = Citex_Generated_Validator::validate( mcq_question( array( 'hint' => '' ) ) );
+check( '[5b] a missing hint fails', $missing_hint['status'], 'failed' );
+check( '[5b] reports MCQ_HINT_MISSING', has_error_code( $missing_hint, 'mcq_hint_missing' ), true );
+
+// ---------------------------------------------------------------------
+// 5f. CRITICAL — a hint that names the correct option fails, even though
+// it is otherwise well-formed. This is the direct fix for the reported
+// "the hint literally tells the student C is correct" bug.
+// ---------------------------------------------------------------------
+$revealing_hint = Citex_Generated_Validator::validate( mcq_question( array( 'hint' => 'B is correct because it follows the required Harvard reference structure.' ) ) );
+check( '[5f] a hint naming the correct option letter fails', $revealing_hint['status'], 'failed' );
+check( '[5f] reports MCQ_HINT_REVEALS_ANSWER', has_error_code( $revealing_hint, 'mcq_hint_reveals_answer' ), true );
+
+$revealing_hint2 = Citex_Generated_Validator::validate( mcq_question( array( 'hint' => 'The answer is the second option, which follows the correct structure.' ) ) );
+check( '[5f] a hint saying "the answer is..." fails', $revealing_hint2['status'], 'failed' );
+check( '[5f] reports MCQ_HINT_REVEALS_ANSWER for "the answer is"', has_error_code( $revealing_hint2, 'mcq_hint_reveals_answer' ), true );
+
+// ---------------------------------------------------------------------
+// 5g. A hint that reproduces the full correct reference text fails, even
+// without naming a letter.
+// ---------------------------------------------------------------------
+$reproducing_hint = Citex_Generated_Validator::validate( mcq_question( array( 'hint' => 'The correct reference reads: Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' ) ) );
+check( '[5g] a hint reproducing the full correct reference fails', $reproducing_hint['status'], 'failed' );
+check( '[5g] reports MCQ_HINT_REPRODUCES_ANSWER', has_error_code( $reproducing_hint, 'mcq_hint_reproduces_answer' ), true );
+
+// A safe, generic hint (matching Citex_Reference_Rules::mcq_hint()'s own
+// style) must NOT trip either check — proves these are not false positives.
+$safe_hint = Citex_Generated_Validator::validate( mcq_question() );
+check( '[5g] the default fixture\'s safe, generic hint triggers neither hint-safety check', $safe_hint['status'], 'passed' );
 
 // ---------------------------------------------------------------------
 // 5c. A distractor that ALSO happens to pass every Harvard Book format
@@ -253,8 +284,12 @@ check( '[7] MCQ reuses answer-leakage validation ("(initials A.)") and FAILS', $
 check( '[7] reports ANSWER_LEAKAGE_INITIALS_WORD', has_error_code( $leaked, 'answer_leakage_initials_word' ), true );
 
 // ---------------------------------------------------------------------
-// 8. Bibliographic consistency is reused unchanged: a scenario that omits
-// the canonical book title fails.
+// 8. MCQ's question text must be EXACTLY Citex's own fixed stem.
+// Bibliographic-consistency's scenario-vs-facts check is now skipped for
+// MCQ (its scenario is generic by design, naming no book-specific fact at
+// all — see validate_consistency()'s $check_scenario), but a scenario
+// other than the exact fixed stem still fails, via the new
+// MCQ_QUESTION_STEM_MISMATCH check instead.
 // ---------------------------------------------------------------------
 $mismatched_scenario = Citex_Generated_Validator::validate(
 	mcq_question(
@@ -263,8 +298,32 @@ $mismatched_scenario = Citex_Generated_Validator::validate(
 		)
 	)
 );
-check( '[8] MCQ reuses bibliographic-consistency validation (scenario missing the book title) and FAILS', $mismatched_scenario['status'], 'failed' );
-check( '[8] reports BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', has_error_code( $mismatched_scenario, 'bibliographic_consistency_scenario_mismatch' ), true );
+check( '[8] a scenario other than the fixed MCQ stem still FAILS', $mismatched_scenario['status'], 'failed' );
+check( '[8] reports MCQ_QUESTION_STEM_MISMATCH', has_error_code( $mismatched_scenario, 'mcq_question_stem_mismatch' ), true );
+check( '[8] does NOT report BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH — that check is skipped for MCQ', has_error_code( $mismatched_scenario, 'bibliographic_consistency_scenario_mismatch' ), false );
+
+// ---------------------------------------------------------------------
+// 8b. The reference-must-contain-the-facts checks (unaffected by
+// $check_scenario) still run for MCQ — a correct option that omits a
+// canonical fact (here: the book title) still fails bibliographic
+// consistency, just via the reference check rather than the (now-skipped)
+// scenario one.
+// ---------------------------------------------------------------------
+$reference_missing_title = Citex_Generated_Validator::validate(
+	mcq_question(
+		array(
+			'options'                => array(
+				'Bryman A. (2012) Social Research Methods. Oxford: Oxford University Press.',
+				'Bryman, A. (2012) A Different Title Entirely. Oxford: Oxford University Press.', // correct option, but wrong title
+				'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.',
+				'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.',
+			),
+			'reconstructedReference' => 'Bryman, A. (2012) A Different Title Entirely. Oxford: Oxford University Press.',
+		)
+	)
+);
+check( '[8b] the correct option omitting the canonical book title still FAILS', $reference_missing_title['status'], 'failed' );
+check( '[8b] reports BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', has_error_code( $reference_missing_title, 'bibliographic_consistency_reference_mismatch' ), true );
 
 // ---------------------------------------------------------------------
 // 9. The generated expected reference (reconstructedReference) must match

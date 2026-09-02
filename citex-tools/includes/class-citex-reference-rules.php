@@ -198,4 +198,40 @@ class Citex_Reference_Rules {
 			'Missing the parentheses around the publication year entirely.',
 		);
 	}
+
+	/**
+	 * The fixed, student-facing MCQ question stem for this category — Citex
+	 * authors this itself, deterministically, rather than asking Gemini for
+	 * a per-book "scenario" describing the record. A generic "which of
+	 * these is the correct reference?" question cannot leak any
+	 * bibliographic fact (there is none in it to leak) and keeps MCQ
+	 * questions straightforward and student-facing: the four options
+	 * themselves — not the question — carry every bibliographic detail the
+	 * student needs. This is the one piece of MCQ question text Citex
+	 * never delegates to Gemini at all.
+	 */
+	public static function mcq_question_stem( $category ) {
+		if ( self::CATEGORY_EDITED_BOOK === $category ) {
+			return 'Which of the following is the correct Harvard reference for an edited book?';
+		}
+		return 'Which of the following is the correct Harvard reference for a book?';
+	}
+
+	/**
+	 * The fixed, non-revealing MCQ hint for this category — a general clue
+	 * about which Harvard rule the question tests, written so it helps the
+	 * student reason about the rule WITHOUT ever naming which option is
+	 * correct, stating a specific option letter, or reproducing the
+	 * correct reference. Citex authors this deterministically for the same
+	 * reason it authors the question stem: nothing question-specific needs
+	 * saying beyond "here is the rule this category tests," and free-form
+	 * prose (from Gemini, or text built from which option happens to be
+	 * correct) risks leaking the answer by construction.
+	 */
+	public static function mcq_hint( $category ) {
+		if ( self::CATEGORY_EDITED_BOOK === $category ) {
+			return 'Check how the editor(s) are identified, whether the designation used matches the number of editors, and the order of the year, title, place and publisher.';
+		}
+		return 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the title, place and publisher.';
+	}
 }

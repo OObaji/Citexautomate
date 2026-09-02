@@ -95,6 +95,11 @@ function distractor( $reference, $reason = 'Uses the author\'s full first name i
 function mcq_item( $overrides = array() ) {
 	return array_merge(
 		array(
+			// A stray 'scenario' key is deliberately included here even
+			// though Gemini's real MCQ schema no longer has one (see
+			// schema_mcq()) — it proves normalise() ignores it entirely for
+			// MCQ rather than trusting it, in case Gemini ever sends one
+			// anyway. See test [8].
 			'scenario'    => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
 			'authorFullName' => 'Alan Bryman',
 			'year'        => '2012',
@@ -132,8 +137,11 @@ if ( ! is_wp_error( $result ) ) {
 	check( '[1] the other 3 options are exactly Gemini\'s distractor references', array_slice( $candidate['options'], 1 ), array_column( mcq_item()['distractors'], 'reference' ) );
 	check( '[1] validation passed (pre-queue quality gate)', $candidate['validationStatus'], 'passed' );
 	check( '[1] correctOptionLetter matches correctOptionIndex (0 -> A)', $candidate['correctOptionLetter'], 'A' );
-	check( '[1] an explanation is generated (written to the real Hint field on population)', '' !== trim( $candidate['explanation'] ), true );
-	check( '[1] the explanation names the correct letter', false !== strpos( $candidate['explanation'], 'A is correct' ), true );
+	check( '[1] the question text is Citex\'s own fixed Book MCQ stem, never Gemini\'s scenario', $candidate['scenario'], 'Which of the following is the correct Harvard reference for a book?' );
+	check( '[1] a hint is generated (written to the real Hint field on population)', '' !== trim( $candidate['hint'] ), true );
+	check( '[1] the hint does NOT name the correct letter', false !== strpos( $candidate['hint'], 'A is correct' ), false );
+	check( '[1] the hint does NOT reproduce the correct reference', false !== strpos( $candidate['hint'], $candidate['options'][0] ), false );
+	check( '[1] an internal-only answerExplanation is also generated (never written to WordPress)', false !== strpos( $candidate['answerExplanation'], 'A is correct' ), true );
 	check( '[1] optionErrorReasons has 4 entries, aligned with options', count( $candidate['optionErrorReasons'] ), 4 );
 	check( '[1] the correct slot\'s error reason is null', $candidate['optionErrorReasons'][0], null );
 	check( '[1] the other 3 slots carry their distractor\'s error reason', array_slice( $candidate['optionErrorReasons'], 1 ), array_column( mcq_item()['distractors'], 'errorReason' ) );
@@ -146,7 +154,8 @@ if ( ! is_wp_error( $result2 ) ) {
 	check( '[1] a different question ID lands the correct option in a different slot', $result2[0]['correctOptionIndex'], 1 );
 	check( '[1] the correct option is still Citex\'s own construction at the new slot', $result2[0]['options'][1], 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' );
 	check( '[1] correctOptionLetter tracks the new slot (1 -> B)', $result2[0]['correctOptionLetter'], 'B' );
-	check( '[1] the explanation names the new correct letter', false !== strpos( $result2[0]['explanation'], 'B is correct' ), true );
+	check( '[1] the internal answerExplanation names the new correct letter', false !== strpos( $result2[0]['answerExplanation'], 'B is correct' ), true );
+	check( '[1] the hint is still the same fixed, non-revealing text regardless of slot', $result2[0]['hint'], $result[0]['hint'] );
 	check( '[1] the correct slot\'s error reason is still null at the new slot', $result2[0]['optionErrorReasons'][1], null );
 }
 
@@ -246,8 +255,12 @@ $with_exercise = invoke_normalise( array( mcq_item() ), array( 'BK02' ), 'medium
 check( '[7] MCQ candidates are stamped with their pre-assigned exercise', is_wp_error( $with_exercise ) ? null : $with_exercise[0]['exercise'], 'Exercise 3' );
 
 // ---------------------------------------------------------------------
-// 8. A leaked scenario is rejected by the pre-queue quality gate for MCQ
-// too (validate_answer_leakage() is reused unchanged).
+// 8. CRITICAL — even a Gemini response that still includes a leaking
+// 'scenario' (e.g. one revealing the author's initials directly) has NO
+// effect on the MCQ candidate: normalise() never reads $item['scenario']
+// for MCQ at all. The candidate's question text is always Citex's own
+// fixed stem, and the question passes cleanly — this is the structural
+// fix for MCQ scenario answer-leakage, not a per-case rejection.
 // ---------------------------------------------------------------------
 $leaked = invoke_normalise(
 	array( mcq_item( array( 'scenario' => 'You are referencing Social Research Methods by Alan Bryman (initials A.), published in 2012 by Oxford University Press in Oxford.' ) ) ),
@@ -256,8 +269,10 @@ $leaked = invoke_normalise(
 	array(),
 	'MCQ'
 );
-check( '[8] a leaked scenario is rejected by the pre-queue quality gate', is_wp_error( $leaked ), true );
-check( '[8] error code identifies the quality-gate rejection', is_wp_error( $leaked ) ? $leaked->get_error_code() : null, 'citex_ai_validator_rejected' );
+check( '[8] a Gemini-supplied leaking scenario does not cause rejection — it is simply never read', is_wp_error( $leaked ), false );
+if ( ! is_wp_error( $leaked ) ) {
+	check( '[8] the candidate\'s question text is Citex\'s own fixed stem, not Gemini\'s leaking scenario', $leaked[0]['scenario'], 'Which of the following is the correct Harvard reference for a book?' );
+}
 
 // ---------------------------------------------------------------------
 // 9. Sanity check: the default/DragDrop dispatch path is unaffected by the

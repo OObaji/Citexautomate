@@ -118,12 +118,22 @@ class Citex_Generated_Validator {
 	 * isolated to Citex_Reference_Rules; this is the one check that could
 	 * not be made category-agnostic, because "who wrote this" is shaped
 	 * differently per category.
+	 *
+	 * $check_scenario defaults to true — DragDrop's scenario still must
+	 * describe the specific book (unchanged). MCQ passes false: its
+	 * question text is now Citex's own fixed, category-generic stem (see
+	 * Citex_Reference_Rules::mcq_question_stem()), which deliberately never
+	 * mentions the book's title/author/year/etc, so that portion of the
+	 * consistency check does not apply to it — the reference-must-contain-
+	 * the-facts checks (1-10 in validate_bibliographic_consistency(), the
+	 * equivalent block in validate_edited_book_consistency()) still run for
+	 * MCQ exactly as before; only the scenario-text block is skipped.
 	 */
-	private static function validate_consistency( $question, $question_parts, $reference, $category ) {
+	private static function validate_consistency( $question, $question_parts, $reference, $category, $check_scenario = true ) {
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
-			return self::validate_edited_book_consistency( $question, $reference );
+			return self::validate_edited_book_consistency( $question, $reference, $check_scenario );
 		}
-		return self::validate_bibliographic_consistency( $question, $question_parts, $reference );
+		return self::validate_bibliographic_consistency( $question, $question_parts, $reference, $check_scenario );
 	}
 
 	/**
@@ -202,18 +212,76 @@ class Citex_Generated_Validator {
 			trim( (string) ( $question['year'] ?? '' ) ),
 			trim( (string) ( $question['bookTitle'] ?? '' ) ),
 		);
-		$errors = array_merge( $errors, self::validate_consistency( $question, $question_parts, $reference, $category ) );
+		// $check_scenario = false: MCQ's question text is Citex's own fixed,
+		// category-generic stem (see Citex_Reference_Rules::mcq_question_stem()),
+		// checked below instead via MCQ_QUESTION_STEM_MISMATCH — the
+		// reference-must-contain-the-facts checks still run unchanged.
+		$errors = array_merge( $errors, self::validate_consistency( $question, $question_parts, $reference, $category, false ) );
 		$errors = array_merge( $errors, self::validate_answer_leakage( $question ) );
 
-		// The explanation is written into the real "Hint" field on
-		// population (see class-citex-populator.php's FIELD_HINT) — a
-		// missing one is a structural gap the same way a missing Fixed Text
-		// is for DragDrop.
-		if ( '' === trim( (string) ( $question['explanation'] ?? '' ) ) ) {
-			$errors[] = self::error( 'MCQ_EXPLANATION_MISSING', 'Explanation is missing.' );
+		// MCQ's question text must be exactly Citex's own fixed,
+		// category-specific stem — never a per-book description (that would
+		// re-open the exact leakage class removed by taking scenario-writing
+		// away from Gemini for MCQ) and never anything else Gemini might
+		// have supplied (Gemini is not even asked for a scenario anymore —
+		// see schema_mcq()/schema_edited_book_mcq() — so this also catches
+		// any stray value slipping through some other path).
+		$expected_stem = Citex_Reference_Rules::mcq_question_stem( $category );
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected_stem ) {
+			$errors[] = self::error(
+				'MCQ_QUESTION_STEM_MISMATCH',
+				sprintf( 'The MCQ question text must be exactly: "%s".', $expected_stem )
+			);
+		}
+
+		// The hint is written into the real "Hint" field on population (see
+		// class-citex-populator.php's FIELD_HINT) — a missing one is a
+		// structural gap the same way a missing Fixed Text is for DragDrop.
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $reference ) );
 		}
 
 		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $reference );
+	}
+
+	/**
+	 * The Hint field is shown to the student BEFORE they answer, so — unlike
+	 * the (never-written-to-WordPress) answerExplanation, which is allowed
+	 * to reveal the answer because nothing currently shows it before
+	 * submission — it must never name or point at a specific option, and
+	 * must never reproduce the correct reference's own text. Citex authors
+	 * the hint deterministically from a fixed, category-generic clue (see
+	 * Citex_Reference_Rules::mcq_hint()) that structurally cannot fail
+	 * these checks, but they run regardless — the same "construct it
+	 * correctly AND validate it independently" pattern used everywhere else
+	 * in this class (e.g. MCQ_DISTRACTOR_LOOKS_CORRECT re-checking options
+	 * Citex itself assembled).
+	 */
+	private static function validate_mcq_hint_safety( $question, $reference ) {
+		$errors = array();
+		$hint   = (string) ( $question['hint'] ?? '' );
+
+		if ( preg_match( '/\b[A-D]\s+is\s+correct\b/i', $hint )
+			|| preg_match( '/\bthe\s+correct\s+(option|answer)\s+is\b/i', $hint )
+			|| preg_match( '/\bthe\s+answer\s+is\b/i', $hint )
+			|| preg_match( '/\boption\s+(?:[1-4]|[A-D])\b/i', $hint )
+		) {
+			$errors[] = self::error(
+				'MCQ_HINT_REVEALS_ANSWER',
+				'The hint names or points directly at a specific option (e.g. a letter/number plus "is correct", or "the answer is...") — a hint must help the student reason about the rule without identifying which option is correct.'
+			);
+		}
+
+		if ( '' !== trim( (string) $reference ) && self::text_contains( $hint, $reference ) ) {
+			$errors[] = self::error(
+				'MCQ_HINT_REPRODUCES_ANSWER',
+				'The hint reproduces the full correct reference text, which reveals the answer directly.'
+			);
+		}
+
+		return $errors;
 	}
 
 	/**
@@ -490,7 +558,7 @@ class Citex_Generated_Validator {
 	 * gap: nothing else in this class, or in Citex_AI_V2, ever inspects the
 	 * scenario's own wording against the bibliographic facts.
 	 */
-	private static function validate_bibliographic_consistency( $question, $question_parts, $reference ) {
+	private static function validate_bibliographic_consistency( $question, $question_parts, $reference, $check_scenario = true ) {
 		$errors = array();
 
 		$canonical = array(
@@ -540,21 +608,29 @@ class Citex_Generated_Validator {
 		// author (e.g. "Stella Cottrell"), not their initials, so checking
 		// initials against the scenario text would reject genuinely correct
 		// scenarios.
-		$scenario = (string) ( $question['scenario'] ?? '' );
-		foreach (
-			array(
-				'bookTitle'     => 'book title',
-				'authorSurname' => 'author surname',
-				'year'          => 'publication year',
-				'place'         => 'place of publication',
-				'publisher'     => 'publisher',
-			) as $field => $label
-		) {
-			if ( '' !== $canonical[ $field ] && ! self::text_contains( $scenario, $canonical[ $field ] ) ) {
-				$errors[] = self::error(
-					'BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH',
-					sprintf( 'The scenario does not mention the canonical %s: "%s".', $label, $canonical[ $field ] )
-				);
+		//
+		// Skipped when $check_scenario is false (MCQ): its scenario is now
+		// Citex's own fixed, category-generic question stem, which by
+		// design names no book-specific fact at all — checking it against
+		// the canonical record would always fail, for the right reason
+		// (nothing to leak) rather than a real inconsistency.
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach (
+				array(
+					'bookTitle'     => 'book title',
+					'authorSurname' => 'author surname',
+					'year'          => 'publication year',
+					'place'         => 'place of publication',
+					'publisher'     => 'publisher',
+				) as $field => $label
+			) {
+				if ( '' !== $canonical[ $field ] && ! self::text_contains( $scenario, $canonical[ $field ] ) ) {
+					$errors[] = self::error(
+						'BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH',
+						sprintf( 'The scenario does not mention the canonical %s: "%s".', $label, $canonical[ $field ] )
+					);
+				}
 			}
 		}
 
@@ -570,7 +646,7 @@ class Citex_Generated_Validator {
 	 * matches the editor count — "must not accidentally use (ed.) for a
 	 * book with multiple editors", explicitly required and tested.
 	 */
-	private static function validate_edited_book_consistency( $question, $reference ) {
+	private static function validate_edited_book_consistency( $question, $reference, $check_scenario = true ) {
 		$errors  = array();
 		$editors = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
 		$title   = trim( (string) ( $question['bookTitle'] ?? '' ) );
@@ -609,7 +685,7 @@ class Citex_Generated_Validator {
 			if ( '' !== $editor_initials && ! self::text_contains( $reference, $editor_initials ) ) {
 				$errors[] = self::error( 'EDITED_BOOK_REFERENCE_MISMATCH', sprintf( 'The reference does not contain editor %1$d\'s initials: "%2$s".', $index + 1, $editor_initials ) );
 			}
-			if ( '' !== $editor_surname && ! self::text_contains( (string) ( $question['scenario'] ?? '' ), $editor_surname ) ) {
+			if ( $check_scenario && '' !== $editor_surname && ! self::text_contains( (string) ( $question['scenario'] ?? '' ), $editor_surname ) ) {
 				$errors[] = self::error( 'EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention editor %1$d\'s surname: "%2$s".', $index + 1, $editor_surname ) );
 			}
 		}
@@ -632,18 +708,25 @@ class Citex_Generated_Validator {
 		// editor names are already checked per-editor above; initials are
 		// excluded here for the same reason Book excludes them (a natural
 		// scenario names the editor, not their initials).
-		$scenario = (string) ( $question['scenario'] ?? '' );
-		foreach (
-			array(
-				'title'     => array( $title, 'book title' ),
-				'year'      => array( $year, 'publication year' ),
-				'place'     => array( $place, 'place of publication' ),
-				'publisher' => array( $publisher, 'publisher' ),
-			) as $pair
-		) {
-			list( $value, $label ) = $pair;
-			if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
-				$errors[] = self::error( 'EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+		//
+		// Skipped when $check_scenario is false (MCQ) — see the matching
+		// comment in validate_bibliographic_consistency() for why: MCQ's
+		// scenario is now Citex's own fixed, category-generic stem that by
+		// design names no book-specific fact.
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach (
+				array(
+					'title'     => array( $title, 'book title' ),
+					'year'      => array( $year, 'publication year' ),
+					'place'     => array( $place, 'place of publication' ),
+					'publisher' => array( $publisher, 'publisher' ),
+				) as $pair
+			) {
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+				}
 			}
 		}
 

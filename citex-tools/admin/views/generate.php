@@ -87,6 +87,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 									<li<?php echo $option_index === $correct_index ? ' style="font-weight:600;"' : ''; ?>><?php echo esc_html( $option_text ); ?><?php echo $option_index === $correct_index ? esc_html__( ' (correct)', 'citex-tools' ) : ''; ?><?php if ( $option_index !== $correct_index && ! empty( $option_reasons[ $option_index ] ) ) : ?><br /><span class="description"><?php esc_html_e( 'Error:', 'citex-tools' ); ?> <?php echo esc_html( $option_reasons[ $option_index ] ); ?></span><?php endif; ?></li>
 								<?php endforeach; ?>
 							</ol>
+							<?php if ( ! empty( $question['hint'] ) ) : ?><strong><?php esc_html_e( 'Hint:', 'citex-tools' ); ?></strong> <?php echo esc_html( $question['hint'] ); ?><?php endif; ?>
 						<?php else : ?>
 							<strong><?php esc_html_e( 'Question Parts:', 'citex-tools' ); ?></strong> <?php echo esc_html( implode( ' · ', $question['questionParts'] ?? array() ) ); ?><br />
 							<strong><?php esc_html_e( 'Fixed Text:', 'citex-tools' ); ?></strong> <code><?php echo esc_html( $question['fixedText'] ?? '' ); ?></code><br />

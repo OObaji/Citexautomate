@@ -151,7 +151,10 @@ if ( ! is_wp_error( $mcq_result ) ) {
 	check( '[2] exactly 4 options', count( $mcq_candidate['options'] ), 4 );
 	check( '[2] the correct option is Citex\'s own construction with the correct designation', $mcq_candidate['options'][ $mcq_candidate['correctOptionIndex'] ], 'Miller, V. (ed.) (2020) Understanding digital culture. London: SAGE Publications.' );
 	check( '[2] reconstructedReference matches the correct option', $mcq_candidate['reconstructedReference'], $mcq_candidate['options'][ $mcq_candidate['correctOptionIndex'] ] );
-	check( '[2] an explanation is generated', '' !== trim( $mcq_candidate['explanation'] ), true );
+	check( '[2] the question text is Citex\'s own fixed Edited Book MCQ stem', $mcq_candidate['scenario'], 'Which of the following is the correct Harvard reference for an edited book?' );
+	check( '[2] a hint is generated', '' !== trim( $mcq_candidate['hint'] ), true );
+	check( '[2] the hint does NOT reproduce the correct reference', false !== strpos( $mcq_candidate['hint'], $mcq_candidate['options'][ $mcq_candidate['correctOptionIndex'] ] ), false );
+	check( '[2] an internal-only answerExplanation is also generated', '' !== trim( $mcq_candidate['answerExplanation'] ), true );
 	check( '[2] the correct slot\'s error reason is null', $mcq_candidate['optionErrorReasons'][ $mcq_candidate['correctOptionIndex'] ], null );
 	check( '[2] every non-correct slot carries a non-empty error reason', count( array_filter( array_diff_key( $mcq_candidate['optionErrorReasons'], array( $mcq_candidate['correctOptionIndex'] => true ) ), 'strlen' ) ), 3 );
 }

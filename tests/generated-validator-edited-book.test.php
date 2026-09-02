@@ -117,7 +117,6 @@ function edited_book_mcq_question( $overrides = array() ) {
 		'place'     => 'London',
 		'publisher' => 'SAGE Publications',
 	) );
-	$scenario_names = implode( ' and ', array_column( $editors, 'surname' ) );
 	$options = array(
 		'Smith, J. (2022) Digital media and society. London: SAGE Publications.', // missing designation
 		$reference,
@@ -135,11 +134,16 @@ function edited_book_mcq_question( $overrides = array() ) {
 			'bookTitle'              => 'Digital media and society',
 			'place'                  => 'London',
 			'publisher'              => 'SAGE Publications',
-			'scenario'               => "You are referencing a book edited by {$scenario_names}, titled Digital media and society, published in 2022 by SAGE Publications in London.",
+			// Citex's own fixed, category-generic MCQ question stem — never
+			// a per-book scenario (Gemini is not asked for one for MCQ any
+			// more; see schema_edited_book_mcq()).
+			'scenario'               => 'Which of the following is the correct Harvard reference for an edited book?',
 			'options'                => $options,
 			'correctOptionIndex'     => 1,
 			'reconstructedReference' => $reference,
-			'explanation'            => 'B is correct because it follows the required Harvard Edited Book reference structure.',
+			// A non-revealing hint — never names a letter or reproduces the
+			// correct reference.
+			'hint'                   => 'Check how the editor(s) are identified, whether the designation used matches the number of editors, and the order of the year, title, place and publisher.',
 		),
 		$overrides
 	);
