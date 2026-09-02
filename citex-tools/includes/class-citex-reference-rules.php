@@ -20,11 +20,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class Citex_Reference_Rules {
 
-	const CATEGORY_BOOK        = 'Book';
-	const CATEGORY_EDITED_BOOK = 'Edited Book';
+	const CATEGORY_BOOK            = 'Book';
+	const CATEGORY_EDITED_BOOK     = 'Edited Book';
+	const CATEGORY_JOURNAL_ARTICLE = 'Journal Article';
 
 	public static function categories() {
-		return array( self::CATEGORY_BOOK, self::CATEGORY_EDITED_BOOK );
+		return array( self::CATEGORY_BOOK, self::CATEGORY_EDITED_BOOK, self::CATEGORY_JOURNAL_ARTICLE );
 	}
 
 	public static function is_known_category( $category ) {
@@ -48,6 +49,9 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			return 'ED';
 		}
+		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return 'JA';
+		}
 		return 'BK';
 	}
 
@@ -59,10 +63,15 @@ class Citex_Reference_Rules {
 	 * @param string $category
 	 * @param array  $fields Book: {authors: array<{surname, initials}>, year, title, place, publisher}.
 	 *               Edited Book: {editors: array<{surname, initials}>, year, title, place, publisher}.
+	 *               Journal Article: {authors: array<{surname, initials}>, year, articleTitle,
+	 *               journalTitle, volume, issue, pages}.
 	 */
 	public static function build_reference( $category, array $fields ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			return self::build_edited_book_reference( $fields );
+		}
+		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return self::build_journal_article_reference( $fields );
 		}
 		return self::build_book_reference( $fields );
 	}
@@ -102,6 +111,28 @@ class Citex_Reference_Rules {
 			$fields['title'],
 			$fields['place'],
 			$fields['publisher']
+		);
+	}
+
+	/**
+	 * Liverpool Hope Harvard — Journal Articles: Author surname(s), initial(s).
+	 * (Year) Article title. Journal title, Volume(Issue), pp.xx-xx. — ALL
+	 * authors are always listed in full (join_people()'s exact joining
+	 * algorithm, same as Book/Edited Book), "et al." is NEVER used in the
+	 * reference list, and there is no place/publisher concept for a journal
+	 * article (unlike Book/Edited Book) — volume, issue and the page range
+	 * replace them entirely.
+	 */
+	private static function build_journal_article_reference( array $fields ) {
+		return sprintf(
+			'%s (%s) %s. %s, %s(%s), pp.%s.',
+			self::join_people( $fields['authors'] ),
+			$fields['year'],
+			$fields['articleTitle'],
+			$fields['journalTitle'],
+			$fields['volume'],
+			$fields['issue'],
+			$fields['pages']
 		);
 	}
 
@@ -175,6 +206,9 @@ class Citex_Reference_Rules {
 				'fixedText' => sprintf( '| (||) (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
 			);
 		}
+		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return self::journal_article_dragdrop_shape( $fields );
+		}
 		$authors = $fields['authors'];
 		if ( 1 === count( $authors ) ) {
 			return array(
@@ -185,6 +219,30 @@ class Citex_Reference_Rules {
 		return array(
 			'parts'     => array( self::join_people( $authors ), $fields['year'], $fields['title'] ),
 			'fixedText' => sprintf( '| (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
+		);
+	}
+
+	/**
+	 * Journal Article's DragDrop shape is a CONSTANT 7-part shape for every
+	 * author count (1, 2, 3, 4, 5+) — unlike Book, the joined author list is
+	 * always ONE draggable part even for a single author, so the draggable-
+	 * part count never varies with author count for this category: author(s),
+	 * year, article title, journal title, volume, issue, page range. There is
+	 * no place/publisher to bake into the fixed template — volume, issue and
+	 * pages are the pieces the fixed grammar wraps instead.
+	 */
+	private static function journal_article_dragdrop_shape( array $fields ) {
+		return array(
+			'parts'     => array(
+				self::join_people( $fields['authors'] ),
+				$fields['year'],
+				$fields['articleTitle'],
+				$fields['journalTitle'],
+				$fields['volume'],
+				$fields['issue'],
+				$fields['pages'],
+			),
+			'fixedText' => '| (||) ||. ||, ||(||), pp.||.',
 		);
 	}
 
@@ -200,6 +258,14 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			// Surname(s), Initials [and Surname, Initials ...] (ed.|eds) (Year) Title. Place: Publisher.
 			return '/^.+\s+\((?:ed\.|eds)\)\s+\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u';
+		}
+		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			// One or more "Surname, Initials" author groups (same join_people()
+			// grammar as Book/Edited Book — a comma-joined-throughout list with
+			// no final "and", or an "et al." abbreviation, both fail to match),
+			// followed by (Year) Article title. Journal title, Volume(Issue),
+			// pp.Start-End.
+			return '/^[^,]+,\s+(?:[A-Z]\.\s*)+(?:(?:,\s+[^,]+,\s+(?:[A-Z]\.\s*)+)*\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+)?\(\d{4}\)\s+.+\.\s+.+,\s+\d+\(\d+\),\s+pp\.\d+-\d+\.\s*$/u';
 		}
 		// One or more "Surname, Initials" groups (join_people()'s exact
 		// joining grammar: every pair before the last is comma-separated,
@@ -242,6 +308,23 @@ class Citex_Reference_Rules {
 				'For two editors, omitting "and" between them or joining them with the wrong punctuation.',
 			);
 		}
+		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return array(
+				'Using the author\'s full first name instead of initials — e.g. "John Smith" instead of "Smith, J.".',
+				'Placing the initials before the surname — e.g. "J. Smith" instead of "Smith, J.".',
+				'Placing the year outside its parentheses, or in the wrong position relative to the author.',
+				'Missing the full stop after the article title, or an extra comma before the year.',
+				'Missing the comma after the journal title, before the volume.',
+				'Swapping the volume and issue, or placing the issue outside its parentheses — e.g. "(2)12" instead of "12(2)".',
+				'Missing the "pp." prefix before the page range, or using "p." instead of "pp.".',
+				'Reversing the page range — e.g. "pp.35-27" instead of "pp.27-35".',
+				'Missing the final full stop at the end of the reference.',
+				'For two or more authors, joining them with "&" instead of "and".',
+				'For two or more authors, omitting "and" before the final author and using a comma instead.',
+				'For three or more authors, joining every pair with "and" instead of separating all but the last with commas.',
+				'Using "et al." after the first author\'s name in the reference list for four or more authors, instead of listing every author in full — "et al." is only Liverpool Hope\'s in-text-citation convention, never used in a reference-list entry.',
+			);
+		}
 		return array(
 			'Using the author\'s full first name instead of initials — e.g. "John Smith" instead of "Smith, J.".',
 			'Placing the initials before the surname — e.g. "J. Smith" instead of "Smith, J.".',
@@ -274,6 +357,9 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			return 'Which of the following is the correct Harvard reference for an edited book?';
 		}
+		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return 'Which of the following is the correct Harvard reference for a journal article?';
+		}
 		return 'Which of the following is the correct Harvard reference for a book?';
 	}
 
@@ -291,6 +377,9 @@ class Citex_Reference_Rules {
 	public static function mcq_hint( $category ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			return 'Check how the editor(s) are identified, whether the designation used matches the number of editors, and the order of the year, title, place and publisher.';
+		}
+		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the article title, journal title, volume, issue and page range.';
 		}
 		return 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the title, place and publisher.';
 	}

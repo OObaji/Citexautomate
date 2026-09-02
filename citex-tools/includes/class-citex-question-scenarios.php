@@ -41,9 +41,13 @@ class Citex_Question_Scenarios {
 	 */
 	public static function catalog( $category, $question_type ) {
 		$question_type = 'MCQ' === $question_type ? 'MCQ' : 'DragDrop';
-		$buckets        = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category
-			? self::edited_book_buckets()
-			: self::book_buckets();
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			$buckets = self::edited_book_buckets();
+		} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			$buckets = self::journal_article_buckets();
+		} else {
+			$buckets = self::book_buckets();
+		}
 
 		$out = array();
 		foreach ( $buckets as $bucket ) {
@@ -87,6 +91,15 @@ class Citex_Question_Scenarios {
 	 * test here.
 	 */
 	private static function mcq_only_scenarios( $category ) {
+		// Journal Article implements only the required select_correct (MCQ)
+		// and construct_reference (DragDrop) mechanics in this task — it has
+		// no identify_error/choose_treatment prompt/schema/normaliser support
+		// in Citex_AI_V2 yet, so it must never be offered these MCQ-only
+		// scenarios (offering one here without AI-v2/Reference_Rules support
+		// for it would silently mis-route the request as a Book question).
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return array();
+		}
 		$scenarios = array(
 			array( 'id' => 'identify_error', 'ruleTested' => 'error_identification', 'targetCounts' => array( 1 ), 'label' => 'Identify the error' ),
 		);
@@ -133,6 +146,26 @@ class Citex_Question_Scenarios {
 			array( 'id' => 'one_editor', 'ruleTested' => 'editor_designation', 'targetCounts' => array( 1 ), 'label' => 'One editor' ),
 			array( 'id' => 'two_editors', 'ruleTested' => 'editor_designation', 'targetCounts' => array( 2 ), 'label' => 'Two editors' ),
 			array( 'id' => 'three_or_more_editors', 'ruleTested' => 'editor_joining', 'targetCounts' => array( 3, 4 ), 'label' => 'Three or more editors' ),
+		);
+	}
+
+	/**
+	 * Journal Article author-count buckets — FIVE distinct buckets rather
+	 * than Book's collapsed four, per the confirmed requirement that
+	 * generation must dynamically test 1, 2, 3, 4 and 5+ authors as separate,
+	 * explicitly tracked scenarios (not folded into a single "four or more"
+	 * bucket): the joining STYLE changes at 1/2/3 authors exactly like Book,
+	 * and the "list every author, never et al." rule is tested at both 4 and
+	 * 5+ so a 4-author-only generator can never accidentally pass by
+	 * coincidence.
+	 */
+	private static function journal_article_buckets() {
+		return array(
+			array( 'id' => 'one_author', 'ruleTested' => 'author_formatting', 'targetCounts' => array( 1 ), 'label' => 'One author' ),
+			array( 'id' => 'two_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Two authors' ),
+			array( 'id' => 'three_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 3 ), 'label' => 'Three authors' ),
+			array( 'id' => 'four_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4 ), 'label' => 'Four authors' ),
+			array( 'id' => 'five_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 5, 6, 7 ), 'label' => 'Five or more authors' ),
 		);
 	}
 

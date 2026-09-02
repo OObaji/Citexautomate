@@ -30,7 +30,7 @@ class Citex_Generated_Validator {
 			return self::result(
 				'failed',
 				array(
-					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book or Edited Book, DragDrop or MCQ.' ),
+					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book, Edited Book or Journal Article, DragDrop or MCQ.' ),
 				),
 				null
 			);
@@ -139,6 +139,13 @@ class Citex_Generated_Validator {
 	 * not be made category-agnostic, because "who wrote this" is shaped
 	 * differently per category.
 	 *
+	 * Journal Article gets its own dedicated check
+	 * (validate_journal_article_consistency()) rather than reusing Book's —
+	 * it has no place/publisher concept, a different DragDrop shape, and its
+	 * own "never et al." rule, so folding it into the Book branch would mean
+	 * silently relying on Book-shaped assumptions for a genuinely different
+	 * category.
+	 *
 	 * $check_scenario defaults to true — DragDrop's scenario still must
 	 * describe the specific book (unchanged). MCQ passes false: its
 	 * question text is now Citex's own fixed, category-generic stem (see
@@ -152,6 +159,9 @@ class Citex_Generated_Validator {
 	private static function validate_consistency( $question, $question_parts, $reference, $category, $check_scenario = true ) {
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return self::validate_edited_book_consistency( $question, $reference, $check_scenario );
+		}
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return self::validate_journal_article_consistency( $question, $question_parts, $reference, $check_scenario );
 		}
 		return self::validate_bibliographic_consistency( $question, $question_parts, $reference, $check_scenario );
 	}
@@ -257,17 +267,36 @@ class Citex_Generated_Validator {
 		$authors_for_parts = is_array( $question['authors'] ?? null ) && ! empty( $question['authors'] )
 			? $question['authors']
 			: array( array( 'surname' => trim( (string) ( $question['authorSurname'] ?? '' ) ), 'initials' => trim( (string) ( $question['authorInitials'] ?? '' ) ) ) );
-		$question_parts = Citex_Reference_Rules::dragdrop_shape(
-			$category,
-			array(
-				'authors'   => $authors_for_parts,
-				'editors'   => is_array( $question['editors'] ?? null ) ? $question['editors'] : array(),
-				'year'      => (string) ( $question['year'] ?? '' ),
-				'title'     => (string) ( $question['bookTitle'] ?? '' ),
-				'place'     => (string) ( $question['place'] ?? '' ),
-				'publisher' => (string) ( $question['publisher'] ?? '' ),
-			)
-		)['parts'];
+		// Journal Article's dragdrop_shape() expects a different field shape
+		// (articleTitle/journalTitle/volume/issue/pages — there is no
+		// place/publisher for this category), so it is built separately
+		// rather than forcing it through the Book/Edited Book field names.
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			$question_parts = Citex_Reference_Rules::dragdrop_shape(
+				$category,
+				array(
+					'authors'      => $authors_for_parts,
+					'year'         => (string) ( $question['year'] ?? '' ),
+					'articleTitle' => (string) ( $question['articleTitle'] ?? '' ),
+					'journalTitle' => (string) ( $question['journalTitle'] ?? '' ),
+					'volume'       => (string) ( $question['volume'] ?? '' ),
+					'issue'        => (string) ( $question['issue'] ?? '' ),
+					'pages'        => (string) ( $question['pages'] ?? '' ),
+				)
+			)['parts'];
+		} else {
+			$question_parts = Citex_Reference_Rules::dragdrop_shape(
+				$category,
+				array(
+					'authors'   => $authors_for_parts,
+					'editors'   => is_array( $question['editors'] ?? null ) ? $question['editors'] : array(),
+					'year'      => (string) ( $question['year'] ?? '' ),
+					'title'     => (string) ( $question['bookTitle'] ?? '' ),
+					'place'     => (string) ( $question['place'] ?? '' ),
+					'publisher' => (string) ( $question['publisher'] ?? '' ),
+				)
+			)['parts'];
+		}
 		// $check_scenario = false: MCQ's question text is Citex's own fixed,
 		// category-generic stem (see Citex_Reference_Rules::mcq_question_stem()),
 		// checked below instead via MCQ_QUESTION_STEM_MISMATCH — the
@@ -620,10 +649,16 @@ class Citex_Generated_Validator {
 		// Place: Publisher. for Book; Editor(s), I. (ed.|eds) (Year) Title.
 		// Place: Publisher. for Edited Book.
 		if ( ! preg_match( Citex_Reference_Rules::format_regex( $category ), $reference ) ) {
-			$code    = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'EDITED_BOOK_FORMAT_MISMATCH' : 'BOOK_FORMAT_MISMATCH';
-			$message = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category
-				? 'Citation does not match the Liverpool Hope Edited Book format.'
-				: 'Citation does not match the Liverpool Hope Book format.';
+			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				$code    = 'EDITED_BOOK_FORMAT_MISMATCH';
+				$message = 'Citation does not match the Liverpool Hope Edited Book format.';
+			} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+				$code    = 'JOURNAL_ARTICLE_FORMAT_MISMATCH';
+				$message = 'Citation does not match the Liverpool Hope Journal Article format.';
+			} else {
+				$code    = 'BOOK_FORMAT_MISMATCH';
+				$message = 'Citation does not match the Liverpool Hope Book format.';
+			}
 			$errors[] = self::error( $code, $message );
 		}
 
@@ -1025,6 +1060,150 @@ class Citex_Generated_Validator {
 				list( $value, $label ) = $pair;
 				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
 					$errors[] = self::error( 'EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+				}
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Journal Article's OWN dedicated consistency check — deliberately not a
+	 * call into validate_bibliographic_consistency() (Book) or
+	 * validate_edited_book_consistency(): this category has no place/
+	 * publisher concept, always uses the constant 7-part DragDrop shape (see
+	 * Citex_Reference_Rules::journal_article_dragdrop_shape()) regardless of
+	 * author count, and has its own "et al. must never appear" rule that
+	 * applies to every author count starting at 1, not just 4+.
+	 *
+	 * Per the requirement that this validator "reconstruct the expected
+	 * reference from canonical data rather than merely checking whether a
+	 * generated string 'looks right'": this independently rebuilds the
+	 * correct reference from the canonical authors/year/articleTitle/
+	 * journalTitle/volume/issue/pages via
+	 * Citex_Reference_Rules::build_reference() — the exact same construction
+	 * Citex_AI_V2's normaliser used — and requires an EXACT match against
+	 * the reference under test (JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH),
+	 * rather than only checking that individual facts merely appear
+	 * somewhere in the string.
+	 */
+	private static function validate_journal_article_consistency( $question, $question_parts, $reference, $check_scenario = true ) {
+		$errors  = array();
+		$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		if ( empty( $authors ) ) {
+			$fallback_surname  = trim( (string) ( $question['authorSurname'] ?? '' ) );
+			$fallback_initials = trim( (string) ( $question['authorInitials'] ?? '' ) );
+			if ( '' !== $fallback_surname || '' !== $fallback_initials ) {
+				$authors = array( array( 'surname' => $fallback_surname, 'initials' => $fallback_initials ) );
+			}
+		}
+		$article_title = trim( (string) ( $question['articleTitle'] ?? '' ) );
+		$journal_title = trim( (string) ( $question['journalTitle'] ?? '' ) );
+
+		if ( empty( $authors ) && '' === $article_title ) {
+			return $errors;
+		}
+		if ( empty( $authors ) ) {
+			$errors[] = self::error( 'JOURNAL_ARTICLE_AUTHORS_MISSING', 'No authors were provided for this Journal Article question.' );
+			return $errors;
+		}
+
+		$year   = trim( (string) ( $question['year'] ?? '' ) );
+		$volume = trim( (string) ( $question['volume'] ?? '' ) );
+		$issue  = trim( (string) ( $question['issue'] ?? '' ) );
+		$pages  = trim( (string) ( $question['pages'] ?? '' ) );
+
+		$fields = array(
+			'authors'      => $authors,
+			'year'         => $year,
+			'articleTitle' => $article_title,
+			'journalTitle' => $journal_title,
+			'volume'       => $volume,
+			'issue'        => $issue,
+			'pages'        => $pages,
+		);
+
+		// Question Parts must be EXACTLY the constant 7-part shape
+		// journal_article_dragdrop_shape() would build for these canonical
+		// authors, for ANY author count — unlike Book, there is no
+		// single-author special case for this category.
+		$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields );
+		$expected_parts = array_map( 'trim', $expected_shape['parts'] );
+		$actual_parts   = array_map( 'trim', (array) $question_parts );
+		if ( $expected_parts !== array_values( $actual_parts ) ) {
+			$errors[] = self::error(
+				'JOURNAL_ARTICLE_PARTS_MISMATCH',
+				'Question Parts do not exactly match the canonical bibliographic record (author(s), year, article title, journal title, volume, issue, pages).'
+			);
+		}
+
+		// Independently reconstruct the expected reference from canonical
+		// data (see this method's docblock) and require an exact match.
+		$expected_reference = trim( Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields ) );
+		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
+			$errors[] = self::error(
+				'JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH',
+				sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
+			);
+		}
+
+		foreach ( $authors as $index => $author ) {
+			$author_surname  = trim( (string) ( $author['surname'] ?? '' ) );
+			$author_initials = trim( (string) ( $author['initials'] ?? '' ) );
+			if ( '' !== $author_surname && ! self::text_contains( $reference, $author_surname ) ) {
+				$errors[] = self::error( 'JOURNAL_ARTICLE_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
+			}
+			if ( '' !== $author_initials && ! self::text_contains( $reference, $author_initials ) ) {
+				$errors[] = self::error( 'JOURNAL_ARTICLE_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s initials: "%2$s".', $index + 1, $author_initials ) );
+			}
+			// Scenario check excludes initials — a natural scenario names the
+			// author (e.g. "Sarah Mitchell"), not their initials. Skipped
+			// when $check_scenario is false (MCQ): its scenario is Citex's
+			// own fixed, category-generic stem.
+			if ( $check_scenario && '' !== $author_surname && ! self::text_contains( (string) ( $question['scenario'] ?? '' ), $author_surname ) ) {
+				$errors[] = self::error( 'JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
+			}
+		}
+
+		// "et al." must NEVER appear in a Journal Article reference-list
+		// entry, for any author count — the one Liverpool Hope misconception
+		// this category exists to test (see Citex_Reference_Rules::
+		// build_reference()'s docblock).
+		if ( preg_match( '/\bet\s*al\.?\b/i', (string) $reference ) ) {
+			$errors[] = self::error( 'JOURNAL_ARTICLE_ET_AL_USED', 'The reference list entry must never use "et al." — every author must be listed in full.' );
+		}
+
+		foreach (
+			array(
+				'year'         => array( $year, 'publication year' ),
+				'articleTitle' => array( $article_title, 'article title' ),
+				'journalTitle' => array( $journal_title, 'journal title' ),
+				'volume'       => array( $volume, 'volume' ),
+				'issue'        => array( $issue, 'issue' ),
+				'pages'        => array( $pages, 'page range' ),
+			) as $pair
+		) {
+			list( $value, $label ) = $pair;
+			if ( '' !== $value && ! self::text_contains( $reference, $value ) ) {
+				$errors[] = self::error( 'JOURNAL_ARTICLE_REFERENCE_MISMATCH', sprintf( 'The reconstructed reference does not contain the canonical %1$s: "%2$s".', $label, $value ) );
+			}
+		}
+
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach (
+				array(
+					'articleTitle' => array( $article_title, 'article title' ),
+					'journalTitle' => array( $journal_title, 'journal title' ),
+					'year'         => array( $year, 'publication year' ),
+					'volume'       => array( $volume, 'volume' ),
+					'issue'        => array( $issue, 'issue' ),
+					'pages'        => array( $pages, 'page range' ),
+				) as $pair
+			) {
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
 				}
 			}
 		}
