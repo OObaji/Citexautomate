@@ -15,6 +15,7 @@ class Citex_Admin {
 	private $populator;
 	private $scanner;
 	private $bulk_editor;
+	private $diagnostics;
 	private $page_hooks = array();
 
 	public function __construct() {
@@ -26,6 +27,7 @@ class Citex_Admin {
 		$this->validator   = new Citex_Validator();
 		$this->populator   = new Citex_Populator();
 		$this->bulk_editor = new Citex_Bulk_Editor();
+		$this->diagnostics = new Citex_Diagnostics();
 
 		add_action( 'admin_menu', array( $this, 'register_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
@@ -60,6 +62,7 @@ class Citex_Admin {
 			array( $this->populator, 'maybe_handle_submit' ),
 			array( $this->questions, 'maybe_handle_sync_submit' ),
 			array( 'Citex_AI_V2', 'maybe_handle_submit' ),
+			array( $this->diagnostics, 'maybe_handle_submit' ),
 		);
 
 		foreach ( $handlers as $handler ) {
@@ -92,6 +95,7 @@ class Citex_Admin {
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Questions', 'citex-tools' ), __( 'Questions', 'citex-tools' ), 'manage_options', 'citex-questions', array( $this->questions, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Validation', 'citex-tools' ), __( 'Validation', 'citex-tools' ), 'manage_options', 'citex-validation', array( $this->validator, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Populate', 'citex-tools' ), __( 'Populate', 'citex-tools' ), 'manage_options', 'citex-populate', array( $this->populator, 'render' ) );
+		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Diagnostics', 'citex-tools' ), __( 'Diagnostics', 'citex-tools' ), 'manage_options', 'citex-diagnostics', array( $this->diagnostics, 'render' ) );
 	}
 
 	public function enqueue_assets( $hook ) {

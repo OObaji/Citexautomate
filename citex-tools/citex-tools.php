@@ -24,6 +24,7 @@ require_once CITEX_TOOLS_PATH . 'includes/class-citex-importer.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-bulk-editor.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-questions.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-populator.php';
+require_once CITEX_TOOLS_PATH . 'includes/class-citex-diagnostics.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-admin.php';
 function citex_tools_init() { new Citex_Admin(); }
 add_action( 'plugins_loaded', 'citex_tools_init' );
