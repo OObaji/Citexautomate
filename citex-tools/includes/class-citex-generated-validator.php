@@ -22,22 +22,39 @@ class Citex_Generated_Validator {
 	 * @return array Structured result.
 	 */
 	public static function validate( $question ) {
-		$errors = array();
-
 		if (
 			'Harvard' !== (string) ( $question['source'] ?? '' ) ||
 			'ReferenceList' !== (string) ( $question['group'] ?? '' ) ||
-			'Book' !== (string) ( $question['category'] ?? '' ) ||
-			'DragDrop' !== (string) ( $question['type'] ?? '' )
+			'Book' !== (string) ( $question['category'] ?? '' )
 		) {
 			return self::result(
 				'failed',
 				array(
-					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book / DragDrop.' ),
+					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book / DragDrop or MCQ.' ),
 				),
 				null
 			);
 		}
+
+		$type = (string) ( $question['type'] ?? '' );
+		if ( 'DragDrop' === $type ) {
+			return self::validate_dragdrop( $question );
+		}
+		if ( 'MCQ' === $type ) {
+			return self::validate_mcq( $question );
+		}
+
+		return self::result(
+			'failed',
+			array(
+				self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book / DragDrop or MCQ.' ),
+			),
+			null
+		);
+	}
+
+	private static function validate_dragdrop( $question ) {
+		$errors = array();
 
 		$fixed_text     = (string) ( $question['fixedText'] ?? '' );
 		$question_parts = is_array( $question['questionParts'] ?? null ) ? array_values( $question['questionParts'] ) : array();
@@ -57,28 +74,7 @@ class Citex_Generated_Validator {
 		}
 
 		$reference = $reconstruction['reference'];
-
-		if ( preg_match( '/\(\s+\d{4}|\d{4}\s+\)/', $reference ) ) {
-			$errors[] = self::error( 'YEAR_PARENTHESES_SPACING', 'Publication year should have no spaces inside the parentheses, for example (2019).' );
-		}
-		if ( preg_match( '/\(\d{4}\)\./', $reference ) ) {
-			$errors[] = self::error( 'YEAR_TRAILING_PERIOD', 'Unwanted full stop after publication year.' );
-		}
-		if ( preg_match( '/\s+[,.;:]/', $reference ) ) {
-			$errors[] = self::error( 'SPACE_BEFORE_PUNCTUATION', 'Remove extra spaces before punctuation marks in the completed reference.' );
-		}
-		if ( preg_match( '/:\S/', $reference ) ) {
-			$errors[] = self::error( 'MISSING_SPACE_AFTER_COLON', 'A space is required after the colon between place of publication and publisher.' );
-		}
-		if ( ! preg_match( '/\.\s*$/', $reference ) ) {
-			$errors[] = self::error( 'MISSING_FINAL_PERIOD', 'Missing final full stop.' );
-		}
-
-		// Liverpool Hope Book shape used by the current Citex Book validator:
-		// Surname, I. (Year) Title. Place: Publisher.
-		if ( ! preg_match( '/^[^,]+,\s+(?:[A-Z]\.\s*)+\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u', $reference ) ) {
-			$errors[] = self::error( 'BOOK_FORMAT_MISMATCH', 'Citation does not match the Liverpool Hope Book format.' );
-		}
+		$errors    = array_merge( $errors, self::validate_reference_format( $reference ) );
 
 		$correct_lower = array_map(
 			function ( $value ) {
@@ -110,6 +106,100 @@ class Citex_Generated_Validator {
 		$errors = array_merge( $errors, self::validate_answer_leakage( $question ) );
 
 		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $reference );
+	}
+
+	/**
+	 * MCQ counterpart to validate_dragdrop(): exactly 4 non-empty, mutually
+	 * distinct options, a correctOptionIndex identifying one of them, and the
+	 * SAME Harvard-format/bibliographic-consistency/answer-leakage checks
+	 * already used for DragDrop applied to the correct option's own text —
+	 * Citex constructs that option itself (see Citex_AI_V2::normalise_mcq_item()),
+	 * so it must satisfy exactly the same format rules DragDrop's
+	 * reconstructed reference does.
+	 */
+	private static function validate_mcq( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 options are required; %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		foreach ( $options as $index => $option ) {
+			if ( '' === trim( (string) $option ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty.', $index + 1 ) );
+			}
+		}
+
+		$correct_index = isset( $question['correctOptionIndex'] ) ? (int) $question['correctOptionIndex'] : -1;
+		if ( $correct_index < 0 || $correct_index > 3 ) {
+			$errors[] = self::error( 'MCQ_CORRECT_INDEX_INVALID', 'correctOptionIndex must identify one of the 4 options (0-3).' );
+			return self::result( 'failed', $errors, null );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$reference = trim( (string) $options[ $correct_index ] );
+		$errors    = array_merge( $errors, self::validate_reference_format( $reference ) );
+
+		$expected = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' !== $expected && $expected !== $reference ) {
+			$errors[] = self::error( 'RECONSTRUCTED_REFERENCE_MISMATCH', 'The correct option does not match the canonical reconstructed reference.' );
+		}
+
+		$question_parts = array(
+			trim( (string) ( $question['authorSurname'] ?? '' ) ),
+			trim( (string) ( $question['authorInitials'] ?? '' ) ),
+			trim( (string) ( $question['year'] ?? '' ) ),
+			trim( (string) ( $question['bookTitle'] ?? '' ) ),
+		);
+		$errors = array_merge( $errors, self::validate_bibliographic_consistency( $question, $question_parts, $reference ) );
+		$errors = array_merge( $errors, self::validate_answer_leakage( $question ) );
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $reference );
+	}
+
+	/**
+	 * The Harvard Book reference-format checks shared by DragDrop's
+	 * reconstructed reference and MCQ's correct option — identical rules,
+	 * applied to whichever string each question type builds as "the answer".
+	 */
+	private static function validate_reference_format( $reference ) {
+		$errors = array();
+
+		if ( preg_match( '/\(\s+\d{4}|\d{4}\s+\)/', $reference ) ) {
+			$errors[] = self::error( 'YEAR_PARENTHESES_SPACING', 'Publication year should have no spaces inside the parentheses, for example (2019).' );
+		}
+		if ( preg_match( '/\(\d{4}\)\./', $reference ) ) {
+			$errors[] = self::error( 'YEAR_TRAILING_PERIOD', 'Unwanted full stop after publication year.' );
+		}
+		if ( preg_match( '/\s+[,.;:]/', $reference ) ) {
+			$errors[] = self::error( 'SPACE_BEFORE_PUNCTUATION', 'Remove extra spaces before punctuation marks in the completed reference.' );
+		}
+		if ( preg_match( '/:\S/', $reference ) ) {
+			$errors[] = self::error( 'MISSING_SPACE_AFTER_COLON', 'A space is required after the colon between place of publication and publisher.' );
+		}
+		if ( ! preg_match( '/\.\s*$/', $reference ) ) {
+			$errors[] = self::error( 'MISSING_FINAL_PERIOD', 'Missing final full stop.' );
+		}
+
+		// Liverpool Hope Book shape used by the current Citex Book validator:
+		// Surname, I. (Year) Title. Place: Publisher.
+		if ( ! preg_match( '/^[^,]+,\s+(?:[A-Z]\.\s*)+\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u', $reference ) ) {
+			$errors[] = self::error( 'BOOK_FORMAT_MISMATCH', 'Citation does not match the Liverpool Hope Book format.' );
+		}
+
+		return $errors;
 	}
 
 	/**

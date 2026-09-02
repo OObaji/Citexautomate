@@ -45,17 +45,29 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<p><?php esc_html_e( 'No pending questions yet.', 'citex-tools' ); ?></p>
 	<?php else : ?>
 		<table class="wp-list-table widefat fixed striped citex-table">
-			<thead><tr><th style="width:70px;">ID</th><th style="width:90px;">Origin</th><th>Scenario</th><th>Question Parts</th><th>Fixed Text</th><th>Confusing Words</th><th>Reference</th><th style="width:140px;">Validation</th><th style="width:150px;">Actions</th></tr></thead>
+			<thead><tr><th style="width:70px;">ID</th><th style="width:90px;">Origin</th><th style="width:60px;">Type</th><th>Scenario</th><th>Details</th><th>Reference</th><th style="width:140px;">Validation</th><th style="width:150px;">Actions</th></tr></thead>
 			<tbody>
 			<?php foreach ( $pending_questions as $question ) : ?>
-				<?php $validation_status = $question['validationStatus'] ?? 'not_validated'; $origin = (string) ( $question['origin'] ?? 'generated' ); $origin_label = 0 === strpos( $origin, 'imported_' ) ? 'Imported' : ( 'generated_ai' === $origin ? 'Gemini AI' : 'Generated' ); ?>
+				<?php $validation_status = $question['validationStatus'] ?? 'not_validated'; $origin = (string) ( $question['origin'] ?? 'generated' ); $origin_label = 0 === strpos( $origin, 'imported_' ) ? 'Imported' : ( 'generated_ai' === $origin ? 'Gemini AI' : 'Generated' ); $q_type = (string) ( $question['type'] ?? 'DragDrop' ); ?>
 				<tr>
 					<td><strong><?php echo esc_html( $question['questionId'] ?? '—' ); ?></strong><br /><span class="description"><?php echo esc_html( $question['difficulty'] ?? '' ); ?></span></td>
 					<td><strong><?php echo esc_html( $origin_label ); ?></strong><?php if ( ! empty( $question['aiModel'] ) ) : ?><br /><span class="description"><?php echo esc_html( $question['aiModel'] ); ?></span><?php endif; ?></td>
+					<td><?php echo esc_html( $q_type ); ?></td>
 					<td><?php echo esc_html( $question['scenario'] ?? '' ); ?></td>
-					<td><?php echo esc_html( implode( ' · ', $question['questionParts'] ?? array() ) ); ?></td>
-					<td><code><?php echo esc_html( $question['fixedText'] ?? '' ); ?></code></td>
-					<td><?php echo esc_html( implode( ' · ', $question['confusingWords'] ?? array() ) ); ?></td>
+					<td>
+						<?php if ( 'MCQ' === $q_type ) : ?>
+							<?php $correct_index = (int) ( $question['correctOptionIndex'] ?? -1 ); ?>
+							<ol style="margin:0 0 0 18px;">
+								<?php foreach ( (array) ( $question['options'] ?? array() ) as $option_index => $option_text ) : ?>
+									<li<?php echo $option_index === $correct_index ? ' style="font-weight:600;"' : ''; ?>><?php echo esc_html( $option_text ); ?><?php echo $option_index === $correct_index ? esc_html__( ' (correct)', 'citex-tools' ) : ''; ?></li>
+								<?php endforeach; ?>
+							</ol>
+						<?php else : ?>
+							<strong><?php esc_html_e( 'Question Parts:', 'citex-tools' ); ?></strong> <?php echo esc_html( implode( ' · ', $question['questionParts'] ?? array() ) ); ?><br />
+							<strong><?php esc_html_e( 'Fixed Text:', 'citex-tools' ); ?></strong> <code><?php echo esc_html( $question['fixedText'] ?? '' ); ?></code><br />
+							<strong><?php esc_html_e( 'Confusing Words:', 'citex-tools' ); ?></strong> <?php echo esc_html( implode( ' · ', $question['confusingWords'] ?? array() ) ); ?>
+						<?php endif; ?>
+					</td>
 					<td><?php echo esc_html( $question['reconstructedReference'] ?? '' ); ?></td>
 					<td>
 						<?php if ( 'passed' === $validation_status ) : ?><span class="citex-badge citex-badge-passed">✓ Passed</span>

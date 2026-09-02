@@ -21,7 +21,7 @@ class Citex_Generator {
 		$referencing_styles = array( 'harvard' => 'Harvard' );
 		$institutions       = array( 'liverpool_hope' => 'Liverpool Hope University' );
 		$categories         = array( 'book' => 'Book' );
-		$question_types     = array( 'dragdrop' => 'DragDrop' );
+		$question_types     = array( 'dragdrop' => 'DragDrop', 'mcq' => 'MCQ' );
 		$difficulties       = array( 'easy' => 'Easy', 'medium' => 'Medium', 'hard' => 'Hard' );
 		$pending_questions  = self::get_pending_questions();
 		$ai_configured      = '' !== Citex_AI::get_api_key();
@@ -180,20 +180,21 @@ class Citex_Generator {
 		$web_verify  = ! empty( $_POST['citex_ai_web_verify'] );
 
 		$quantity = max( 1, min( 100, $quantity ) );
-		if ( 'harvard' !== $style || 'liverpool_hope' !== $institution || 'book' !== $category || 'dragdrop' !== $type ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Liverpool Hope Harvard → Book → DragDrop.', 'citex-tools' ), 'error' );
+		if ( 'harvard' !== $style || 'liverpool_hope' !== $institution || 'book' !== $category || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
+			Citex_Admin::set_notice( __( 'The current AI generator supports Liverpool Hope Harvard → Book → DragDrop or MCQ.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
 			$difficulty = 'medium';
 		}
 
+		$type_label  = 'mcq' === $type ? 'MCQ' : 'DragDrop';
 		$pending     = self::get_pending_questions();
 		$used_ids    = $this->collect_used_question_ids( $pending );
 		// Citex — not Gemini — assigns each slot's Exercise, deterministically,
 		// before generation even starts. Gemini's response schema carries no
 		// exercise field, so there is nothing from it to trust or distrust here.
-		$assignments = self::build_exercise_assignments( 'Book', 'DragDrop', $quantity );
+		$assignments = self::build_exercise_assignments( 'Book', $type_label, $quantity );
 		$result      = Citex_AI::generate_questions(
 			array(
 				'quantity'            => $quantity,
@@ -202,6 +203,7 @@ class Citex_Generator {
 				'web_verify'          => $web_verify,
 				'used_ids'            => array_keys( $used_ids ),
 				'exercise_assignments'=> $assignments,
+				'type'                => $type,
 			)
 		);
 
@@ -213,10 +215,10 @@ class Citex_Generator {
 		self::save_pending_questions( array_merge( $pending, $result ) );
 
 		$coverage_after = self::compute_category_coverage( 'Book' );
-		$dragdrop_covered = 0;
+		$type_covered = 0;
 		foreach ( $coverage_after as $counts ) {
-			if ( ( $counts['DragDrop'] ?? 0 ) > 0 ) {
-				$dragdrop_covered++;
+			if ( ( $counts[ $type_label ] ?? 0 ) > 0 ) {
+				$type_covered++;
 			}
 		}
 		$message = sprintf(
@@ -224,13 +226,13 @@ class Citex_Generator {
 			count( $result )
 		);
 		$message .= ' ' . sprintf(
-			__( 'Book DragDrop exercise coverage: %1$d/5 exercises now have at least one question.', 'citex-tools' ),
-			$dragdrop_covered
+			__( 'Book %1$s exercise coverage: %2$d/5 exercises now have at least one question.', 'citex-tools' ),
+			$type_label,
+			$type_covered
 		);
-		if ( $dragdrop_covered < 5 ) {
+		if ( $type_covered < 5 ) {
 			$message .= ' ' . __( 'Coverage is not yet complete.', 'citex-tools' );
 		}
-		$message .= ' ' . __( 'MCQ generation is not yet supported, so complete 10-question (5 exercises x 2 types) coverage cannot be produced yet — only DragDrop.', 'citex-tools' );
 		Citex_Admin::set_notice( $message, 'success' );
 		$this->redirect_back();
 	}

@@ -365,10 +365,11 @@ foreach ( $exercise_term_ids as $exercise_name => $expected_term_id ) {
 // 6. Book + Exercise 1 + MCQ assigns Book and Exercise 1. Category/Exercise
 // assignment is type-independent, so this is tested directly against
 // assign_generated_classification() rather than the full populate_one()
-// orchestration — full MCQ population is intentionally NOT claimed to be
-// supported (see the "unsupported type" test below): Citex does not know
-// the real MCQ ACF structure, so it must not fabricate it. The taxonomy
-// layer itself, however, does not care about question type at all.
+// orchestration. Full end-to-end MCQ population (real option_1-4/answer
+// ACF field writing) has its own dedicated field-map/ACF stubs and is
+// covered by tests/populator-mcq-population.test.php, not here — this file
+// stays focused on the taxonomy layer, which does not care about question
+// type at all.
 // ---------------------------------------------------------------------
 reset_environment();
 $mcq_post_id = 100;
@@ -378,13 +379,14 @@ $assign_result_mcq  = invoke_private( $populator, 'assign_generated_classificati
 check( '[6] Book + Exercise 1 + MCQ: classification assignment succeeds', is_wp_error( $assign_result_mcq ), false );
 check( '[6] Book + Exercise 1 + MCQ: Book and Exercise 1 are both assigned', $GLOBALS['__post_terms'][ $mcq_post_id ]['reference_category'] ?? array(), array( 1, 2 ) );
 
-// Full end-to-end MCQ population must be rejected, not faked.
+// An MCQ question populated with a DragDrop-shaped field map (this file's
+// $field_map has no option1-4/answer keys) must still fail safely — no
+// half-created post left behind — rather than writing to undefined fields.
 reset_environment();
-$mcq_question = sample_question( array( 'key' => 'k-mcq', 'questionId' => 'BK-MCQ', 'type' => 'MCQ' ) );
-$mcq_result   = invoke_private( $populator, 'populate_one', array( $mcq_question, 'question', 0, $field_map, 'draft' ) );
-check( '[MCQ not faked] full MCQ population is rejected rather than silently mispopulated', is_wp_error( $mcq_result ), true );
-check( '[MCQ not faked] error code identifies the unsupported type', is_wp_error( $mcq_result ) ? $mcq_result->get_error_code() : null, 'citex_unsupported_question_type' );
-check( '[MCQ not faked] no post was created at all', $GLOBALS['__posts'], array() );
+$mcq_question       = sample_question( array( 'key' => 'k-mcq', 'questionId' => 'BK-MCQ', 'type' => 'MCQ' ) );
+$mcq_result         = invoke_private( $populator, 'populate_one', array( $mcq_question, 'question', 0, $field_map, 'draft' ) );
+check( '[mismatched field map] an MCQ question populated against a DragDrop field map fails safely, not silently', is_wp_error( $mcq_result ), true );
+check( '[mismatched field map] no post is left behind', $GLOBALS['__posts'], array() );
 
 // ---------------------------------------------------------------------
 // 7. Template Exercise does not leak into a generated Exercise 4 — the

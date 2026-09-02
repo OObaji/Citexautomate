@@ -98,6 +98,16 @@ class Citex_Populator {
 	const FIELD_QUESTION_PARTS  = 'field_59c2476bc81b7';
 	const FIELD_CONFUSING_WORDS = 'field_59c2476bc83ab';
 
+	// MCQ field keys, confirmed via Citex Diagnostics against a real post on
+	// this site's citex-reference post type (see class-citex-diagnostics.php)
+	// — not guessed, the same real-field-key methodology already used for
+	// the DragDrop fields above.
+	const FIELD_ANSWER  = 'field_6818e7c20fd1e';
+	const FIELD_OPTION_1 = 'field_6818e7e00fd1f';
+	const FIELD_OPTION_2 = 'field_6818e7f60fd20';
+	const FIELD_OPTION_3 = 'field_6818e8100fd21';
+	const FIELD_OPTION_4 = 'field_6818e81a0fd22';
+
 	public function render() {
 		$this->maybe_handle_submit();
 
@@ -185,20 +195,34 @@ class Citex_Populator {
 			$this->redirect_back();
 		}
 
-		$template_id = $this->find_template_post_id( $post_type, $scan );
-		$field_map   = $template_id
-			? $this->resolve_population_fields( $template_id, $post_type )
-			: $this->resolve_population_fields_without_template( $post_type );
-		if ( is_wp_error( $field_map ) ) {
-			Citex_Admin::set_notice( $field_map->get_error_message(), 'error' );
-			$this->redirect_back();
-		}
+		// find_template_post_id() only ever finds a real Book/DragDrop record
+		// (see its own filter) — it is never a valid clone source for an MCQ
+		// post (cloning it would leave DragDrop-only meta such as Question
+		// Parts/Fixed Text stray on the new MCQ post). So MCQ always takes
+		// the no-template path, and field maps are resolved per question
+		// TYPE (memoised), since one population run can mix both types.
+		$dragdrop_template_id = $this->find_template_post_id( $post_type, $scan );
+		$field_maps = array();
 
 		$successful_keys = array();
 		$created          = array();
 		$failed           = array();
 
 		foreach ( $eligible as $question ) {
+			$type        = 'MCQ' === ( $question['type'] ?? '' ) ? 'MCQ' : 'DragDrop';
+			$template_id = 'MCQ' === $type ? 0 : $dragdrop_template_id;
+
+			if ( ! isset( $field_maps[ $type ] ) ) {
+				$field_maps[ $type ] = $template_id
+					? $this->resolve_population_fields( $template_id, $post_type, $type )
+					: $this->resolve_population_fields_without_template( $post_type, $type );
+			}
+			$field_map = $field_maps[ $type ];
+			if ( is_wp_error( $field_map ) ) {
+				$failed[] = sprintf( '%s: %s', (string) ( $question['questionId'] ?? '?' ), $field_map->get_error_message() );
+				continue;
+			}
+
 			$result = $this->populate_one( $question, $post_type, $template_id, $field_map, $final_status );
 			if ( is_wp_error( $result ) ) {
 				$failed[] = sprintf( '%s: %s', (string) ( $question['questionId'] ?? '?' ), $result->get_error_message() );
@@ -229,15 +253,17 @@ class Citex_Populator {
 		if ( ! empty( $created ) ) {
 			$summaries = array();
 			foreach ( array_slice( $created, 0, 3 ) as $c ) {
+				$content_verified = 'MCQ' === $c['type']
+					? sprintf( 'Options: %1$s, Answer: %2$s', $c['optionsVerified'] ?? '0/4', ! empty( $c['answerVerified'] ) ? '✓' : '✗' )
+					: sprintf( 'Question Parts: %1$s, Fixed Text: %2$s', $c['questionPartsVerified'] ?? '0/0', ! empty( $c['fixedTextVerified'] ) ? '✓' : '✗' );
 				$summaries[] = sprintf(
-					'%1$s (Category: %2$s ✓, Exercise: %3$s ✓, Type: %4$s ✓, Scenario: %5$s, Question Parts: %6$s, Fixed Text: %7$s, Taxonomy: %8$s, Status: %9$s %10$s, Save lifecycle: %11$s)',
+					'%1$s (Category: %2$s ✓, Exercise: %3$s ✓, Type: %4$s ✓, Scenario: %5$s, %6$s, Taxonomy: %7$s, Status: %8$s %9$s, Save lifecycle: %10$s)',
 					$c['questionId'],
 					$c['category'],
 					$c['exercise'],
 					$c['type'],
 					! empty( $c['scenarioVerified'] ) ? '✓' : '✗',
-					$c['questionPartsVerified'] ?? '0/0',
-					! empty( $c['fixedTextVerified'] ) ? '✓' : '✗',
+					$content_verified,
 					( ! empty( $c['categoryVerified'] ) && ! empty( $c['exerciseVerified'] ) ) ? '✓' : '✗',
 					$c['status'],
 					! empty( $c['statusVerified'] ) ? '✓' : '✗',
@@ -263,10 +289,10 @@ class Citex_Populator {
 		}
 
 		$classification = $this->resolve_classification( $question );
-		if ( 'DragDrop' !== $classification['type'] ) {
+		if ( ! in_array( $classification['type'], array( 'DragDrop', 'MCQ' ), true ) ) {
 			return new WP_Error(
 				'citex_unsupported_question_type',
-				sprintf( 'Citex population does not yet support question type "%s" — its real ACF structure has not been supplied. Only DragDrop is currently supported. No post was created.', $classification['type'] )
+				sprintf( 'Citex population does not yet support question type "%s" — its real ACF structure has not been supplied. Only DragDrop and MCQ are currently supported. No post was created.', $classification['type'] )
 			);
 		}
 
@@ -321,8 +347,6 @@ class Citex_Populator {
 				throw new Exception( 'Category/Exercise: ' . $classification_result->get_error_message() );
 			}
 
-			$this->write_acf_value( $new_id, $field_map['fixedText'], (string) ( $question['fixedText'] ?? '' ) );
-
 			// Question Parts/Confusing Words are ACF repeaters whose real shape
 			// is only known by introspecting the field itself (see
 			// resolve_repeater_text_row_shape()) — never assumed from the
@@ -330,17 +354,9 @@ class Citex_Populator {
 			// (non-text) sub-field values — e.g. a punctuation selector — in
 			// place; only writing every row with the discovered shape (not
 			// just the first sub-field) replaces them correctly.
-			$parts_shape = $this->write_repeater_rows( $new_id, $field_map['questionParts'], $expected_parts );
-			if ( is_wp_error( $parts_shape ) ) {
-				throw new Exception( 'Question Parts: ' . $parts_shape->get_error_message() );
-			}
-
-			$confusing_shape = $this->write_repeater_rows( $new_id, $field_map['confusingWords'], $expected_confusing );
-			if ( is_wp_error( $confusing_shape ) ) {
-				throw new Exception( 'Confusing Words: ' . $confusing_shape->get_error_message() );
-			}
-
-			$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
+			$write_result = 'MCQ' === $classification['type']
+				? $this->write_mcq_acf_values( $new_id, $field_map, $question )
+				: $this->write_dragdrop_acf_values( $new_id, $field_map, $question, $expected_parts, $expected_confusing );
 
 			// Reproduce the WordPress/ACF save lifecycle a manual "Update"
 			// click goes through — for BOTH Draft and Publish — via the same
@@ -354,31 +370,12 @@ class Citex_Populator {
 			// Consolidated post-save verification, performed AFTER the save
 			// lifecycle above so it reflects the truly final, settled state —
 			// never trust a write call's return value alone.
-			if ( function_exists( 'get_field' ) ) {
-				$stored_fixed = get_field( $field_map['fixedText'], $new_id, false );
-				$diagnostics['fixedTextVerified'] = trim( (string) $stored_fixed ) === trim( (string) ( $question['fixedText'] ?? '' ) );
-				if ( ! $diagnostics['fixedTextVerified'] ) {
-					throw new Exception( 'Fixed Text did not persist to the new Reference List record.' );
-				}
-
-				$stored_scenario = get_field( $field_map['scenario'], $new_id, false );
-				$diagnostics['scenarioVerified'] = trim( (string) $stored_scenario ) === trim( (string) ( $question['scenario'] ?? '' ) );
-				if ( ! $diagnostics['scenarioVerified'] ) {
-					throw new Exception( 'Scenario did not persist to the new Reference List record.' );
-				}
-			}
-
-			$parts_check = $this->verify_repeater_text_values( $new_id, $field_map['questionParts'], $parts_shape, $expected_parts );
-			if ( is_wp_error( $parts_check ) ) {
-				throw new Exception( 'Question Parts: ' . $parts_check->get_error_message() );
-			}
-			$diagnostics['questionPartsVerified'] = count( $expected_parts ) . '/' . count( $expected_parts );
-
-			$confusing_check = $this->verify_repeater_text_values( $new_id, $field_map['confusingWords'], $confusing_shape, $expected_confusing );
-			if ( is_wp_error( $confusing_check ) ) {
-				throw new Exception( 'Confusing Words: ' . $confusing_check->get_error_message() );
-			}
-			$diagnostics['confusingWordsVerified'] = true;
+			$diagnostics = array_merge(
+				$diagnostics,
+				'MCQ' === $classification['type']
+					? $this->verify_mcq_acf_values( $new_id, $field_map, $question, $write_result )
+					: $this->verify_dragdrop_acf_values( $new_id, $field_map, $question, $expected_parts, $expected_confusing, $write_result )
+			);
 
 			// Mandatory post-creation verification: read the Category/Exercise
 			// terms back from WordPress rather than trusting wp_set_object_terms()'s
@@ -432,6 +429,182 @@ class Citex_Populator {
 		);
 	}
 
+	/**
+	 * Write DragDrop's ACF fields (Fixed Text, Question Parts, Confusing
+	 * Words, Scenario). Throws on any write-shape failure; returns the
+	 * discovered repeater shapes so verify_dragdrop_acf_values() (called
+	 * after the save-lifecycle finalisation) can read the same rows back
+	 * without re-discovering the shape a second time.
+	 */
+	private function write_dragdrop_acf_values( $new_id, $field_map, $question, $expected_parts, $expected_confusing ) {
+		$this->write_acf_value( $new_id, $field_map['fixedText'], (string) ( $question['fixedText'] ?? '' ) );
+
+		$parts_shape = $this->write_repeater_rows( $new_id, $field_map['questionParts'], $expected_parts );
+		if ( is_wp_error( $parts_shape ) ) {
+			throw new Exception( 'Question Parts: ' . $parts_shape->get_error_message() );
+		}
+
+		$confusing_shape = $this->write_repeater_rows( $new_id, $field_map['confusingWords'], $expected_confusing );
+		if ( is_wp_error( $confusing_shape ) ) {
+			throw new Exception( 'Confusing Words: ' . $confusing_shape->get_error_message() );
+		}
+
+		$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
+
+		return array( 'partsShape' => $parts_shape, 'confusingShape' => $confusing_shape );
+	}
+
+	private function verify_dragdrop_acf_values( $new_id, $field_map, $question, $expected_parts, $expected_confusing, $write_result ) {
+		$diagnostics = array();
+		if ( function_exists( 'get_field' ) ) {
+			$stored_fixed = get_field( $field_map['fixedText'], $new_id, false );
+			$diagnostics['fixedTextVerified'] = trim( (string) $stored_fixed ) === trim( (string) ( $question['fixedText'] ?? '' ) );
+			if ( ! $diagnostics['fixedTextVerified'] ) {
+				throw new Exception( 'Fixed Text did not persist to the new Reference List record.' );
+			}
+
+			$stored_scenario = get_field( $field_map['scenario'], $new_id, false );
+			$diagnostics['scenarioVerified'] = trim( (string) $stored_scenario ) === trim( (string) ( $question['scenario'] ?? '' ) );
+			if ( ! $diagnostics['scenarioVerified'] ) {
+				throw new Exception( 'Scenario did not persist to the new Reference List record.' );
+			}
+		}
+
+		$parts_check = $this->verify_repeater_text_values( $new_id, $field_map['questionParts'], $write_result['partsShape'], $expected_parts );
+		if ( is_wp_error( $parts_check ) ) {
+			throw new Exception( 'Question Parts: ' . $parts_check->get_error_message() );
+		}
+		$diagnostics['questionPartsVerified'] = count( $expected_parts ) . '/' . count( $expected_parts );
+
+		$confusing_check = $this->verify_repeater_text_values( $new_id, $field_map['confusingWords'], $write_result['confusingShape'], $expected_confusing );
+		if ( is_wp_error( $confusing_check ) ) {
+			throw new Exception( 'Confusing Words: ' . $confusing_check->get_error_message() );
+		}
+		$diagnostics['confusingWordsVerified'] = true;
+
+		return $diagnostics;
+	}
+
+	/**
+	 * Write MCQ's ACF fields: option_1-4 (the confirmed real field keys —
+	 * see FIELD_OPTION_1..4) plus Scenario, and the Answer field that
+	 * identifies which option is correct. The Answer field's own accepted
+	 * value shape is not assumed — see resolve_mcq_answer_choice().
+	 *
+	 * @throws Exception on any write-shape failure.
+	 * @return array {options: string[4], correctIndex: int, answerValue: string}
+	 */
+	private function write_mcq_acf_values( $new_id, $field_map, $question ) {
+		$options = array_values( is_array( $question['options'] ?? null ) ? $question['options'] : array() );
+		if ( 4 !== count( $options ) ) {
+			throw new Exception( sprintf( 'Expected exactly 4 MCQ options, found %d.', count( $options ) ) );
+		}
+		$correct_index = isset( $question['correctOptionIndex'] ) ? (int) $question['correctOptionIndex'] : -1;
+		if ( $correct_index < 0 || $correct_index > 3 ) {
+			throw new Exception( 'MCQ correctOptionIndex is missing or out of range.' );
+		}
+
+		$this->write_acf_value( $new_id, $field_map['option1'], (string) $options[0] );
+		$this->write_acf_value( $new_id, $field_map['option2'], (string) $options[1] );
+		$this->write_acf_value( $new_id, $field_map['option3'], (string) $options[2] );
+		$this->write_acf_value( $new_id, $field_map['option4'], (string) $options[3] );
+		$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
+
+		$answer_value = $this->resolve_mcq_answer_choice( $field_map['answer'], $correct_index + 1 );
+		if ( is_wp_error( $answer_value ) ) {
+			throw new Exception( 'Answer: ' . $answer_value->get_error_message() );
+		}
+		$this->write_acf_value( $new_id, $field_map['answer'], $answer_value );
+
+		return array( 'options' => $options, 'correctIndex' => $correct_index, 'answerValue' => $answer_value );
+	}
+
+	private function verify_mcq_acf_values( $new_id, $field_map, $question, $write_result ) {
+		$diagnostics = array();
+		if ( ! function_exists( 'get_field' ) ) {
+			return $diagnostics;
+		}
+
+		foreach ( array( 'option1', 'option2', 'option3', 'option4' ) as $index => $map_key ) {
+			$stored = get_field( $field_map[ $map_key ], $new_id, false );
+			if ( trim( (string) $stored ) !== trim( (string) $write_result['options'][ $index ] ) ) {
+				throw new Exception( sprintf( 'Option %d did not persist to the new Reference List record.', $index + 1 ) );
+			}
+		}
+		$diagnostics['optionsVerified'] = '4/4';
+
+		$stored_scenario = get_field( $field_map['scenario'], $new_id, false );
+		$diagnostics['scenarioVerified'] = trim( (string) $stored_scenario ) === trim( (string) ( $question['scenario'] ?? '' ) );
+		if ( ! $diagnostics['scenarioVerified'] ) {
+			throw new Exception( 'Scenario did not persist to the new Reference List record.' );
+		}
+
+		$stored_answer = get_field( $field_map['answer'], $new_id, false );
+		$diagnostics['answerVerified'] = ( (string) $stored_answer === (string) $write_result['answerValue'] );
+		if ( ! $diagnostics['answerVerified'] ) {
+			throw new Exception( 'Answer did not persist to the new Reference List record.' );
+		}
+
+		return $diagnostics;
+	}
+
+	/**
+	 * The MCQ "Answer" field (FIELD_ANSWER) identifies which of the 4
+	 * options is correct, but its accepted value shape is site-specific and
+	 * was not knowable in advance — unlike Question Parts/Confusing Words,
+	 * no real MCQ example existed on the live site to capture via
+	 * Diagnostics before this was written. So, exactly like
+	 * resolve_repeater_text_row_shape(), this is discovered from the
+	 * field's own ACF definition rather than assumed:
+	 *
+	 * - If Answer is a choice-type field (select/radio/button_group), the
+	 *   one choice whose key or label unambiguously names this option
+	 *   number ("option_2", "Option 2", or "2") is used. More than one
+	 *   equally-plausible match is a genuine ambiguity Citex will not guess
+	 *   through.
+	 * - Otherwise (a plain text/number field), the literal option field name
+	 *   ("option_2") is written — the most common alternative shape for a
+	 *   "which option is correct" field referencing its sibling fields by
+	 *   name.
+	 *
+	 * @return string|WP_Error
+	 */
+	private function resolve_mcq_answer_choice( $answer_field_key, $option_number ) {
+		$field = function_exists( 'acf_get_field' ) ? acf_get_field( $answer_field_key ) : null;
+		if ( ! is_array( $field ) ) {
+			return 'option_' . $option_number;
+		}
+
+		$type = (string) ( $field['type'] ?? '' );
+		if ( ! in_array( $type, array( 'select', 'radio', 'button_group' ), true ) || empty( $field['choices'] ) || ! is_array( $field['choices'] ) ) {
+			return 'option_' . $option_number;
+		}
+
+		$needle_number = (string) $option_number;
+		$needle_word   = $this->normalise_label( 'option ' . $option_number );
+		$candidates    = array();
+		foreach ( $field['choices'] as $choice_value => $choice_label ) {
+			$normalised_value = $this->normalise_label( (string) $choice_value );
+			$normalised_label = $this->normalise_label( (string) $choice_label );
+			if ( $normalised_value === $needle_number || $normalised_label === $needle_number || $normalised_value === $needle_word || $normalised_label === $needle_word ) {
+				$candidates[] = (string) $choice_value;
+			}
+		}
+
+		if ( 1 === count( $candidates ) ) {
+			return $candidates[0];
+		}
+
+		return new WP_Error(
+			'citex_mcq_answer_choice_ambiguous',
+			sprintf(
+				'Citex could not determine which Answer choice corresponds to option %1$d. Available choices: %2$s.',
+				$option_number,
+				implode( ', ', array_keys( $field['choices'] ) )
+			)
+		);
+	}
+
 	private function find_template_post_id( $post_type, $scan ) {
 		foreach ( ( $scan['questions'] ?? array() ) as $question ) {
 			if (
@@ -469,8 +642,8 @@ class Citex_Populator {
 		return 0;
 	}
 
-	private function resolve_population_fields( $template_id, $post_type ) {
-		$known = $this->assert_known_acf_fields_registered();
+	private function resolve_population_fields( $template_id, $post_type, $type = 'DragDrop' ) {
+		$known = $this->assert_known_acf_fields_registered( $type );
 		if ( is_wp_error( $known ) ) {
 			return $known;
 		}
@@ -480,20 +653,15 @@ class Citex_Populator {
 			return $scenario_key;
 		}
 
-		return array(
-			'fixedText'      => self::FIELD_FIXED_TEXT,
-			'questionParts'  => self::FIELD_QUESTION_PARTS,
-			'confusingWords' => self::FIELD_CONFUSING_WORDS,
-			'scenario'       => $scenario_key,
-		);
+		return self::field_map_for_type( $type, $scenario_key );
 	}
 
 	/**
 	 * Same field map as resolve_population_fields(), but discovered without
 	 * any existing template post.
 	 */
-	private function resolve_population_fields_without_template( $post_type ) {
-		$known = $this->assert_known_acf_fields_registered();
+	private function resolve_population_fields_without_template( $post_type, $type = 'DragDrop' ) {
+		$known = $this->assert_known_acf_fields_registered( $type );
 		if ( is_wp_error( $known ) ) {
 			return $known;
 		}
@@ -503,6 +671,20 @@ class Citex_Populator {
 			return $scenario_key;
 		}
 
+		return self::field_map_for_type( $type, $scenario_key );
+	}
+
+	private static function field_map_for_type( $type, $scenario_key ) {
+		if ( 'MCQ' === $type ) {
+			return array(
+				'scenario' => $scenario_key,
+				'option1'  => self::FIELD_OPTION_1,
+				'option2'  => self::FIELD_OPTION_2,
+				'option3'  => self::FIELD_OPTION_3,
+				'option4'  => self::FIELD_OPTION_4,
+				'answer'   => self::FIELD_ANSWER,
+			);
+		}
 		return array(
 			'fixedText'      => self::FIELD_FIXED_TEXT,
 			'questionParts'  => self::FIELD_QUESTION_PARTS,
@@ -511,8 +693,11 @@ class Citex_Populator {
 		);
 	}
 
-	private function assert_known_acf_fields_registered() {
-		foreach ( array( self::FIELD_FIXED_TEXT, self::FIELD_QUESTION_PARTS, self::FIELD_CONFUSING_WORDS ) as $field_key ) {
+	private function assert_known_acf_fields_registered( $type = 'DragDrop' ) {
+		$required = 'MCQ' === $type
+			? array( self::FIELD_OPTION_1, self::FIELD_OPTION_2, self::FIELD_OPTION_3, self::FIELD_OPTION_4, self::FIELD_ANSWER )
+			: array( self::FIELD_FIXED_TEXT, self::FIELD_QUESTION_PARTS, self::FIELD_CONFUSING_WORDS );
+		foreach ( $required as $field_key ) {
 			if ( function_exists( 'acf_get_field' ) && ! acf_get_field( $field_key ) ) {
 				return new WP_Error( 'citex_missing_acf_field', 'Required ACF field is not registered: ' . $field_key );
 			}

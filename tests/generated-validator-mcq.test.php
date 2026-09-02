@@ -1,0 +1,212 @@
+<?php
+/**
+ * Regression tests for Citex_Generated_Validator's MCQ support, added
+ * alongside DragDrop as Citex's second supported question type.
+ *
+ * MCQ reuses validate_bibliographic_consistency() and
+ * validate_answer_leakage() unchanged (both already operate on
+ * authorSurname/authorInitials/scenario fields present on any question
+ * type, not on DragDrop-specific fixedText/questionParts), plus a new
+ * shared validate_reference_format() helper (the same Harvard Book format
+ * checks previously inlined in the DragDrop path) applied to whichever of
+ * the 4 options is marked correct.
+ *
+ * Repo-level only, run with plain
+ * `php tests/generated-validator-mcq.test.php` — not shipped in
+ * citex-tools.zip.
+ */
+
+define( 'ABSPATH', '/tmp/fake-wp/' );
+
+class WP_Error {
+	public $code;
+	public $message;
+	public function __construct( $code = '', $message = '' ) {
+		$this->code    = $code;
+		$this->message = $message;
+	}
+	public function get_error_message() {
+		return $this->message;
+	}
+	public function get_error_code() {
+		return $this->code;
+	}
+}
+function is_wp_error( $thing ) {
+	return $thing instanceof WP_Error;
+}
+function sanitize_key( $v ) {
+	return strtolower( preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $v ) ) );
+}
+
+require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
+
+$failures = 0;
+function check( $description, $actual, $expected ) {
+	global $failures;
+	$pass = $actual === $expected;
+	echo ( $pass ? 'PASS' : 'FAIL' ) . ': ' . $description
+		. ( $pass ? '' : ' (expected ' . var_export( $expected, true ) . ', got ' . var_export( $actual, true ) . ')' )
+		. "\n";
+	if ( ! $pass ) {
+		$failures++;
+	}
+}
+function has_error_code( $result, $code ) {
+	foreach ( $result['errors'] as $error ) {
+		if ( $code === $error['code'] ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * The correct reference is 'Bryman, A. (2012) Social Research Methods.
+ * Oxford: Oxford University Press.' at options[$correct_index] by default —
+ * matching what Citex_AI_V2::normalise_mcq_item() actually produces (Citex
+ * builds the correct option itself; Gemini only ever supplies incorrect ones).
+ */
+function mcq_question( $overrides = array() ) {
+	$correct  = 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.';
+	$options  = array(
+		'Bryman A. (2012) Social Research Methods. Oxford: Oxford University Press.', // missing comma after surname
+		$correct,
+		'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.', // wrong order
+		'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.', // missing space after colon
+	);
+	return array_merge(
+		array(
+			'source'                 => 'Harvard',
+			'group'                  => 'ReferenceList',
+			'category'               => 'Book',
+			'type'                   => 'MCQ',
+			'authorSurname'          => 'Bryman',
+			'authorInitials'         => 'A.',
+			'year'                   => '2012',
+			'bookTitle'              => 'Social Research Methods',
+			'place'                  => 'Oxford',
+			'publisher'              => 'Oxford University Press',
+			'scenario'               => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
+			'options'                => $options,
+			'correctOptionIndex'     => 1,
+			'reconstructedReference' => $correct,
+		),
+		$overrides
+	);
+}
+
+// ---------------------------------------------------------------------
+// 1. A correct, well-formed MCQ question passes.
+// ---------------------------------------------------------------------
+$good = Citex_Generated_Validator::validate( mcq_question() );
+check( '[1] a correct MCQ question passes', $good['status'], 'passed' );
+check( '[1] no errors reported', $good['errors'], array() );
+check( '[1] reconstructedReference is the correct option\'s text', $good['reconstructedReference'], 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' );
+
+// ---------------------------------------------------------------------
+// 2. Wrong number of options fails structurally, without crashing on the
+// out-of-range correctOptionIndex checks.
+// ---------------------------------------------------------------------
+$three_options = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( 'a', 'b', 'c' ) ) ) );
+check( '[2] 3 options (not 4) fails', $three_options['status'], 'failed' );
+check( '[2] reports MCQ_OPTION_COUNT_MISMATCH', has_error_code( $three_options, 'mcq_option_count_mismatch' ), true );
+
+$five_options = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( 'a', 'b', 'c', 'd', 'e' ) ) ) );
+check( '[2] 5 options (not 4) fails', $five_options['status'], 'failed' );
+check( '[2] reports MCQ_OPTION_COUNT_MISMATCH', has_error_code( $five_options, 'mcq_option_count_mismatch' ), true );
+
+// ---------------------------------------------------------------------
+// 3. An empty option fails.
+// ---------------------------------------------------------------------
+$empty_option = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( '', 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.', 'x', 'y' ) ) ) );
+check( '[3] an empty option fails', $empty_option['status'], 'failed' );
+check( '[3] reports MCQ_OPTION_EMPTY', has_error_code( $empty_option, 'mcq_option_empty' ), true );
+
+// ---------------------------------------------------------------------
+// 4. An out-of-range correctOptionIndex fails safely.
+// ---------------------------------------------------------------------
+$bad_index = Citex_Generated_Validator::validate( mcq_question( array( 'correctOptionIndex' => 4 ) ) );
+check( '[4] correctOptionIndex 4 (out of range 0-3) fails', $bad_index['status'], 'failed' );
+check( '[4] reports MCQ_CORRECT_INDEX_INVALID', has_error_code( $bad_index, 'mcq_correct_index_invalid' ), true );
+
+$negative_index = Citex_Generated_Validator::validate( mcq_question( array( 'correctOptionIndex' => -1 ) ) );
+check( '[4] a missing/negative correctOptionIndex fails', $negative_index['status'], 'failed' );
+check( '[4] reports MCQ_CORRECT_INDEX_INVALID', has_error_code( $negative_index, 'mcq_correct_index_invalid' ), true );
+
+// ---------------------------------------------------------------------
+// 5. Duplicate options fail.
+// ---------------------------------------------------------------------
+$correct = 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.';
+$duplicate = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( $correct, $correct, 'x', 'y' ), 'correctOptionIndex' => 0 ) ) );
+check( '[5] a duplicated correct option fails', $duplicate['status'], 'failed' );
+check( '[5] reports MCQ_DUPLICATE_OPTION', has_error_code( $duplicate, 'mcq_duplicate_option' ), true );
+
+// ---------------------------------------------------------------------
+// 6. The correct option itself must satisfy the Harvard Book format rules
+// (reused from DragDrop via validate_reference_format()) — a malformed
+// "correct" answer fails exactly like a malformed DragDrop reconstruction.
+// ---------------------------------------------------------------------
+$bad_format = Citex_Generated_Validator::validate(
+	mcq_question(
+		array(
+			'options'            => array( 'x', 'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.', 'y', 'z' ),
+			'correctOptionIndex' => 1,
+			'reconstructedReference' => '',
+		)
+	)
+);
+check( '[6] a correct option missing the space after the colon FAILS (reused Harvard format check)', $bad_format['status'], 'failed' );
+check( '[6] reports MISSING_SPACE_AFTER_COLON', has_error_code( $bad_format, 'missing_space_after_colon' ), true );
+
+// ---------------------------------------------------------------------
+// 7. Answer leakage is reused unchanged: a scenario containing the
+// abbreviated citation fails exactly like it would for DragDrop.
+// ---------------------------------------------------------------------
+$leaked = Citex_Generated_Validator::validate(
+	mcq_question(
+		array(
+			'scenario' => 'You are referencing Social Research Methods by Alan Bryman (initials A.), published in 2012 by Oxford University Press in Oxford.',
+		)
+	)
+);
+check( '[7] MCQ reuses answer-leakage validation ("(initials A.)") and FAILS', $leaked['status'], 'failed' );
+check( '[7] reports ANSWER_LEAKAGE_INITIALS_WORD', has_error_code( $leaked, 'answer_leakage_initials_word' ), true );
+
+// ---------------------------------------------------------------------
+// 8. Bibliographic consistency is reused unchanged: a scenario that omits
+// the canonical book title fails.
+// ---------------------------------------------------------------------
+$mismatched_scenario = Citex_Generated_Validator::validate(
+	mcq_question(
+		array(
+			'scenario' => 'You are referencing a book by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
+		)
+	)
+);
+check( '[8] MCQ reuses bibliographic-consistency validation (scenario missing the book title) and FAILS', $mismatched_scenario['status'], 'failed' );
+check( '[8] reports BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', has_error_code( $mismatched_scenario, 'bibliographic_consistency_scenario_mismatch' ), true );
+
+// ---------------------------------------------------------------------
+// 9. The generated expected reference (reconstructedReference) must match
+// the correct option's own text.
+// ---------------------------------------------------------------------
+$mismatched_expected = Citex_Generated_Validator::validate( mcq_question( array( 'reconstructedReference' => 'A completely different reference.' ) ) );
+check( '[9] a reconstructedReference that does not match the correct option FAILS', $mismatched_expected['status'], 'failed' );
+check( '[9] reports RECONSTRUCTED_REFERENCE_MISMATCH', has_error_code( $mismatched_expected, 'reconstructed_reference_mismatch' ), true );
+
+// ---------------------------------------------------------------------
+// 10. Unsupported combinations (wrong source/group/category, or an
+// unrecognised type) still fail with UNSUPPORTED_GENERATED_FORMAT — MCQ
+// support does not loosen this gate for anything else.
+// ---------------------------------------------------------------------
+$wrong_category = Citex_Generated_Validator::validate( mcq_question( array( 'category' => 'Website' ) ) );
+check( '[10] category Website (not Book) still fails UNSUPPORTED_GENERATED_FORMAT', $wrong_category['status'], 'failed' );
+check( '[10] reports UNSUPPORTED_GENERATED_FORMAT', has_error_code( $wrong_category, 'unsupported_generated_format' ), true );
+
+$unknown_type = Citex_Generated_Validator::validate( mcq_question( array( 'type' => 'ShortAnswer' ) ) );
+check( '[10] an unrecognised type still fails UNSUPPORTED_GENERATED_FORMAT', $unknown_type['status'], 'failed' );
+check( '[10] reports UNSUPPORTED_GENERATED_FORMAT', has_error_code( $unknown_type, 'unsupported_generated_format' ), true );
+
+echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
+exit( 0 === $failures ? 0 : 1 );
