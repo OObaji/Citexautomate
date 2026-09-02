@@ -60,7 +60,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 					?>
 					<tr>
 						<th scope="row" class="check-column"><input type="checkbox" class="citex-row-select" name="citex_populate_keys[]" value="<?php echo esc_attr( $question['key'] ?? '' ); ?>" <?php disabled( 'passed' !== $validation ); ?> /></th>
-						<td><strong><?php echo esc_html( $question['questionId'] ?? '—' ); ?></strong></td>
+						<td><strong><?php echo esc_html( $question['questionId'] ?? '—' ); ?></strong><?php if ( ! empty( $question['category'] ) ) : ?><br /><span class="description"><?php echo esc_html( $question['category'] ); ?></span><?php endif; ?></td>
 						<td><strong><?php echo esc_html( $origin_label ); ?></strong><?php if ( ! empty( $question['importSource'] ) ) : ?><br /><span class="description"><?php echo esc_html( $question['importSource'] ); ?></span><?php endif; ?></td>
 						<td><?php echo esc_html( $question['scenario'] ?? '' ); ?></td>
 						<td><?php echo esc_html( $question['reconstructedReference'] ?? '' ); ?></td>

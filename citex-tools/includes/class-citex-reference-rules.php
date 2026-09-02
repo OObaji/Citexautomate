@@ -32,6 +32,26 @@ class Citex_Reference_Rules {
 	}
 
 	/**
+	 * The short, visually-distinct question-ID prefix for this category —
+	 * "BK" for Book, "ED" for Edited Book — so a question ID alone (BK21 vs
+	 * ED01) makes its category obvious at a glance in the pending-questions
+	 * table and the real Reference List, without having to read the full
+	 * category name. Citex_Generator uses this both to default/auto-correct
+	 * the "Starting Question ID" field to the selected category and to make
+	 * each category's numbering start fresh at 01 instead of continuing
+	 * another category's count — since a prefix from one category can never
+	 * collide with a different prefix, the existing global "skip already-
+	 * used IDs" logic in Citex_AI_V2::build_ids() already keeps each
+	 * category's own sequence gap-free without any other change.
+	 */
+	public static function id_prefix( $category ) {
+		if ( self::CATEGORY_EDITED_BOOK === $category ) {
+			return 'ED';
+		}
+		return 'BK';
+	}
+
+	/**
 	 * The single, correctly-formatted Harvard reference string for this
 	 * category — the same string DragDrop reconstructs from its pieces and
 	 * MCQ places as its correct option.

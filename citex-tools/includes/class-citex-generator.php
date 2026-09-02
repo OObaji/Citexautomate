@@ -21,6 +21,10 @@ class Citex_Generator {
 		$referencing_styles = array( 'harvard' => 'Harvard' );
 		$institutions       = array( 'liverpool_hope' => 'Liverpool Hope University' );
 		$categories         = array( 'book' => 'Book', 'edited_book' => 'Edited Book' );
+		$id_prefixes        = array(
+			'book'        => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
+			'edited_book' => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_EDITED_BOOK ),
+		);
 		$question_types     = array( 'dragdrop' => 'DragDrop', 'mcq' => 'MCQ' );
 		$difficulties       = array( 'easy' => 'Easy', 'medium' => 'Medium', 'hard' => 'Hard' );
 		$pending_questions  = self::get_pending_questions();
@@ -191,6 +195,8 @@ class Citex_Generator {
 		}
 
 		$category_label = $category_labels[ $category ];
+		$starting_id    = self::normalise_starting_id( $starting_id, $category_label );
+
 		$type_label  = 'mcq' === $type ? 'MCQ' : 'DragDrop';
 		$pending     = self::get_pending_questions();
 		$used_ids    = $this->collect_used_question_ids( $pending );
@@ -279,6 +285,27 @@ class Citex_Generator {
 		self::save_pending_questions( $pending );
 		Citex_Admin::set_notice( $found ? __( 'Generated question revalidated.', 'citex-tools' ) : __( 'Pending question was not found.', 'citex-tools' ), $found ? 'success' : 'error' );
 		$this->redirect_back();
+	}
+
+	/**
+	 * Each category gets its own visually-distinct ID prefix (BK/ED — see
+	 * Citex_Reference_Rules::id_prefix()) and its own numbering that starts
+	 * fresh at 01, rather than continuing another category's count. A
+	 * starting ID left over from a different category (e.g. the form's
+	 * "BK01" default while "Edited Book" is selected, or a stale value from
+	 * a previous batch) is auto-corrected to this category's own
+	 * "<prefix>01" — an ID the admin deliberately typed FOR this category
+	 * (e.g. "ED05" to resume a gap) is honoured as-is. Pure/static so it can
+	 * be tested directly, unlike handle_generation() itself which redirects
+	 * (and exits) on every path.
+	 */
+	public static function normalise_starting_id( $starting_id, $category_label ) {
+		$starting_id      = strtoupper( trim( (string) $starting_id ) );
+		$expected_prefix  = Citex_Reference_Rules::id_prefix( $category_label );
+		if ( 0 !== strpos( $starting_id, $expected_prefix ) ) {
+			return $expected_prefix . '01';
+		}
+		return $starting_id;
 	}
 
 	private function collect_used_question_ids( $pending ) {

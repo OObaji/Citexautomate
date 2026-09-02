@@ -21,15 +21,40 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<table class="form-table" role="presentation">
 			<tr><th scope="row"><label for="citex_referencing_style"><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></label></th><td><select id="citex_referencing_style" name="citex_referencing_style"><?php foreach ( $referencing_styles as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_institution"><?php esc_html_e( 'Institution / Referencing Rules', 'citex-tools' ); ?></label></th><td><select id="citex_institution" name="citex_institution"><?php foreach ( $institutions as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
+			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_question_type"><?php esc_html_e( 'Question Type', 'citex-tools' ); ?></label></th><td><select id="citex_question_type" name="citex_question_type"><?php foreach ( $question_types as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'medium', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_starting_id"><?php esc_html_e( 'Starting Question ID', 'citex-tools' ); ?></label></th><td><input type="text" id="citex_starting_id" name="citex_starting_id" value="BK01" class="regular-text" /><p class="description"><?php esc_html_e( 'Existing Reference List and pending IDs are skipped automatically.', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_starting_id"><?php esc_html_e( 'Starting Question ID', 'citex-tools' ); ?></label></th><td><input type="text" id="citex_starting_id" name="citex_starting_id" value="<?php echo esc_attr( ( $id_prefixes['book'] ?? 'BK' ) . '01' ); ?>" class="regular-text" /><p class="description"><?php esc_html_e( 'Each category has its own ID prefix (e.g. BK for Book, ED for Edited Book) and starts its own numbering fresh at 01 — updates automatically when you change Category. Existing Reference List and pending IDs within that category are skipped automatically.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_quantity"><?php esc_html_e( 'Quantity', 'citex-tools' ); ?></label></th><td><input type="number" id="citex_quantity" name="citex_quantity" value="20" min="1" max="100" class="small-text" /><p class="description"><?php esc_html_e( 'Generate up to 100 questions in one batch.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><?php esc_html_e( 'Bibliographic Verification', 'citex-tools' ); ?></th><td><label><input type="checkbox" name="citex_ai_web_verify" value="1" <?php checked( Citex_AI::web_verification_enabled(), true ); ?> /> <?php esc_html_e( 'Use Gemini Google Search to verify books, authors, years, publishers and places before returning questions.', 'citex-tools' ); ?></label><p class="description"><?php esc_html_e( 'Recommended for real questions. It may use additional Gemini tool quota.', 'citex-tools' ); ?></p></td></tr>
 		</table>
 		<p class="submit"><button type="submit" name="citex_generate_submit" value="1" class="button button-primary" <?php disabled( ! $ai_configured ); ?>><?php esc_html_e( 'Generate Real Questions with Gemini', 'citex-tools' ); ?></button> <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-ai' ) ); ?>"><?php esc_html_e( 'AI Settings', 'citex-tools' ); ?></a></p>
 	</form>
+	<script>
+	( function () {
+		// Keeps "Starting Question ID" in sync with the selected Category's
+		// own ID prefix (BK/ED/...) so each category visibly starts fresh at
+		// 01 instead of showing a leftover prefix from a different category.
+		// Only overwrites the field when it still looks like a bare
+		// "<PREFIX>01" default — a value the admin has deliberately edited
+		// (e.g. "ED05" to resume a gap) is left alone.
+		var categorySelect = document.getElementById( 'citex_category' );
+		var startingIdField = document.getElementById( 'citex_starting_id' );
+		if ( ! categorySelect || ! startingIdField ) {
+			return;
+		}
+		categorySelect.addEventListener( 'change', function () {
+			var option = categorySelect.options[ categorySelect.selectedIndex ];
+			var prefix = option ? option.getAttribute( 'data-id-prefix' ) : '';
+			if ( ! prefix ) {
+				return;
+			}
+			if ( /^[A-Z]+01$/.test( startingIdField.value.trim().toUpperCase() ) ) {
+				startingIdField.value = prefix + '01';
+			}
+		} );
+	} )();
+	</script>
 
 	<hr />
 	<div class="citex-section-heading" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -50,7 +75,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<?php foreach ( $pending_questions as $question ) : ?>
 				<?php $validation_status = $question['validationStatus'] ?? 'not_validated'; $origin = (string) ( $question['origin'] ?? 'generated' ); $origin_label = 0 === strpos( $origin, 'imported_' ) ? 'Imported' : ( 'generated_ai' === $origin ? 'Gemini AI' : 'Generated' ); $q_type = (string) ( $question['type'] ?? 'DragDrop' ); ?>
 				<tr>
-					<td><strong><?php echo esc_html( $question['questionId'] ?? '—' ); ?></strong><br /><span class="description"><?php echo esc_html( $question['difficulty'] ?? '' ); ?></span></td>
+					<td><strong><?php echo esc_html( $question['questionId'] ?? '—' ); ?></strong><br /><span class="description"><?php echo esc_html( $question['category'] ?? '' ); ?><?php if ( ! empty( $question['difficulty'] ) ) : ?> · <?php echo esc_html( $question['difficulty'] ); ?><?php endif; ?></span></td>
 					<td><strong><?php echo esc_html( $origin_label ); ?></strong><?php if ( ! empty( $question['aiModel'] ) ) : ?><br /><span class="description"><?php echo esc_html( $question['aiModel'] ); ?></span><?php endif; ?></td>
 					<td><?php echo esc_html( $q_type ); ?></td>
 					<td><?php echo esc_html( $question['scenario'] ?? '' ); ?></td>
