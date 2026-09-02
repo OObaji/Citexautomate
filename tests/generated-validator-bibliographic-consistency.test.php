@@ -36,6 +36,7 @@ function sanitize_key( $v ) {
 	return strtolower( preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $v ) ) );
 }
 
+require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 
 $failures = 0;

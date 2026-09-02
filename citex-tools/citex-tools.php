@@ -15,6 +15,7 @@ define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-scanner.php';
 require_once CITEX_TOOLS_PATH . 'includes/validators/class-citex-harvard-book-dragdrop-validator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-validator.php';
+require_once CITEX_TOOLS_PATH . 'includes/class-citex-reference-rules.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-generated-validator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-dashboard.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-ai-v2.php';

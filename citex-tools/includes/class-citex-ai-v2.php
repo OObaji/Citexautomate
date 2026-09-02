@@ -47,8 +47,11 @@ class Citex_AI_V2 {
 		$verify = isset( $args['web_verify'] ) ? (bool) $args['web_verify'] : self::web_verification_enabled();
 		// 'MCQ' is the only other supported type — anything else (including the
 		// default) is the original DragDrop path, so this can never silently
-		// switch an existing caller onto a different question shape.
-		$type = 'mcq' === sanitize_key( $args['type'] ?? 'dragdrop' ) ? 'MCQ' : 'DragDrop';
+		// switch an existing caller onto a different question shape. Same
+		// principle for category: 'edited_book' is the only other supported
+		// category — anything else stays the original Book path.
+		$type     = 'mcq' === sanitize_key( $args['type'] ?? 'dragdrop' ) ? 'MCQ' : 'DragDrop';
+		$category = 'edited_book' === sanitize_key( $args['category'] ?? 'book' ) ? Citex_Reference_Rules::CATEGORY_EDITED_BOOK : Citex_Reference_Rules::CATEGORY_BOOK;
 		$ids = self::build_ids( strtoupper( sanitize_text_field( $args['starting_id'] ?? 'BK01' ) ), $quantity, $args['used_ids'] ?? array() );
 		if ( is_wp_error( $ids ) ) { return $ids; }
 		// Citex assigns each slot's Exercise deterministically before any
@@ -61,11 +64,9 @@ class Citex_AI_V2 {
 		for ( $attempt = 1; $attempt <= self::MAX_QUALITY_ATTEMPTS; $attempt++ ) {
 			$body = array(
 				'model' => self::get_model(),
-				'input' => 'MCQ' === $type ? self::build_prompt_mcq( $ids, $difficulty, $verify, $last_error ) : self::build_prompt( $ids, $difficulty, $verify, $last_error ),
-				'system_instruction' => 'MCQ' === $type
-					? 'You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList Book multiple-choice questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, authors, years, publishers, or places. Every question must describe exactly ONE canonical bibliographic record: authorFullName, year, bookTitle, place and publisher must all refer to the same real book, and the scenario text must explicitly name that same title, author, year, place and publisher — never a different edition or a different book. Citex constructs the single correctly-formatted Harvard reference itself from authorFullName/year/bookTitle/place/publisher — you only ever provide THREE plausible but incorrectly-formatted references for the same book (incorrectReferences), never the correct one itself. CRITICAL — the scenario must state the author\'s full real name naturally (for example "Alan Bryman") and must NEVER state, label, or abbreviate the author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference anywhere in the scenario (never write anything like "Bryman, A."), and must NEVER use the words "initial" or "surname" — the student must recognise the correctly-formatted reference among the options themselves, not be handed it in the scenario. Before returning each question, perform a strict self-check: scenario, authorFullName, year, bookTitle, place and publisher all describe the same book with no contradictions; the scenario reveals no answer value; and all three incorrectReferences are clearly wrong (a formatting, punctuation, or ordering mistake), mutually distinct from each other, and distinct from the correct reference you did not provide. Return only the requested JSON.'
-					: 'You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList Book DragDrop questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, authors, years, publishers, or places. Every question must describe exactly ONE canonical bibliographic record: authorFullName, year, bookTitle, place and publisher must all refer to the same real book, and the scenario text must explicitly name that same title, author, year, place and publisher — never a different edition or a different book. Citex derives the author\'s surname and initials itself from authorFullName — you never provide them separately — and constructs Question Parts and Fixed Text itself from authorFullName/year/bookTitle/place/publisher, so your questionParts and fixedText values are for your own self-check only and are not read as authoritative. CRITICAL — the scenario must state the author\'s full real name naturally (for example "Alan Bryman") and must NEVER state, label, or abbreviate the author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference (never write anything like "Bryman, A."), and must NEVER use the words "initial" or "surname" — the student must derive the initials and the Harvard format themselves from the full name you provide. Before returning each question, perform a strict self-check: scenario, authorFullName, year, bookTitle, place and publisher must all describe the same book with no contradictions; the scenario must not reveal any answer value by labelling it as a surname, initial, year blank, title blank, or reference component; and every confusing word must be unique and different from every correct Question Part. Return only the requested JSON.',
-				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => 'MCQ' === $type ? self::schema_mcq() : self::schema() ) ),
+				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error ),
+				'system_instruction' => self::system_instruction_for( $type, $category ),
+				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => self::schema_for( $type, $category ) ) ),
 				'generation_config' => array( 'max_output_tokens' => max( 4000, min( 24000, $quantity * 650 ) ) ),
 			);
 			if ( $verify ) { $body['tools'] = array( array( 'type' => 'google_search' ) ); }
@@ -77,12 +78,52 @@ class Citex_AI_V2 {
 			if ( '' === $text || JSON_ERROR_NONE !== json_last_error() || ! is_array( $decoded ) ) { return new WP_Error( 'citex_ai_invalid_json', __( 'Gemini did not return valid structured question data.', 'citex-tools' ) ); }
 			$questions = isset( $decoded['questions'] ) && is_array( $decoded['questions'] ) ? $decoded['questions'] : array();
 			if ( count( $questions ) !== $quantity ) { $last_error = sprintf( 'The previous attempt returned %d questions instead of %d. Return exactly %d.', count( $questions ), $quantity, $quantity ); continue; }
-			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type );
+			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category );
 			if ( ! is_wp_error( $result ) ) { return $result; }
 			$last_error = $result->get_error_message();
 		}
 
 		return new WP_Error( 'citex_ai_quality_failed', sprintf( __( 'Gemini could not produce a fully valid batch after %d quality checks. Nothing was added. Last issue: %s', 'citex-tools' ), self::MAX_QUALITY_ATTEMPTS, $last_error ) );
+	}
+
+	/**
+	 * The one place that picks which of the 4 (type x category) prompt/schema/
+	 * system-instruction sets to use. Adding a third category means adding
+	 * one more case here (and the category's own build_prompt and schema
+	 * methods) — the request/response handling in generate_questions() above
+	 * never changes.
+	 */
+	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback ) {
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			return 'MCQ' === $type
+				? self::build_prompt_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback )
+				: self::build_prompt_edited_book( $ids, $difficulty, $verify, $quality_feedback );
+		}
+		return 'MCQ' === $type
+			? self::build_prompt_mcq( $ids, $difficulty, $verify, $quality_feedback )
+			: self::build_prompt( $ids, $difficulty, $verify, $quality_feedback );
+	}
+
+	private static function schema_for( $type, $category ) {
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			return 'MCQ' === $type ? self::schema_edited_book_mcq() : self::schema_edited_book();
+		}
+		return 'MCQ' === $type ? self::schema_mcq() : self::schema();
+	}
+
+	private static function system_instruction_for( $type, $category ) {
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			return 'MCQ' === $type
+				? 'You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList Edited Book multiple-choice questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, editors, years, publishers, or places. Every question must describe exactly ONE canonical bibliographic record with ONE OR MORE editors: editorFullNames (an array of one or two full names), year, bookTitle, place and publisher must all refer to the same real edited book, and the scenario text must explicitly name that same title, every editor\'s full name, the same year, place and publisher — never a different edition or a different book. Citex constructs the single correctly-formatted Harvard reference itself, including the correct editor designation ("(ed.)" for exactly one editor, "(eds)" for two) — you only ever provide THREE plausible but incorrectly-formatted references for the same book (incorrectReferences), never the correct one itself, and never one that swaps "(ed.)"/"(eds)" for the wrong editor count in a way that would make two options simultaneously look correct. CRITICAL — the scenario must state every editor\'s full real name naturally and must NEVER show "(ed.)" or "(eds)" anywhere, must NEVER state, label, or abbreviate any editor\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard citation anywhere, and must NEVER use the words "initial", "initials", or "surname" — the student must recognise the correctly-formatted reference, including its correct editor designation, among the options themselves. Before returning each question, perform a strict self-check: scenario, editorFullNames, year, bookTitle, place and publisher all describe the same book with no contradictions; the scenario reveals no answer value; and all three incorrectReferences are clearly wrong (a formatting, punctuation, ordering, or wrong-designation mistake), mutually distinct from each other, and distinct from the correct reference you did not provide. Return only the requested JSON.'
+				: 'You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList Edited Book DragDrop questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, editors, years, publishers, or places. Every question must describe exactly ONE canonical bibliographic record with ONE OR MORE editors: editorFullNames (an array of one or two full names), year, bookTitle, place and publisher must all refer to the same real edited book, and the scenario text must explicitly name that same title, every editor\'s full name, the same year, place and publisher — never a different edition or a different book. Citex derives each editor\'s surname and initials itself from editorFullNames, decides the correct editor designation ("(ed.)" for one editor, "(eds)" for two), and constructs Question Parts and Fixed Text itself — you never provide any of that, and your own questionParts/fixedText fields (if you include them) are never read as authoritative. CRITICAL — the scenario must state every editor\'s full name naturally and must NEVER show "(ed.)" or "(eds)" anywhere, must NEVER state, label, or abbreviate any editor\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard citation, and must NEVER use the words "initial", "initials", or "surname". Before returning each question, perform a strict self-check: scenario, editorFullNames, year, bookTitle, place and publisher all describe the same book with no contradictions; the scenario reveals no answer value; and every confusing word is unique and different from every correct value. Return only the requested JSON.';
+		}
+		return self::system_instruction_for_book( $type );
+	}
+
+	private static function system_instruction_for_book( $type ) {
+		return 'MCQ' === $type
+			? 'You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList Book multiple-choice questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, authors, years, publishers, or places. Every question must describe exactly ONE canonical bibliographic record: authorFullName, year, bookTitle, place and publisher must all refer to the same real book, and the scenario text must explicitly name that same title, author, year, place and publisher — never a different edition or a different book. Citex constructs the single correctly-formatted Harvard reference itself from authorFullName/year/bookTitle/place/publisher — you only ever provide THREE plausible but incorrectly-formatted references for the same book (incorrectReferences), never the correct one itself. CRITICAL — the scenario must state the author\'s full real name naturally (for example "Alan Bryman") and must NEVER state, label, or abbreviate the author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference anywhere in the scenario (never write anything like "Bryman, A."), and must NEVER use the words "initial" or "surname" — the student must recognise the correctly-formatted reference among the options themselves, not be handed it in the scenario. Before returning each question, perform a strict self-check: scenario, authorFullName, year, bookTitle, place and publisher all describe the same book with no contradictions; the scenario reveals no answer value; and all three incorrectReferences are clearly wrong (a formatting, punctuation, or ordering mistake), mutually distinct from each other, and distinct from the correct reference you did not provide. Return only the requested JSON.'
+			: 'You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList Book DragDrop questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, authors, years, publishers, or places. Every question must describe exactly ONE canonical bibliographic record: authorFullName, year, bookTitle, place and publisher must all refer to the same real book, and the scenario text must explicitly name that same title, author, year, place and publisher — never a different edition or a different book. Citex derives the author\'s surname and initials itself from authorFullName — you never provide them separately — and constructs Question Parts and Fixed Text itself from authorFullName/year/bookTitle/place/publisher, so your questionParts and fixedText values are for your own self-check only and are not read as authoritative. CRITICAL — the scenario must state the author\'s full real name naturally (for example "Alan Bryman") and must NEVER state, label, or abbreviate the author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference (never write anything like "Bryman, A."), and must NEVER use the words "initial" or "surname" — the student must derive the initials and the Harvard format themselves from the full name you provide. Before returning each question, perform a strict self-check: scenario, authorFullName, year, bookTitle, place and publisher must all describe the same book with no contradictions; the scenario must not reveal any answer value by labelling it as a surname, initial, year blank, title blank, or reference component; and every confusing word must be unique and different from every correct Question Part. Return only the requested JSON.';
 	}
 
 	private static function build_prompt( $ids, $difficulty, $verify, $quality_feedback = '' ) {
@@ -100,6 +141,59 @@ class Citex_AI_V2 {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Book multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n" . ( $verify ? 'Use Google Search to verify every bibliographic record.' : 'Do not invent bibliographic records.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullName, year, bookTitle, place and publisher must all describe the exact same real book. Do not mix facts from a different edition, a different book by the same author, or a similarly-named book.\n- authorFullName is the author's real full name (given name(s) + surname), e.g. \"Alan Bryman\" or \"John Michael Smith\". Do NOT provide a surname or initials separately — Citex derives both itself from authorFullName and constructs the one correct Harvard reference from them; you never provide the correct reference yourself.\n- The scenario MUST explicitly state that same bookTitle, the same author's full name, the same year, the same place and the same publisher. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are creating a reference for a book titled...' or 'You are referencing a book titled...'.\n- State the real book title, the author's FULL NAME, publication year, publisher and publication place.\n- Prefer concise real book titles; never truncate or alter the actual bibliographic title.\n- The scenario MUST NOT state, label, or abbreviate the author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, and MUST NOT show any completed or abbreviated Harvard reference anywhere (e.g. never write \"Bryman, A.\" or \"Bryman, A. (2012)\") — this applies even though you are not asked to provide the correct reference yourself, because the correct option Citex constructs must not already be visible in the scenario text.\n- GOOD: \"You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.\"\n- BAD: \"...by Alan Bryman (initials A.), published in 2012...\" — reveals the initials directly.\n- BAD: \"...by Bryman, A., published in 2012...\" — states the abbreviated citation form directly.\n- A full author name naturally containing the surname (e.g. \"Alan Bryman\") is correct and required — the failure is explicitly labelling or abbreviating an answer value, not the surname appearing as part of the full name.\n\nINCORRECT REFERENCES — CRITICAL:\n- Provide exactly 3 incorrectReferences for the same book — plausible-looking but definitely wrong Harvard Book references.\n- Each one must contain a genuine, realistic formatting mistake compared to the correct format 'Surname, I. (YYYY) Book Title. Place: Publisher.' — realistic means the kind of mistake a real student actually makes, not an absurd or nonsensical one. Use a different mistake type for each of the 3: incorrect author-name formatting (e.g. full first name instead of initials, or initials before surname), incorrect year placement or missing parentheses, incorrect punctuation (missing/misplaced comma or full stop), incorrect book-title formatting (e.g. not italicised/capitalised as the source requires, if relevant), missing place of publication, publisher and place swapped or wrongly ordered, or an overall element order that does not match Surname, Initials. (Year) Title. Place: Publisher.\n- Do NOT simply invent a different author, year, title, place or publisher for an incorrectReference — every incorrectReference must still describe the SAME book/author/year/place/publisher as the scenario, just formatted incorrectly. A reference describing a different book is not a plausible distractor and will be rejected.\n- All three incorrectReferences must be different from one another, and each must contain at least one genuine format mistake — never one that would also pass as a correctly-formatted reference, since that would create two answers a student could reasonably pick.\n- None of the three may, even coincidentally, already be a correctly-formatted 'Surname, I. (YYYY) Title. Place: Publisher.' string.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullName, year, bookTitle, place and publisher all describe the exact same book — no contradictions.\n2. The scenario states the author's full name naturally and never the words \"initial\"/\"initials\"/\"surname\", and never a completed or abbreviated reference.\n3. Exactly 3 incorrectReferences are provided, each for the same book, each with a genuine formatting mistake.\n4. All 3 incorrectReferences are mutually distinct and none is accidentally correctly formatted.\n5. Only return questions that pass all five checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
+	}
+
+	/**
+	 * Shared framing for both Edited Book prompt builders: the one-or-two-
+	 * editor rule, the "(ed.)"/"(eds)" designation rule, and the answer-
+	 * leakage rules — identical whether the question ends up as DragDrop or
+	 * MCQ, so written once and reused rather than duplicated.
+	 */
+	private static function edited_book_prompt_intro( $verify ) {
+		return ( $verify ? 'Use Google Search to verify every bibliographic record.' : 'Do not invent bibliographic records.' )
+			. "\n\nONE QUESTION = ONE CANONICAL EDITED BOOK RECORD — CRITICAL:\n- editorFullNames is an array of ONE or TWO editor full names (given name(s) + surname each), e.g. [\"Vincent Miller\"] or [\"John Smith\", \"Amy Jones\"]. Do NOT provide a surname or initials separately for any editor — Citex derives both itself from each full name.\n- year, bookTitle, place and publisher must all describe the exact same real edited book as editorFullNames. Do not mix facts from a different edition or a different book.\n- The scenario MUST explicitly state that same bookTitle, EVERY editor's full name, the same year, place and publisher. Citex independently checks the scenario text against these fields.\n\nTHE EDITOR DESIGNATION RULE — THIS IS WHAT THIS CATEGORY TESTS:\n- Exactly ONE editor -> the designation is \"(ed.)\" (with the trailing period, inside its own parentheses).\n- TWO editors -> the designation is \"(eds)\" (no period) and the two editor names are joined with \"and\" (e.g. \"Smith, J. and Jones, A.\").\n- Never use \"(ed.)\" for two editors, and never use \"(eds)\" for one editor.\n- The designation always comes immediately after the editor name(s) and before the year, each in its own parentheses: \"Surname, I. (ed.) (YYYY) Title. Place: Publisher.\"\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are referencing a book edited by...' or 'You are creating a reference for a book edited by...'.\n- State the real book title, EVERY editor's FULL NAME, publication year, publisher and publication place.\n- The scenario MUST NOT show \"(ed.)\" or \"(eds)\" anywhere — that is the answer this question tests.\n- The scenario MUST NOT state, label, or abbreviate any editor's initials or surname separately, MUST NOT use the words \"initial\", \"initials\", or \"surname\" anywhere, and MUST NOT show a completed or abbreviated Harvard citation anywhere (e.g. never write \"Smith, J.\").\n- GOOD: \"You are referencing a book edited by Vincent Miller, titled Understanding digital culture, published in 2020 by SAGE Publications in London.\"\n- BAD: \"...edited by Vincent Miller (ed.), published in 2020...\" — reveals the designation directly.\n- BAD: \"...by Smith, J., published in 2020...\" — states the abbreviated citation form directly.";
+	}
+
+	private static function build_prompt_edited_book( $ids, $difficulty, $verify, $quality_feedback = '' ) {
+		$difficulty_guidance = array(
+			'easy'   => 'Easy: use exactly one editor, and make the confusingWords obviously wrong (e.g. "author", "editor" as a full word, a clearly different year) — testing basic recognition of the "(ed.)" convention.',
+			'medium' => 'Medium: mix one-editor and two-editor questions across the batch, and make confusingWords plausible near-misses (e.g. "eds" as a distractor for a one-editor question, or "ed." for a two-editor one) — testing whether the student applies the right designation for the given editor count.',
+			'hard'   => 'Hard: prefer two-editor questions, and make confusingWords very close to correct (e.g. "editor" vs "ed.", or "eds." with a stray period) — testing careful attention to exact punctuation.',
+		);
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Edited Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n"
+			. self::edited_book_prompt_intro( $verify )
+			. "\n\nDRAGDROP:\n- Citex derives each editor's surname/initials from editorFullNames, decides the designation (\"(ed.)\"/\"(eds)\") from the editor count, and constructs Question Parts and Fixed Text itself — your own questionParts/fixedText fields (if present) are for your own self-check only and are never read as authoritative.\n- The 4 Question Parts Citex builds are: [editor name(s) joined, e.g. \"Smith, J.\" or \"Smith, J. and Jones, A.\"], [designation, \"ed.\" or \"eds\"], [year], [book title].\n- confusingWords should test the designation and editor-formatting rules specifically — see DISTRACTORS below.\n\nDISTRACTORS — CRITICAL:\n- Medium exactly 3; Easy exactly 2; Hard exactly 4.\n- Prioritise designation-confusion distractors: \"author\", \"editor\" (the full word, not abbreviated), the WRONG designation for this question's editor count (\"eds\" for a one-editor question, \"ed.\" for a two-editor one), or a designation with wrong punctuation (\"ed\", \"eds.\").\n- Also acceptable: a different plausible year, city, publisher, or editor surname.\n- Every distractor must be different from ALL FOUR correct Question Parts after trimming and case-insensitive comparison, and unique from one another.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, editorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions.\n2. The scenario names every editor naturally and never shows \"(ed.)\"/\"(eds)\", never the words \"initial\"/\"initials\"/\"surname\", never a completed citation.\n3. The designation matches the editor count exactly (one editor -> \"ed.\", two -> \"eds\").\n4. Correct number of distractors for the difficulty, none matching a correct Question Part, none duplicated.\n5. Only return questions that pass all four checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	private static function build_prompt_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback = '' ) {
+		$difficulty_guidance = array(
+			'easy'   => 'Easy: use exactly one editor, and make the 3 incorrectReferences obviously wrong (e.g. designation missing entirely, or an unmistakable punctuation error) — testing basic recognition.',
+			'medium' => 'Medium: mix one- and two-editor questions, and make each incorrectReference contain one specific, realistic mistake (e.g. "(editor)" instead of "(ed.)", or the wrong designation for the editor count) — testing the ability to spot ONE particular error type per option.',
+			'hard'   => 'Hard: prefer two-editor questions, and make the 3 incorrectReferences very close to correctly formatted, differing only by a small, easy-to-miss detail (e.g. "(ed.)" used for two editors, or a misplaced comma) — testing careful side-by-side comparison.',
+		);
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Edited Book multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n"
+			. self::edited_book_prompt_intro( $verify )
+			. "\n\nINCORRECT REFERENCES — CRITICAL:\n- Provide exactly 3 incorrectReferences for the same book — plausible-looking but definitely wrong Harvard Edited Book references. Never provide the correct one yourself; Citex constructs it.\n- Each one must contain a genuine, realistic mistake. Prioritise designation mistakes: missing designation entirely, \"(author)\"/\"(editor)\" instead of \"(ed.)\"/\"(eds)\", or — especially important for this category — the WRONG designation for the stated editor count (e.g. \"(ed.)\" when editorFullNames has two names, or \"(eds)\" when it has one). Other acceptable mistakes: incorrect year placement, incorrect punctuation, or place/publisher swapped or wrongly ordered.\n- Do NOT invent a different editor, year, title, place or publisher for an incorrectReference — every one must still describe the SAME book as the scenario, just formatted incorrectly.\n- All three incorrectReferences must be different from one another, and each must contain at least one genuine mistake — never one that would also pass as a correctly-formatted reference.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, editorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions.\n2. The scenario names every editor naturally and never shows \"(ed.)\"/\"(eds)\", never the words \"initial\"/\"initials\"/\"surname\", never a completed citation.\n3. Exactly 3 incorrectReferences are provided, each with a genuine mistake, mutually distinct, none accidentally correctly formatted.\n4. Only return questions that pass all three checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	private static function schema_edited_book() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'scenario' => $s, 'editorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'place' => $s, 'publisher' => $s,
+			'questionParts' => array( 'type' => 'array', 'items' => $s ), 'fixedText' => $s, 'confusingWords' => array( 'type' => 'array', 'items' => $s )
+		), 'required' => array( 'questionId','scenario','editorFullNames','year','bookTitle','place','publisher','confusingWords' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	private static function schema_edited_book_mcq() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'scenario' => $s, 'editorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'place' => $s, 'publisher' => $s,
+			'incorrectReferences' => array( 'type' => 'array', 'items' => $s )
+		), 'required' => array( 'questionId','scenario','editorFullNames','year','bookTitle','place','publisher','incorrectReferences' ) ) ) ), 'required' => array( 'questions' ) );
 	}
 
 	private static function schema() {
@@ -180,26 +274,44 @@ class Citex_AI_V2 {
 			default: return 3;
 		}
 	}
-	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop' ) {
+	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null ) {
+		$category = $category ?: Citex_Reference_Rules::CATEGORY_BOOK;
 		$out = array();
 		$expected_distractors = self::expected_distractor_count( $difficulty );
 		foreach ( $questions as $i => $item ) {
 			if ( ! is_array( $item ) ) { return new WP_Error( 'citex_ai_bad_question', sprintf( __( 'Question %d was not a valid object.', 'citex-tools' ), $i + 1 ) ); }
-			$id = strtoupper( trim( (string) $ids[ $i ] ) ); $full_name = trim( (string) ( $item['authorFullName'] ?? '' ) ); $year = trim( (string) ( $item['year'] ?? '' ) ); $title = trim( (string) ( $item['bookTitle'] ?? '' ) ); $place = trim( (string) ( $item['place'] ?? '' ) ); $publisher = trim( (string) ( $item['publisher'] ?? '' ) ); $scenario = trim( (string) ( $item['scenario'] ?? '' ) );
-			if ( '' === $scenario || '' === $full_name || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
-
-			$author_parts = self::derive_author_parts( $full_name );
-			if ( is_wp_error( $author_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $author_parts->get_error_message() ) ); }
-			$surname = $author_parts['surname'];
-			$initials = $author_parts['initials'];
+			$id = strtoupper( trim( (string) $ids[ $i ] ) ); $year = trim( (string) ( $item['year'] ?? '' ) ); $title = trim( (string) ( $item['bookTitle'] ?? '' ) ); $place = trim( (string) ( $item['place'] ?? '' ) ); $publisher = trim( (string) ( $item['publisher'] ?? '' ) ); $scenario = trim( (string) ( $item['scenario'] ?? '' ) );
 
 			// Exercise is Citex-assigned only — resolved by slot index from the
 			// matrix built before generation began, never read from $item.
 			$exercise = isset( $exercises[ $i ] ) ? sanitize_text_field( (string) $exercises[ $i ] ) : 'Exercise 1';
 
-			$candidate = 'MCQ' === $type
-				? self::normalise_mcq_item( $item, $id, $full_name, $surname, $initials, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty )
-				: self::normalise_dragdrop_item( $item, $id, $full_name, $surname, $initials, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors );
+			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				if ( '' === $scenario || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
+				$editor_names = array_values( array_filter( array_map( 'trim', (array) ( $item['editorFullNames'] ?? array() ) ), 'strlen' ) );
+				if ( empty( $editor_names ) || count( $editor_names ) > 2 ) { return new WP_Error( 'citex_ai_bad_editor_count', sprintf( __( 'Question %s must have 1 or 2 editors; %d were provided.', 'citex-tools' ), $id, count( $editor_names ) ) ); }
+				$editors = array();
+				foreach ( $editor_names as $editor_full_name ) {
+					$editor_parts = self::derive_author_parts( $editor_full_name );
+					if ( is_wp_error( $editor_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $editor_parts->get_error_message() ) ); }
+					$editors[] = array( 'fullName' => $editor_full_name, 'surname' => $editor_parts['surname'], 'initials' => $editor_parts['initials'] );
+				}
+				$candidate = 'MCQ' === $type
+					? self::normalise_edited_book_mcq_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty )
+					: self::normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors );
+			} else {
+				$full_name = trim( (string) ( $item['authorFullName'] ?? '' ) );
+				if ( '' === $scenario || '' === $full_name || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
+
+				$author_parts = self::derive_author_parts( $full_name );
+				if ( is_wp_error( $author_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $author_parts->get_error_message() ) ); }
+				$surname = $author_parts['surname'];
+				$initials = $author_parts['initials'];
+
+				$candidate = 'MCQ' === $type
+					? self::normalise_mcq_item( $item, $id, $full_name, $surname, $initials, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty )
+					: self::normalise_dragdrop_item( $item, $id, $full_name, $surname, $initials, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors );
+			}
 			if ( is_wp_error( $candidate ) ) { return $candidate; }
 
 			$validation = Citex_Generated_Validator::validate( $candidate );
@@ -300,6 +412,88 @@ class Citex_AI_V2 {
 
 		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'authorFullName' => sanitize_text_field( $full_name ), 'authorSurname' => sanitize_text_field( $surname ), 'authorInitials' => sanitize_text_field( $initials ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'correctOptionIndex' => $correct_index, 'correctOptionLetter' => $correct_letter, 'explanation' => sanitize_textarea_field( $explanation ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
+
+	/**
+	 * Edited Book counterpart to normalise_dragdrop_item(). Citex — never
+	 * Gemini — builds the reference, the editor designation ("(ed.)" for
+	 * one editor, "(eds)" for two), and the Question Parts/Fixed Text, via
+	 * Citex_Reference_Rules::build_reference()/dragdrop_shape() — the same
+	 * pluggable layer that also drives Citex_Generated_Validator, so the
+	 * two can never silently disagree about what "correct" looks like for
+	 * this category.
+	 *
+	 * @return array|WP_Error
+	 */
+	private static function normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors ) {
+		$distractors = array_values( array_filter( array_map( 'trim', (array) ( $item['confusingWords'] ?? array() ) ), 'strlen' ) );
+		$fields = array( 'editors' => $editors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
+		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $fields );
+		$parts = $shape['parts'];
+		$fixed = $shape['fixedText'];
+		$count = self::placeholder_count( $fixed ); if ( is_wp_error( $count ) ) { return $count; } if ( 4 !== $count ) { return new WP_Error( 'citex_ai_bad_placeholders', sprintf( __( 'Question %s has %d draggable placeholder tokens; exactly 4 are required.', 'citex-tools' ), $id, $count ) ); }
+		if ( count( $distractors ) !== $expected_distractors ) { return new WP_Error( 'citex_ai_bad_distractors', sprintf( __( 'Question %s has %d distractors; %d are required for %s difficulty.', 'citex-tools' ), $id, count( $distractors ), $expected_distractors, ucfirst( $difficulty ) ) ); }
+		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
+		foreach ( $distractors as $distractor ) {
+			$normal = strtolower( trim( $distractor ) );
+			if ( in_array( $normal, $correct_lower, true ) ) { return new WP_Error( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); }
+			if ( isset( $seen[ $normal ] ) ) { return new WP_Error( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); }
+			$seen[ $normal ] = true;
+		}
+		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $fields );
+		$editor_full_names = array_column( $editors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Edited Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'initials' => sanitize_text_field( $editor['initials'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * Edited Book counterpart to normalise_mcq_item(): same "Citex builds
+	 * the one correct option, Gemini only ever supplies 3 incorrect ones"
+	 * principle, using Citex_Reference_Rules::build_reference() so the
+	 * correct option always carries the right "(ed.)"/"(eds)" designation
+	 * for this question's actual editor count.
+	 *
+	 * @return array|WP_Error
+	 */
+	private static function normalise_edited_book_mcq_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty ) {
+		$incorrect = array_values( array_filter( array_map( 'trim', (array) ( $item['incorrectReferences'] ?? array() ) ), 'strlen' ) );
+		if ( 3 !== count( $incorrect ) ) {
+			return new WP_Error( 'citex_ai_bad_mcq_options', sprintf( __( 'Question %1$s has %2$d incorrect reference option(s); exactly 3 are required.', 'citex-tools' ), $id, count( $incorrect ) ) );
+		}
+
+		$fields = array( 'editors' => $editors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
+		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $fields );
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $reference ) ) );
+		$seen = array( $correct_normal => true );
+		foreach ( $incorrect as $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $option ) ) );
+			if ( $normal === $correct_normal ) {
+				return new WP_Error( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				return new WP_Error( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_index = crc32( $id ) % 4;
+		$options = array();
+		$cursor = 0;
+		for ( $slot = 0; $slot < 4; $slot++ ) {
+			$options[] = ( $slot === $correct_index ) ? $reference : $incorrect[ $cursor++ ];
+		}
+		$correct_letter = chr( 65 + $correct_index );
+
+		$expected_designation = Citex_Reference_Rules::designation_for_editor_count( count( $editors ) );
+		$explanation = sprintf(
+			'%1$s is correct because it follows the required Harvard Edited Book reference structure — Editor(s), Initials. (%2$s) (Year) Title. Place: Publisher — using "(%2$s)" for %3$d editor(s).',
+			$correct_letter,
+			$expected_designation,
+			count( $editors )
+		);
+
+		$editor_full_names = array_column( $editors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Edited Book | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'initials' => sanitize_text_field( $editor['initials'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'correctOptionIndex' => $correct_index, 'correctOptionLetter' => $correct_letter, 'explanation' => sanitize_textarea_field( $explanation ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
 	private static function output_text( $data ) {
 		if ( ! empty( $data['output_text'] ) && is_string( $data['output_text'] ) ) { return trim( $data['output_text'] ); }
 		$text = array(); foreach ( (array) ( $data['steps'] ?? array() ) as $step ) { if ( 'model_output' !== ( $step['type'] ?? '' ) ) { continue; } foreach ( (array) ( $step['content'] ?? array() ) as $content ) { if ( isset( $content['text'] ) && is_string( $content['text'] ) ) { $text[] = $content['text']; } } } return trim( implode( "\n", $text ) );

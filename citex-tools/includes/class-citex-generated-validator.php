@@ -25,12 +25,12 @@ class Citex_Generated_Validator {
 		if (
 			'Harvard' !== (string) ( $question['source'] ?? '' ) ||
 			'ReferenceList' !== (string) ( $question['group'] ?? '' ) ||
-			'Book' !== (string) ( $question['category'] ?? '' )
+			! Citex_Reference_Rules::is_known_category( (string) ( $question['category'] ?? '' ) )
 		) {
 			return self::result(
 				'failed',
 				array(
-					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book / DragDrop or MCQ.' ),
+					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book or Edited Book, DragDrop or MCQ.' ),
 				),
 				null
 			);
@@ -54,7 +54,8 @@ class Citex_Generated_Validator {
 	}
 
 	private static function validate_dragdrop( $question ) {
-		$errors = array();
+		$errors   = array();
+		$category = (string) ( $question['category'] ?? Citex_Reference_Rules::CATEGORY_BOOK );
 
 		$fixed_text     = (string) ( $question['fixedText'] ?? '' );
 		$question_parts = is_array( $question['questionParts'] ?? null ) ? array_values( $question['questionParts'] ) : array();
@@ -74,7 +75,7 @@ class Citex_Generated_Validator {
 		}
 
 		$reference = $reconstruction['reference'];
-		$errors    = array_merge( $errors, self::validate_reference_format( $reference ) );
+		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category ) );
 
 		$correct_lower = array_map(
 			function ( $value ) {
@@ -102,10 +103,27 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'RECONSTRUCTED_REFERENCE_MISMATCH', 'The generated expected reference does not match the reference reconstructed from Fixed Text and Question Parts.' );
 		}
 
-		$errors = array_merge( $errors, self::validate_bibliographic_consistency( $question, $question_parts, $reference ) );
+		$errors = array_merge( $errors, self::validate_consistency( $question, $question_parts, $reference, $category ) );
 		$errors = array_merge( $errors, self::validate_answer_leakage( $question ) );
 
 		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $reference );
+	}
+
+	/**
+	 * Dispatches to the category-appropriate bibliographic-consistency
+	 * check — Book has a single author, Edited Book has one or more
+	 * editors, so the two need different field shapes (see
+	 * validate_edited_book_consistency()). Every other category-specific
+	 * difference (format regex, DragDrop piece construction) is already
+	 * isolated to Citex_Reference_Rules; this is the one check that could
+	 * not be made category-agnostic, because "who wrote this" is shaped
+	 * differently per category.
+	 */
+	private static function validate_consistency( $question, $question_parts, $reference, $category ) {
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			return self::validate_edited_book_consistency( $question, $reference );
+		}
+		return self::validate_bibliographic_consistency( $question, $question_parts, $reference );
 	}
 
 	/**
@@ -118,8 +136,9 @@ class Citex_Generated_Validator {
 	 * reconstructed reference does.
 	 */
 	private static function validate_mcq( $question ) {
-		$errors  = array();
-		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+		$errors   = array();
+		$category = (string) ( $question['category'] ?? Citex_Reference_Rules::CATEGORY_BOOK );
+		$options  = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
 
 		if ( 4 !== count( $options ) ) {
 			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 options are required; %d were provided.', count( $options ) ) );
@@ -150,20 +169,20 @@ class Citex_Generated_Validator {
 		}
 
 		$reference = trim( (string) $options[ $correct_index ] );
-		$errors    = array_merge( $errors, self::validate_reference_format( $reference ) );
+		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category ) );
 
 		// Exactly one option may look correct. A distractor that happens to
-		// pass every Harvard Book format rule too (different wording, but
-		// still structurally valid) is a second "reasonably correct" answer
-		// — precisely the ambiguity a real MCQ must never contain.
+		// pass every Harvard format rule too (different wording, but still
+		// structurally valid) is a second "reasonably correct" answer —
+		// precisely the ambiguity a real MCQ must never contain.
 		foreach ( $options as $index => $option ) {
 			if ( $index === $correct_index ) {
 				continue;
 			}
-			if ( empty( self::validate_reference_format( trim( (string) $option ) ) ) ) {
+			if ( empty( self::validate_reference_format( trim( (string) $option ), $category ) ) ) {
 				$errors[] = self::error(
 					'MCQ_DISTRACTOR_LOOKS_CORRECT',
-					sprintf( 'Option %d is not marked correct but passes every Harvard Book format rule too — this creates a second plausible answer.', $index + 1 )
+					sprintf( 'Option %d is not marked correct but passes every Harvard format rule too — this creates a second plausible answer.', $index + 1 )
 				);
 			}
 		}
@@ -179,7 +198,7 @@ class Citex_Generated_Validator {
 			trim( (string) ( $question['year'] ?? '' ) ),
 			trim( (string) ( $question['bookTitle'] ?? '' ) ),
 		);
-		$errors = array_merge( $errors, self::validate_bibliographic_consistency( $question, $question_parts, $reference ) );
+		$errors = array_merge( $errors, self::validate_consistency( $question, $question_parts, $reference, $category ) );
 		$errors = array_merge( $errors, self::validate_answer_leakage( $question ) );
 
 		// The explanation is written into the real "Hint" field on
@@ -194,12 +213,18 @@ class Citex_Generated_Validator {
 	}
 
 	/**
-	 * The Harvard Book reference-format checks shared by DragDrop's
-	 * reconstructed reference and MCQ's correct option — identical rules,
-	 * applied to whichever string each question type builds as "the answer".
+	 * The Harvard reference-format checks shared by DragDrop's reconstructed
+	 * reference and MCQ's correct option, for every category — punctuation
+	 * and spacing rules identical regardless of category. The one
+	 * category-specific piece — the overall shape (does it actually look
+	 * like a Book vs an Edited Book reference) — is delegated to
+	 * Citex_Reference_Rules::format_regex(), the pluggable layer new
+	 * categories provide instead of this method growing a new branch each
+	 * time.
 	 */
-	private static function validate_reference_format( $reference ) {
-		$errors = array();
+	private static function validate_reference_format( $reference, $category = null ) {
+		$category = $category ?? Citex_Reference_Rules::CATEGORY_BOOK;
+		$errors   = array();
 
 		if ( preg_match( '/\(\s+\d{4}|\d{4}\s+\)/', $reference ) ) {
 			$errors[] = self::error( 'YEAR_PARENTHESES_SPACING', 'Publication year should have no spaces inside the parentheses, for example (2019).' );
@@ -217,10 +242,15 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'MISSING_FINAL_PERIOD', 'Missing final full stop.' );
 		}
 
-		// Liverpool Hope Book shape used by the current Citex Book validator:
-		// Surname, I. (Year) Title. Place: Publisher.
-		if ( ! preg_match( '/^[^,]+,\s+(?:[A-Z]\.\s*)+\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u', $reference ) ) {
-			$errors[] = self::error( 'BOOK_FORMAT_MISMATCH', 'Citation does not match the Liverpool Hope Book format.' );
+		// Liverpool Hope shape for this category — Surname, I. (Year) Title.
+		// Place: Publisher. for Book; Editor(s), I. (ed.|eds) (Year) Title.
+		// Place: Publisher. for Edited Book.
+		if ( ! preg_match( Citex_Reference_Rules::format_regex( $category ), $reference ) ) {
+			$code    = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'EDITED_BOOK_FORMAT_MISMATCH' : 'BOOK_FORMAT_MISMATCH';
+			$message = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category
+				? 'Citation does not match the Liverpool Hope Edited Book format.'
+				: 'Citation does not match the Liverpool Hope Book format.';
+			$errors[] = self::error( $code, $message );
 		}
 
 		return $errors;
@@ -277,20 +307,47 @@ class Citex_Generated_Validator {
 			);
 		}
 
+		// One person (Book: authorSurname/authorInitials) or several
+		// (Edited Book: $question['editors']) — every one of them is
+		// checked identically, since a leak of ANY editor's abbreviated
+		// citation or initials value is just as much an answer leak.
+		$people = array();
 		$surname  = trim( (string) ( $question['authorSurname'] ?? '' ) );
 		$initials = trim( (string) ( $question['authorInitials'] ?? '' ) );
-
-		if ( '' !== $surname && preg_match( '/' . preg_quote( $surname, '/' ) . '\s*,\s*[A-Z]\.(?:\s?[A-Z]\.)*/u', $scenario ) ) {
-			$errors[] = self::error(
-				'ANSWER_LEAKAGE_ABBREVIATED_CITATION',
-				'The scenario contains an abbreviated or completed Harvard citation (e.g. "Surname, I."), which hands the student the answer directly.'
+		if ( '' !== $surname || '' !== $initials ) {
+			$people[] = array( 'surname' => $surname, 'initials' => $initials );
+		}
+		foreach ( (array) ( $question['editors'] ?? array() ) as $editor ) {
+			$people[] = array(
+				'surname'  => trim( (string) ( $editor['surname'] ?? '' ) ),
+				'initials' => trim( (string) ( $editor['initials'] ?? '' ) ),
 			);
 		}
 
-		if ( '' !== $initials && preg_match( '/(?<![A-Za-z.])' . preg_quote( $initials, '/' ) . '(?![A-Za-z])/u', $scenario ) ) {
+		foreach ( $people as $person ) {
+			if ( '' !== $person['surname'] && preg_match( '/' . preg_quote( $person['surname'], '/' ) . '\s*,\s*[A-Z]\.(?:\s?[A-Z]\.)*/u', $scenario ) ) {
+				$errors[] = self::error(
+					'ANSWER_LEAKAGE_ABBREVIATED_CITATION',
+					'The scenario contains an abbreviated or completed Harvard citation (e.g. "Surname, I."), which hands the student the answer directly.'
+				);
+			}
+
+			if ( '' !== $person['initials'] && preg_match( '/(?<![A-Za-z.])' . preg_quote( $person['initials'], '/' ) . '(?![A-Za-z])/u', $scenario ) ) {
+				$errors[] = self::error(
+					'ANSWER_LEAKAGE_INITIALS_VALUE',
+					sprintf( 'The scenario contains the literal initials value "%s" as a standalone token, revealing a draggable answer directly.', $person['initials'] )
+				);
+			}
+		}
+
+		// Edited Book only: the editor designation itself ("(ed.)"/"(eds)")
+		// is a Question Part / MCQ answer-defining token, exactly like
+		// initials are for Book — it must never already appear in the
+		// scenario.
+		if ( preg_match( '/\(\s*eds?\.?\s*\)/i', $scenario ) ) {
 			$errors[] = self::error(
-				'ANSWER_LEAKAGE_INITIALS_VALUE',
-				sprintf( 'The scenario contains the literal initials value "%s" as a standalone token, revealing a draggable answer directly.', $initials )
+				'ANSWER_LEAKAGE_DESIGNATION_VALUE',
+				'The scenario already shows "(ed.)"/"(eds)", revealing the editor-designation answer directly.'
 			);
 		}
 
@@ -381,6 +438,95 @@ class Citex_Generated_Validator {
 					'BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH',
 					sprintf( 'The scenario does not mention the canonical %s: "%s".', $label, $canonical[ $field ] )
 				);
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Edited Book counterpart to validate_bibliographic_consistency() — the
+	 * same academic-integrity safety net (scenario must describe the same
+	 * source the reference/Question Parts were built from), reshaped for
+	 * one-or-more editors instead of a single author. Also independently
+	 * confirms the editor DESIGNATION used in the reference actually
+	 * matches the editor count — "must not accidentally use (ed.) for a
+	 * book with multiple editors", explicitly required and tested.
+	 */
+	private static function validate_edited_book_consistency( $question, $reference ) {
+		$errors  = array();
+		$editors = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
+		$title   = trim( (string) ( $question['bookTitle'] ?? '' ) );
+
+		if ( empty( $editors ) && '' === $title ) {
+			return $errors;
+		}
+
+		if ( empty( $editors ) ) {
+			$errors[] = self::error( 'EDITED_BOOK_EDITORS_MISSING', 'No editors were provided for this Edited Book question.' );
+			return $errors;
+		}
+
+		$year      = trim( (string) ( $question['year'] ?? '' ) );
+		$place     = trim( (string) ( $question['place'] ?? '' ) );
+		$publisher = trim( (string) ( $question['publisher'] ?? '' ) );
+
+		$expected_designation = Citex_Reference_Rules::designation_for_editor_count( count( $editors ) );
+		if ( ! self::text_contains( $reference, '(' . $expected_designation . ')' ) ) {
+			$errors[] = self::error(
+				'EDITED_BOOK_DESIGNATION_MISMATCH',
+				sprintf(
+					'The reference does not contain "(%1$s)", the designation required for %2$d editor(s) — it must never use "(ed.)" for multiple editors or "(eds)" for a single editor.',
+					$expected_designation,
+					count( $editors )
+				)
+			);
+		}
+
+		foreach ( $editors as $index => $editor ) {
+			$editor_surname  = trim( (string) ( $editor['surname'] ?? '' ) );
+			$editor_initials = trim( (string) ( $editor['initials'] ?? '' ) );
+			if ( '' !== $editor_surname && ! self::text_contains( $reference, $editor_surname ) ) {
+				$errors[] = self::error( 'EDITED_BOOK_REFERENCE_MISMATCH', sprintf( 'The reference does not contain editor %1$d\'s surname: "%2$s".', $index + 1, $editor_surname ) );
+			}
+			if ( '' !== $editor_initials && ! self::text_contains( $reference, $editor_initials ) ) {
+				$errors[] = self::error( 'EDITED_BOOK_REFERENCE_MISMATCH', sprintf( 'The reference does not contain editor %1$d\'s initials: "%2$s".', $index + 1, $editor_initials ) );
+			}
+			if ( '' !== $editor_surname && ! self::text_contains( (string) ( $question['scenario'] ?? '' ), $editor_surname ) ) {
+				$errors[] = self::error( 'EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention editor %1$d\'s surname: "%2$s".', $index + 1, $editor_surname ) );
+			}
+		}
+
+		foreach (
+			array(
+				'year'      => array( $year, 'publication year' ),
+				'title'     => array( $title, 'book title' ),
+				'place'     => array( $place, 'place of publication' ),
+				'publisher' => array( $publisher, 'publisher' ),
+			) as $pair
+		) {
+			list( $value, $label ) = $pair;
+			if ( '' !== $value && ! self::text_contains( $reference, $value ) ) {
+				$errors[] = self::error( 'EDITED_BOOK_REFERENCE_MISMATCH', sprintf( 'The reference does not contain the canonical %1$s: "%2$s".', $label, $value ) );
+			}
+		}
+
+		// Scenario check (11's counterpart): title, year, place, publisher —
+		// editor names are already checked per-editor above; initials are
+		// excluded here for the same reason Book excludes them (a natural
+		// scenario names the editor, not their initials).
+		$scenario = (string) ( $question['scenario'] ?? '' );
+		foreach (
+			array(
+				'title'     => array( $title, 'book title' ),
+				'year'      => array( $year, 'publication year' ),
+				'place'     => array( $place, 'place of publication' ),
+				'publisher' => array( $publisher, 'publisher' ),
+			) as $pair
+		) {
+			list( $value, $label ) = $pair;
+			if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+				$errors[] = self::error( 'EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
 			}
 		}
 

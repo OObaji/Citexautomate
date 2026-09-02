@@ -20,7 +20,7 @@ class Citex_Generator {
 
 		$referencing_styles = array( 'harvard' => 'Harvard' );
 		$institutions       = array( 'liverpool_hope' => 'Liverpool Hope University' );
-		$categories         = array( 'book' => 'Book' );
+		$categories         = array( 'book' => 'Book', 'edited_book' => 'Edited Book' );
 		$question_types     = array( 'dragdrop' => 'DragDrop', 'mcq' => 'MCQ' );
 		$difficulties       = array( 'easy' => 'Easy', 'medium' => 'Medium', 'hard' => 'Hard' );
 		$pending_questions  = self::get_pending_questions();
@@ -179,22 +179,25 @@ class Citex_Generator {
 		$starting_id = isset( $_POST['citex_starting_id'] ) ? strtoupper( sanitize_text_field( wp_unslash( $_POST['citex_starting_id'] ) ) ) : 'BK01';
 		$web_verify  = ! empty( $_POST['citex_ai_web_verify'] );
 
+		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book' );
+
 		$quantity = max( 1, min( 100, $quantity ) );
-		if ( 'harvard' !== $style || 'liverpool_hope' !== $institution || 'book' !== $category || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Liverpool Hope Harvard → Book → DragDrop or MCQ.', 'citex-tools' ), 'error' );
+		if ( 'harvard' !== $style || 'liverpool_hope' !== $institution || ! isset( $category_labels[ $category ] ) || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
+			Citex_Admin::set_notice( __( 'The current AI generator supports Liverpool Hope Harvard → Book or Edited Book → DragDrop or MCQ.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
 			$difficulty = 'medium';
 		}
 
+		$category_label = $category_labels[ $category ];
 		$type_label  = 'mcq' === $type ? 'MCQ' : 'DragDrop';
 		$pending     = self::get_pending_questions();
 		$used_ids    = $this->collect_used_question_ids( $pending );
 		// Citex — not Gemini — assigns each slot's Exercise, deterministically,
 		// before generation even starts. Gemini's response schema carries no
 		// exercise field, so there is nothing from it to trust or distrust here.
-		$assignments = self::build_exercise_assignments( 'Book', $type_label, $quantity );
+		$assignments = self::build_exercise_assignments( $category_label, $type_label, $quantity );
 		$result      = Citex_AI::generate_questions(
 			array(
 				'quantity'            => $quantity,
@@ -204,6 +207,7 @@ class Citex_Generator {
 				'used_ids'            => array_keys( $used_ids ),
 				'exercise_assignments'=> $assignments,
 				'type'                => $type,
+				'category'            => $category,
 			)
 		);
 
@@ -214,7 +218,7 @@ class Citex_Generator {
 
 		self::save_pending_questions( array_merge( $pending, $result ) );
 
-		$coverage_after = self::compute_category_coverage( 'Book' );
+		$coverage_after = self::compute_category_coverage( $category_label );
 		$type_covered = 0;
 		foreach ( $coverage_after as $counts ) {
 			if ( ( $counts[ $type_label ] ?? 0 ) > 0 ) {
@@ -226,7 +230,8 @@ class Citex_Generator {
 			count( $result )
 		);
 		$message .= ' ' . sprintf(
-			__( 'Book %1$s exercise coverage: %2$d/5 exercises now have at least one question.', 'citex-tools' ),
+			__( '%1$s %2$s exercise coverage: %3$d/5 exercises now have at least one question.', 'citex-tools' ),
+			$category_label,
 			$type_label,
 			$type_covered
 		);

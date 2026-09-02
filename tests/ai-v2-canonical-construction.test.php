@@ -50,6 +50,7 @@ function get_option( $key, $default = null ) {
 	return $default;
 }
 
+require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-ai-v2.php';
 
