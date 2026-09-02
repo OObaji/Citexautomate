@@ -79,8 +79,7 @@ function invoke_normalise( $questions, $ids, $difficulty, $exercises = array() )
 // ---------------------------------------------------------------------
 $item_with_bad_ai_parts = array(
 	'scenario'       => 'You are referencing a book titled Critical Thinking Skills by Stella Cottrell, published in London by Red Globe Press in 2019.',
-	'authorSurname'  => 'Cottrell',
-	'authorInitials' => 'S.',
+	'authorFullName' => 'Stella Cottrell',
 	'year'           => '2019',
 	'bookTitle'      => 'Critical Thinking Skills',
 	'place'          => 'London',
@@ -110,8 +109,7 @@ if ( ! is_wp_error( $result ) ) {
 // ---------------------------------------------------------------------
 $item_with_bad_scenario = array(
 	'scenario'       => 'You are referencing a book titled Skills for Success by Stella Cottrell, published in London by Red Globe Press in 2016.',
-	'authorSurname'  => 'Cottrell',
-	'authorInitials' => 'S.',
+	'authorFullName' => 'Stella Cottrell',
 	'year'           => '2019',
 	'bookTitle'      => 'Critical Thinking Skills',
 	'place'          => 'London',
@@ -131,9 +129,8 @@ check( '[scenario mismatch] error code identifies the pre-queue quality gate rej
 // ---------------------------------------------------------------------
 function make_valid_item( $suffix ) {
 	return array(
-		'scenario'       => "You are referencing a book titled Book $suffix by A. Smith, published in London by Example Press in 2020.",
-		'authorSurname'  => 'Smith',
-		'authorInitials' => 'A.',
+		'scenario'       => "You are referencing a book titled Book $suffix by Andrew Smith, published in London by Example Press in 2020.",
+		'authorFullName' => 'Andrew Smith',
 		'year'           => '2020',
 		'bookTitle'      => "Book $suffix",
 		'place'          => 'London',
@@ -156,6 +153,42 @@ if ( ! is_wp_error( $batch_result ) ) {
 // target) rather than erroring or leaving the field unset.
 $no_assignment_result = invoke_normalise( array( make_valid_item( 'Four' ) ), array( 'BK13' ), 'medium' );
 check( '[exercise assignment] a missing assignment array defaults to Exercise 1', is_wp_error( $no_assignment_result ) ? null : $no_assignment_result[0]['exercise'], 'Exercise 1' );
+
+// ---------------------------------------------------------------------
+// 4. Citex — not Gemini — derives surname/initials from authorFullName.
+// Multiple given names produce concatenated initials with no spaces.
+// ---------------------------------------------------------------------
+$multi_given_name_item = array(
+	'scenario'       => 'You are creating a reference for a book titled Systems Theory by John Michael Smith, published in Boston by Academic Press in 2015.',
+	'authorFullName' => 'John Michael Smith',
+	'year'           => '2015',
+	'bookTitle'      => 'Systems Theory',
+	'place'          => 'Boston',
+	'publisher'      => 'Academic Press',
+	'confusingWords' => array( '2013', 'London', 'Green' ),
+);
+$multi_result = invoke_normalise( array( $multi_given_name_item ), array( 'BK20' ), 'medium' );
+check( '[author derivation] normalise() succeeds for a multi-given-name author', is_wp_error( $multi_result ), false );
+if ( ! is_wp_error( $multi_result ) ) {
+	check( '[author derivation] surname is the last word of authorFullName', $multi_result[0]['authorSurname'], 'Smith' );
+	check( '[author derivation] initials are every other word\'s first letter, concatenated, no spaces', $multi_result[0]['authorInitials'], 'J.M.' );
+	check( '[author derivation] Question Parts use the derived surname/initials, not authorFullName itself', $multi_result[0]['questionParts'], array( 'Smith', 'J.M.', '2015', 'Systems Theory' ) );
+}
+
+// A single-word author name (no given name) cannot be derived into
+// initials at all and must be rejected, not silently guessed.
+$incomplete_name_item = array(
+	'scenario'       => 'You are referencing a book titled Systems Theory by Smith, published in Boston by Academic Press in 2015.',
+	'authorFullName' => 'Smith',
+	'year'           => '2015',
+	'bookTitle'      => 'Systems Theory',
+	'place'          => 'Boston',
+	'publisher'      => 'Academic Press',
+	'confusingWords' => array( '2013', 'London', 'Green' ),
+);
+$incomplete_result = invoke_normalise( array( $incomplete_name_item ), array( 'BK21' ), 'medium' );
+check( '[author derivation] a surname-only authorFullName (no given name) is rejected', is_wp_error( $incomplete_result ), true );
+check( '[author derivation] error code identifies the incomplete name', is_wp_error( $incomplete_result ) ? $incomplete_result->get_error_code() : null, 'citex_ai_missing_field' );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

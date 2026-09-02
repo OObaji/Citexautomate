@@ -107,8 +107,80 @@ class Citex_Generated_Validator {
 		}
 
 		$errors = array_merge( $errors, self::validate_bibliographic_consistency( $question, $question_parts, $reference ) );
+		$errors = array_merge( $errors, self::validate_answer_leakage( $question ) );
 
 		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $reference );
+	}
+
+	/**
+	 * ANSWER_LEAKAGE — a generated scenario must give the student enough
+	 * bibliographic information to CONSTRUCT the Harvard reference, never
+	 * enough to simply copy an answer that is already spelled out. A real
+	 * example this was written to catch: "...by Alan Bryman (initials A.),
+	 * published in 2012..." — the parenthetical hands the student one of
+	 * the four draggable Question Parts directly.
+	 *
+	 * This is deliberately NOT "does the scenario contain the surname" —
+	 * that is required, correct, and already checked by
+	 * validate_bibliographic_consistency() (a full name like "Alan Bryman"
+	 * naturally contains "Bryman"). The distinction this method enforces is
+	 * between natural bibliographic information and an answer being
+	 * explicitly labelled or handed over pre-formatted:
+	 *
+	 * 1. The words "initial"/"initials" or "surname" never belong in a
+	 *    natural scenario at all — their presence means an answer is being
+	 *    named as an answer, not just given as information.
+	 * 2. An abbreviated or completed Harvard citation embedded in the
+	 *    scenario (e.g. "Bryman, A." or "Bryman, A. (2012) ...") hands the
+	 *    student the exact answer format, checked against the canonical
+	 *    surname specifically so this cannot misfire on unrelated text.
+	 * 3. The literal initials value appearing as its own token (e.g. "use
+	 *    A." or "(A.)"), not merely as part of a longer word.
+	 *
+	 * Runs for every Book/DragDrop question (validate() has already
+	 * confirmed the format above) regardless of whether a canonical record
+	 * is present — the word-ban checks are meaningful either way; the
+	 * citation/initials-value checks simply no-op without a canonical
+	 * surname/initials to check against.
+	 */
+	private static function validate_answer_leakage( $question ) {
+		$errors   = array();
+		$scenario = (string) ( $question['scenario'] ?? '' );
+		if ( '' === trim( $scenario ) ) {
+			return $errors;
+		}
+
+		if ( preg_match( '/\binitials?\b/i', $scenario ) ) {
+			$errors[] = self::error(
+				'ANSWER_LEAKAGE_INITIALS_WORD',
+				'The scenario uses the word "initial"/"initials", which explicitly labels a draggable answer. State the author\'s full name instead and let the student derive the initials.'
+			);
+		}
+		if ( preg_match( '/\bsurname\b/i', $scenario ) ) {
+			$errors[] = self::error(
+				'ANSWER_LEAKAGE_SURNAME_WORD',
+				'The scenario uses the word "surname", which explicitly labels a draggable answer. State the author\'s full name instead.'
+			);
+		}
+
+		$surname  = trim( (string) ( $question['authorSurname'] ?? '' ) );
+		$initials = trim( (string) ( $question['authorInitials'] ?? '' ) );
+
+		if ( '' !== $surname && preg_match( '/' . preg_quote( $surname, '/' ) . '\s*,\s*[A-Z]\.(?:\s?[A-Z]\.)*/u', $scenario ) ) {
+			$errors[] = self::error(
+				'ANSWER_LEAKAGE_ABBREVIATED_CITATION',
+				'The scenario contains an abbreviated or completed Harvard citation (e.g. "Surname, I."), which hands the student the answer directly.'
+			);
+		}
+
+		if ( '' !== $initials && preg_match( '/(?<![A-Za-z.])' . preg_quote( $initials, '/' ) . '(?![A-Za-z])/u', $scenario ) ) {
+			$errors[] = self::error(
+				'ANSWER_LEAKAGE_INITIALS_VALUE',
+				sprintf( 'The scenario contains the literal initials value "%s" as a standalone token, revealing a draggable answer directly.', $initials )
+			);
+		}
+
+		return $errors;
 	}
 
 	/**
