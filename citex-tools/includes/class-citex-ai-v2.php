@@ -60,11 +60,33 @@ class Citex_AI_V2 {
 		// is ever consulted for this.
 		$exercises = array_values( (array) ( $args['exercise_assignments'] ?? array() ) );
 
+		// Scenario (Citex_Question_Diversity::assign_scenarios(), resolved
+		// via Citex_Question_Scenarios) is likewise Citex-assigned before any
+		// Gemini request is made — this whole call always shares ONE
+		// scenario (Citex_Generator issues one generate_questions() call per
+		// scenario group), so ONE target author/editor count applies to
+		// every slot here. A caller that never passes 'scenario' (any use
+		// outside Citex_Generator's own grouped-request loop) leaves
+		// $target_count null, and every author/editor count remains
+		// unconstrained — the exact pre-framework behaviour.
+		$scenario_id    = isset( $args['scenario'] ) ? sanitize_key( $args['scenario'] ) : '';
+		$scenario_entry = '' !== $scenario_id ? Citex_Question_Scenarios::find( $category, $type, $scenario_id ) : null;
+		$rule_tested    = $scenario_entry['ruleTested'] ?? '';
+		$target_count   = $scenario_entry ? Citex_Question_Scenarios::target_count_for( $scenario_entry, $args['starting_id'] ?? $scenario_id ) : null;
+		$scenario_instruction = self::scenario_count_instruction( $category, $target_count );
+
+		// Existing reconstructed references (same category) this batch must
+		// not duplicate — the one concrete "too similar to recent history"
+		// case this framework checks: Gemini regenerating the exact same
+		// real book/edited book a still-pending question already used. See
+		// Citex_Question_Diversity::is_duplicate_reference().
+		$existing_references = array_map( 'strval', (array) ( $args['existing_references'] ?? array() ) );
+
 		$last_error = '';
 		for ( $attempt = 1; $attempt <= self::MAX_QUALITY_ATTEMPTS; $attempt++ ) {
 			$body = array(
 				'model' => self::get_model(),
-				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error ),
+				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction ),
 				'system_instruction' => self::system_instruction_for( $type, $category ),
 				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => self::schema_for( $type, $category ) ) ),
 				'generation_config' => array( 'max_output_tokens' => max( 4000, min( 24000, $quantity * 650 ) ) ),
@@ -78,12 +100,44 @@ class Citex_AI_V2 {
 			if ( '' === $text || JSON_ERROR_NONE !== json_last_error() || ! is_array( $decoded ) ) { return new WP_Error( 'citex_ai_invalid_json', __( 'Gemini did not return valid structured question data.', 'citex-tools' ) ); }
 			$questions = isset( $decoded['questions'] ) && is_array( $decoded['questions'] ) ? $decoded['questions'] : array();
 			if ( count( $questions ) !== $quantity ) { $last_error = sprintf( 'The previous attempt returned %d questions instead of %d. Return exactly %d.', count( $questions ), $quantity, $quantity ); continue; }
-			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category );
-			if ( ! is_wp_error( $result ) ) { return $result; }
-			$last_error = $result->get_error_message();
+			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested );
+			if ( is_wp_error( $result ) ) { $last_error = $result->get_error_message(); continue; }
+
+			$duplicate = self::find_duplicate_reference( $result, $existing_references );
+			if ( null !== $duplicate ) {
+				$last_error = sprintf( 'A generated reference duplicates one already in the pending queue (or elsewhere in this batch): "%s". Choose a different real book/edited book.', $duplicate );
+				continue;
+			}
+
+			if ( '' !== $scenario_id ) {
+				Citex_Question_Diversity::record_batch( $category, array_column( $result, 'blueprint' ) );
+			}
+			return $result;
 		}
 
 		return new WP_Error( 'citex_ai_quality_failed', sprintf( __( 'Gemini could not produce a fully valid batch after %d quality checks. Nothing was added. Last issue: %s', 'citex-tools' ), self::MAX_QUALITY_ATTEMPTS, $last_error ) );
+	}
+
+	/**
+	 * First reconstructedReference in $candidates that duplicates either an
+	 * already-pending reference (same category, passed in as
+	 * $existing_references) or an earlier candidate within this same batch
+	 * — null when there is no duplicate at all.
+	 *
+	 * @param array    $candidates
+	 * @param string[] $existing_references
+	 * @return string|null
+	 */
+	private static function find_duplicate_reference( $candidates, array $existing_references ) {
+		$seen_in_batch = array();
+		foreach ( $candidates as $candidate ) {
+			$reference = (string) ( $candidate['reconstructedReference'] ?? '' );
+			if ( Citex_Question_Diversity::is_duplicate_reference( $reference, $existing_references ) || Citex_Question_Diversity::is_duplicate_reference( $reference, $seen_in_batch ) ) {
+				return $reference;
+			}
+			$seen_in_batch[] = $reference;
+		}
+		return null;
 	}
 
 	/**
@@ -93,15 +147,36 @@ class Citex_AI_V2 {
 	 * methods) — the request/response handling in generate_questions() above
 	 * never changes.
 	 */
-	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback ) {
+	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction = '' ) {
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return 'MCQ' === $type
-				? self::build_prompt_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback )
-				: self::build_prompt_edited_book( $ids, $difficulty, $verify, $quality_feedback );
+				? self::build_prompt_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+				: self::build_prompt_edited_book( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 		}
 		return 'MCQ' === $type
-			? self::build_prompt_mcq( $ids, $difficulty, $verify, $quality_feedback )
-			: self::build_prompt( $ids, $difficulty, $verify, $quality_feedback );
+			? self::build_prompt_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+			: self::build_prompt( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+	}
+
+	/**
+	 * The author/editor-count instruction Citex_Question_Diversity's
+	 * assigned scenario translates into for Gemini — e.g. "every question
+	 * in this batch must use exactly 3 real authors" — appended to every
+	 * prompt builder's output. Empty when no scenario was assigned (any
+	 * caller outside Citex_Generator's own scenario-group loop), in which
+	 * case Gemini remains free to pick any real author/editor count, exactly
+	 * as before this framework existed.
+	 */
+	private static function scenario_count_instruction( $category, $target_count ) {
+		if ( null === $target_count ) {
+			return '';
+		}
+		$noun = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editor' : 'author';
+		return sprintf(
+			"AUTHOR/EDITOR COUNT FOR THIS BATCH — CRITICAL:\n- Every single question in this batch must use EXACTLY %1\$d real %2\$s(s) — not more, not fewer. Choose a real book that genuinely has %1\$d %2\$s(s); do not pad or trim the real %2\$s list to hit this number.",
+			$target_count,
+			$noun
+		);
 	}
 
 	private static function schema_for( $type, $category ) {
@@ -126,13 +201,14 @@ class Citex_AI_V2 {
 			: 'You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList Book DragDrop questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, authors, years, publishers, or places. Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE real author full names, in the real book\'s actual author order), year, bookTitle, place and publisher must all refer to the same real book, and the scenario text must explicitly name that same title, EVERY author\'s full name, the same year, place and publisher — never a different edition, a different book, or a different number of authors than the real book actually has. Citex derives each author\'s surname and initials itself from authorFullNames — you never provide them separately — and constructs Question Parts and Fixed Text itself (including how multiple authors are joined: Liverpool Hope always lists every author in full, joined with "and"/commas, never "et al." in the reference list), so your questionParts and fixedText values are for your own self-check only and are not read as authoritative. CRITICAL — the scenario must state every author\'s full real name naturally (for example "Alan Bryman" or "Alan Bryman and Jo Martin") and must NEVER state, label, or abbreviate any author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference (never write anything like "Bryman, A." or "Bryman et al."), and must NEVER use the words "initial" or "surname" — the student must derive the initials and the Harvard format themselves from the full name(s) you provide. Before returning each question, perform a strict self-check: scenario, authorFullNames, year, bookTitle, place and publisher must all describe the same book with no contradictions; the scenario must not reveal any answer value by labelling it as a surname, initial, year blank, title blank, or reference component; and every confusing word must be unique and different from every correct Question Part. Return only the requested JSON.';
 	}
 
-	private static function build_prompt( $ids, $difficulty, $verify, $quality_feedback = '' ) {
+	private static function build_prompt( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify every bibliographic record.' : 'Do not invent bibliographic records.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe the exact same real book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE real author full names (given name(s) + surname each), e.g. [\"Alan Bryman\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Use the book's true author count — do not invent extra authors, and do not drop real ones. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- The scenario MUST explicitly state that same bookTitle, EVERY author's full name, the same year, the same place and the same publisher. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nMULTIPLE AUTHORS — LIVERPOOL HOPE'S REFERENCE-LIST RULE:\n- For the reference list (which is the only thing this question generates), EVERY author is always listed in full — 2 authors are joined with \"and\"; 3 or more are comma-separated with \"and\" before the final author; this never changes at 4 or more authors.\n- \"et al.\" must NEVER appear in the reference-list entry, for any author count. (\"et al.\" is Liverpool Hope's separate IN-TEXT-CITATION convention for 4+ authors — this question never generates an in-text citation, only a reference-list entry, so that abbreviation does not belong here at all.)\n- Citex constructs the joined author list itself from authorFullNames — you never write the joined form yourself.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are creating a reference for a book titled...' or 'You are referencing a book titled...'.\n- State the real book title, EVERY author's FULL NAME, publication year, publisher and publication place.\n- Prefer concise real book titles; never truncate or alter the actual bibliographic title.\n- The scenario MUST NOT state, label, or abbreviate any author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, and MUST NOT show any completed or abbreviated Harvard reference (e.g. never write \"Bryman, A.\", \"Bryman, A. (2012)\", or \"Bryman et al.\").\n- GOOD (one author): \"You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.\"\n- GOOD (two authors): \"You are referencing a book titled Understanding digital culture by Vincent Miller and Jo Martin, published in 2020 by SAGE Publications in London.\"\n- BAD: \"...by Alan Bryman (initials A.), published in 2012...\" — reveals the initials directly.\n- BAD: \"...by Bryman, A., published in 2012...\" — states the abbreviated citation form directly.\n- BAD: \"...by Smith et al., published in 2020...\" — states the in-text-citation abbreviation directly, and is also not how the reference-list entry is written.\n- BAD: \"The author's surname is Bryman and his initials are A.\" — explicitly labels both answers.\n- A full author name naturally containing the surname (e.g. \"Alan Bryman\") is correct and required — the failure is explicitly labelling or abbreviating an answer value, not the surname appearing as part of the full name.\n- The student must transform the full bibliographic information you give into the Harvard reference themselves; do not do that transformation for them anywhere in the scenario.\n\nDRAGDROP:\n- Citex derives each author's surname/initials from authorFullNames and constructs Question Parts and Fixed Text itself from surname(s)/initials/year/bookTitle/place/publisher — your questionParts and fixedText fields are used only for your own self-check and are not read as authoritative, so make sure they exactly match those fields too (surname = each full name's last word; initials = the first letter of every other word in that name, each followed by a full stop, no spaces, e.g. \"John Michael Smith\" -> \"J.M.\").\n- For ONE author: questionParts must contain exactly 4 items: surname, initials, year, book title.\n- For TWO OR MORE authors: questionParts must contain exactly 3 items: the joined author list (e.g. \"Smith, J. and Jones, A.\"), year, book title — the whole author list is a SINGLE draggable part, not one part per author.\n- fixedText must contain a draggable placeholder TOKEN for every item in questionParts (4 for one author, 3 for two or more).\n- A single | token is allowed only at the beginning or end. Every internal placeholder token MUST be ||.\n- Canonical fixedText for one author: |, || (||) ||. Place: Publisher.\n- Canonical fixedText for two or more authors: | (||) ||. Place: Publisher.\n- Do not use a single internal |.\n- Reconstructed answer (one author): Surname, I. (YYYY) Book Title. Place: Publisher.\n- Reconstructed answer (two or more authors): Surname, I. and Surname, I. (YYYY) Book Title. Place: Publisher. (extending with commas and a final \"and\" for 3+, never \"et al.\").\n- No full stop after the year parentheses; no spaces before punctuation; one space after the colon; final full stop required.\n\nDISTRACTORS — CRITICAL:\n- Medium exactly 3; Easy exactly 2; Hard exactly 4.\n- Every distractor must be different from ALL correct Question Parts after trimming and case-insensitive comparison.\n- Distractors must also be unique from one another.\n- Do not use the correct title, surname(s), initials, year or any exact copy of a correct part as a distractor.\n- Before returning each question, compare every confusingWords value against every Question Part and replace any match.\n- Prefer plausible alternatives such as another year, city, publisher, author surname, or book title; for a multi-author question, an author-joining mistake (\"&\" instead of \"and\", or \"et al.\") is also a good confusing word.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. The scenario states every author's full name naturally and never the words \"initial\"/\"initials\"/\"surname\", and never a completed, abbreviated, or \"et al.\" reference.\n3. Question Parts exactly match the required shape for this author count (4 items for one author; 3 items — joined author list, year, title — for two or more), correctly derived from authorFullNames.\n4. Fixed Text has exactly as many placeholder positions as Question Parts and reconstructs the required reference, with every author listed in full and \"et al.\" never used.\n5. No unwanted punctuation or spacing errors.\n6. Correct number of distractors for the difficulty.\n7. Zero distractors match any correct Question Part.\n8. Zero duplicate distractors.\n9. Only return questions that pass all nine checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
 	}
 
-	private static function build_prompt_mcq( $ids, $difficulty, $verify, $quality_feedback = '' ) {
+	private static function build_prompt_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$difficulty_guidance = array(
 			'easy'   => "Easy: the 3 distractors should each contain one obvious, easy-to-spot mistake (e.g. missing punctuation, no parentheses around the year) — testing basic recognition of the Harvard Book structure.",
 			'medium' => "Medium: the 3 distractors should each contain one specific, realistic mistake a student could plausibly make (e.g. author's full first name instead of initials, or place/publisher in the wrong order) — testing the ability to spot ONE particular error type per option.",
@@ -141,6 +217,7 @@ class Citex_AI_V2 {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Book multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n" . ( $verify ? 'Use Google Search to verify every bibliographic record.' : 'Do not invent bibliographic records.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe the exact same real book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE real author full names (given name(s) + surname each), e.g. [\"Alan Bryman\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Use the book's true author count. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name and constructs the one correct Harvard reference from them (joining multiple authors per Liverpool Hope's reference-list rule: every author listed in full, comma-separated with a final \"and\", for any count — never \"et al.\", which is only Liverpool Hope's separate in-text-citation convention); you never provide the correct reference yourself.\n- You are NOT asked for a scenario or question text — Citex supplies the entire student-facing question itself (a fixed \"Which of the following is the correct Harvard reference for a book?\" stem), so there is nothing for you to write and nothing for you to leak the answer through."
 			. self::distractor_prompt_section( Citex_Reference_Rules::CATEGORY_BOOK, 'Surname, I. (YYYY) Book Title. Place: Publisher. — or, for two or more authors, Surname, I. and Surname, I. (YYYY) Book Title. Place: Publisher., extending with commas and a final "and" for 3+, never "et al."' )
 			. "\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. Exactly 3 distractors are provided, each with a non-empty, specific errorReason naming the Harvard rule it breaks.\n3. Every distractor, re-read end-to-end against the full correct format, genuinely still breaks the rule named in its errorReason — none of them accidentally also satisfies every Harvard rule.\n4. All 3 distractors are mutually distinct from each other and from the correct reference, and exactly one reference overall (the one Citex will construct) is fully correct.\n5. None of the distractors uses \"et al.\" as if it were valid in the reference list — that abbreviation is never correct here.\n6. Only return questions that pass all six checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
 	}
@@ -156,7 +233,7 @@ class Citex_AI_V2 {
 			. "\n\nONE QUESTION = ONE CANONICAL EDITED BOOK RECORD — CRITICAL:\n- editorFullNames is an array of ONE or TWO editor full names (given name(s) + surname each), e.g. [\"Vincent Miller\"] or [\"John Smith\", \"Amy Jones\"]. Do NOT provide a surname or initials separately for any editor — Citex derives both itself from each full name.\n- year, bookTitle, place and publisher must all describe the exact same real edited book as editorFullNames. Do not mix facts from a different edition or a different book.\n- The scenario MUST explicitly state that same bookTitle, EVERY editor's full name, the same year, place and publisher. Citex independently checks the scenario text against these fields.\n\nTHE EDITOR DESIGNATION RULE — THIS IS WHAT THIS CATEGORY TESTS:\n- Exactly ONE editor -> the designation is \"(ed.)\" (with the trailing period, inside its own parentheses).\n- TWO editors -> the designation is \"(eds)\" (no period) and the two editor names are joined with \"and\" (e.g. \"Smith, J. and Jones, A.\").\n- Never use \"(ed.)\" for two editors, and never use \"(eds)\" for one editor.\n- The designation always comes immediately after the editor name(s) and before the year, each in its own parentheses: \"Surname, I. (ed.) (YYYY) Title. Place: Publisher.\"\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are referencing a book edited by...' or 'You are creating a reference for a book edited by...'.\n- State the real book title, EVERY editor's FULL NAME, publication year, publisher and publication place.\n- The scenario MUST NOT show \"(ed.)\" or \"(eds)\" anywhere — that is the answer this question tests.\n- The scenario MUST NOT state, label, or abbreviate any editor's initials or surname separately, MUST NOT use the words \"initial\", \"initials\", or \"surname\" anywhere, and MUST NOT show a completed or abbreviated Harvard citation anywhere (e.g. never write \"Smith, J.\").\n- GOOD: \"You are referencing a book edited by Vincent Miller, titled Understanding digital culture, published in 2020 by SAGE Publications in London.\"\n- BAD: \"...edited by Vincent Miller (ed.), published in 2020...\" — reveals the designation directly.\n- BAD: \"...by Smith, J., published in 2020...\" — states the abbreviated citation form directly.";
 	}
 
-	private static function build_prompt_edited_book( $ids, $difficulty, $verify, $quality_feedback = '' ) {
+	private static function build_prompt_edited_book( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$difficulty_guidance = array(
 			'easy'   => 'Easy: use exactly one editor, and make the confusingWords obviously wrong (e.g. "author", "editor" as a full word, a clearly different year) — testing basic recognition of the "(ed.)" convention.',
 			'medium' => 'Medium: mix one-editor and two-editor questions across the batch, and make confusingWords plausible near-misses (e.g. "eds" as a distractor for a one-editor question, or "ed." for a two-editor one) — testing whether the student applies the right designation for the given editor count.',
@@ -165,6 +242,7 @@ class Citex_AI_V2 {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Edited Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n"
 			. self::edited_book_prompt_intro( $verify )
 			. "\n\nDRAGDROP:\n- Citex derives each editor's surname/initials from editorFullNames, decides the designation (\"(ed.)\"/\"(eds)\") from the editor count, and constructs Question Parts and Fixed Text itself — your own questionParts/fixedText fields (if present) are for your own self-check only and are never read as authoritative.\n- The 4 Question Parts Citex builds are: [editor name(s) joined, e.g. \"Smith, J.\" or \"Smith, J. and Jones, A.\"], [designation, \"ed.\" or \"eds\"], [year], [book title].\n- confusingWords should test the designation and editor-formatting rules specifically — see DISTRACTORS below.\n\nDISTRACTORS — CRITICAL:\n- Medium exactly 3; Easy exactly 2; Hard exactly 4.\n- Prioritise designation-confusion distractors: \"author\", \"editor\" (the full word, not abbreviated), the WRONG designation for this question's editor count (\"eds\" for a one-editor question, \"ed.\" for a two-editor one), or a designation with wrong punctuation (\"ed\", \"eds.\").\n- Also acceptable: a different plausible year, city, publisher, or editor surname.\n- Every distractor must be different from ALL FOUR correct Question Parts after trimming and case-insensitive comparison, and unique from one another.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, editorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions.\n2. The scenario names every editor naturally and never shows \"(ed.)\"/\"(eds)\", never the words \"initial\"/\"initials\"/\"surname\", never a completed citation.\n3. The designation matches the editor count exactly (one editor -> \"ed.\", two -> \"eds\").\n4. Correct number of distractors for the difficulty, none matching a correct Question Part, none duplicated.\n5. Only return questions that pass all four checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
 	}
@@ -184,7 +262,7 @@ class Citex_AI_V2 {
 			. "\n\nONE QUESTION = ONE CANONICAL EDITED BOOK RECORD — CRITICAL:\n- editorFullNames is an array of ONE or TWO editor full names (given name(s) + surname each), e.g. [\"Vincent Miller\"] or [\"John Smith\", \"Amy Jones\"]. Do NOT provide a surname or initials separately for any editor — Citex derives both itself from each full name.\n- year, bookTitle, place and publisher must all describe the exact same real edited book as editorFullNames. Do not mix facts from a different edition or a different book.\n- You are NOT asked for a scenario or question text — Citex supplies the entire student-facing question itself (a fixed \"Which of the following is the correct Harvard reference for an edited book?\" stem), so there is nothing for you to write and nothing for you to leak the answer through.\n\nTHE EDITOR DESIGNATION RULE — THIS IS WHAT THIS CATEGORY TESTS:\n- Exactly ONE editor -> the designation is \"(ed.)\" (with the trailing period, inside its own parentheses).\n- TWO editors -> the designation is \"(eds)\" (no period) and the two editor names are joined with \"and\" (e.g. \"Smith, J. and Jones, A.\").\n- Never use \"(ed.)\" for two editors, and never use \"(eds)\" for one editor.\n- The designation always comes immediately after the editor name(s) and before the year, each in its own parentheses: \"Surname, I. (ed.) (YYYY) Title. Place: Publisher.\"";
 	}
 
-	private static function build_prompt_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback = '' ) {
+	private static function build_prompt_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$difficulty_guidance = array(
 			'easy'   => 'Easy: use exactly one editor, and make the 3 distractors obviously wrong (e.g. designation missing entirely, or an unmistakable punctuation error) — testing basic recognition.',
 			'medium' => 'Medium: mix one- and two-editor questions, and make each distractor contain one specific, realistic mistake (e.g. "(editor)" instead of "(ed.)", or the wrong designation for the editor count) — testing the ability to spot ONE particular error type per option.',
@@ -194,6 +272,7 @@ class Citex_AI_V2 {
 			. self::edited_book_mcq_intro( $verify )
 			. self::distractor_prompt_section( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'Editor(s), Initials. (ed.|eds) (YYYY) Title. Place: Publisher.' )
 			. "\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. editorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions.\n2. Exactly 3 distractors are provided, each with a non-empty, specific errorReason naming the Harvard rule it breaks, especially designation mistakes for this category.\n3. Every distractor, re-read end-to-end against the full correct format, genuinely still breaks the rule named in its errorReason — none of them accidentally also satisfies every Harvard rule (in particular, none accidentally uses the correct \"(ed.)\"/\"(eds)\" designation for this question's editor count).\n4. All 3 distractors are mutually distinct from each other and from the correct reference, and exactly one reference overall (the one Citex will construct) is fully correct.\n5. Only return questions that pass all five checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
 	}
@@ -371,7 +450,7 @@ class Citex_AI_V2 {
 			default: return 3;
 		}
 	}
-	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null ) {
+	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null, $target_count = null, $scenario_id = '', $rule_tested = '' ) {
 		$category = $category ?: Citex_Reference_Rules::CATEGORY_BOOK;
 		$out = array();
 		$expected_distractors = self::expected_distractor_count( $difficulty );
@@ -396,7 +475,8 @@ class Citex_AI_V2 {
 			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 				if ( '' === $scenario || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
 				$editor_names = array_values( array_filter( array_map( 'trim', (array) ( $item['editorFullNames'] ?? array() ) ), 'strlen' ) );
-				if ( empty( $editor_names ) || count( $editor_names ) > 2 ) { return new WP_Error( 'citex_ai_bad_editor_count', sprintf( __( 'Question %s must have 1 or 2 editors; %d were provided.', 'citex-tools' ), $id, count( $editor_names ) ) ); }
+				if ( empty( $editor_names ) || count( $editor_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_editor_count', sprintf( __( 'Question %s must have 1 or more editors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $editor_names ) ) ); }
+				if ( null !== $target_count && count( $editor_names ) !== $target_count ) { return new WP_Error( 'citex_ai_editor_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d editors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $editor_names ) ) ); }
 				$editors = array();
 				foreach ( $editor_names as $editor_full_name ) {
 					$editor_parts = self::derive_author_parts( $editor_full_name );
@@ -415,6 +495,7 @@ class Citex_AI_V2 {
 				// model output, not a Harvard rule.
 				$author_names = array_values( array_filter( array_map( 'trim', (array) ( $item['authorFullNames'] ?? array() ) ), 'strlen' ) );
 				if ( empty( $author_names ) || count( $author_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_author_count', sprintf( __( 'Question %s must have 1 or more authors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $author_names ) ) ); }
+				if ( null !== $target_count && count( $author_names ) !== $target_count ) { return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d authors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $author_names ) ) ); }
 				$authors = array();
 				foreach ( $author_names as $author_full_name ) {
 					$author_parts = self::derive_author_parts( $author_full_name );
@@ -427,6 +508,22 @@ class Citex_AI_V2 {
 					: self::normalise_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors );
 			}
 			if ( is_wp_error( $candidate ) ) { return $candidate; }
+
+			// The question's blueprint — {category, questionType, scenario,
+			// ruleTested, difficulty} — is what lets Citex_Question_Diversity
+			// measure and steer coverage across a category's testable rules
+			// instead of merely generating random questions. $scenario_id is
+			// '' for any caller that does not pass one (e.g. a direct
+			// programmatic call outside Citex_Generator's own scenario-group
+			// loop) — the candidate still gets a valid, if empty, blueprint
+			// rather than an error.
+			$candidate['blueprint'] = array(
+				'category'     => $category,
+				'questionType' => $type,
+				'scenario'     => $scenario_id,
+				'ruleTested'   => $rule_tested,
+				'difficulty'   => ucfirst( $difficulty ),
+			);
 
 			$validation = Citex_Generated_Validator::validate( $candidate );
 			if ( 'passed' !== $validation['status'] ) { $first_error = ! empty( $validation['errors'][0]['message'] ) ? $validation['errors'][0]['message'] : __( 'Generated question failed Citex validation.', 'citex-tools' ); return new WP_Error( 'citex_ai_validator_rejected', sprintf( __( 'Question %s failed the pre-queue quality gate: %s', 'citex-tools' ), $id, $first_error ) ); }

@@ -200,22 +200,7 @@ class Citex_Generator {
 		$type_label  = 'mcq' === $type ? 'MCQ' : 'DragDrop';
 		$pending     = self::get_pending_questions();
 		$used_ids    = $this->collect_used_question_ids( $pending );
-		// Citex — not Gemini — assigns each slot's Exercise, deterministically,
-		// before generation even starts. Gemini's response schema carries no
-		// exercise field, so there is nothing from it to trust or distrust here.
-		$assignments = self::build_exercise_assignments( $category_label, $type_label, $quantity );
-		$result      = Citex_AI::generate_questions(
-			array(
-				'quantity'            => $quantity,
-				'starting_id'         => $starting_id,
-				'difficulty'          => $difficulty,
-				'web_verify'          => $web_verify,
-				'used_ids'            => array_keys( $used_ids ),
-				'exercise_assignments'=> $assignments,
-				'type'                => $type,
-				'category'            => $category,
-			)
-		);
+		$result      = $this->generate_via_scenarios( $category_label, $category, $type_label, $type, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending );
 
 		if ( is_wp_error( $result ) ) {
 			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
@@ -246,6 +231,116 @@ class Citex_Generator {
 		}
 		Citex_Admin::set_notice( $message, 'success' );
 		$this->redirect_back();
+	}
+
+	/**
+	 * Issues ONE Citex_AI::generate_questions() request per scenario
+	 * (Citex_Question_Diversity::assign_scenarios()) instead of always one
+	 * shared request for the whole batch — this is what lets a single
+	 * "generate 12 questions" submission actually test 4 different
+	 * author-count rules 3 times each, say, instead of 12 near-identical
+	 * questions differing only by book title. Exercise assignment is
+	 * unaffected: still computed once for the whole batch, by slot index,
+	 * and sliced per scenario group below.
+	 *
+	 * Groups are generated in first-seen order and the whole submission
+	 * stays atomic — if any group's request ultimately fails (after its own
+	 * internal quality-retry attempts), this returns that WP_Error
+	 * immediately and nothing from any group is saved, matching the
+	 * pre-framework single-request contract exactly. IDs are never reused
+	 * across groups within one submission: each successful group's own
+	 * questionIds are folded into the running $used_ids set before the next
+	 * group's request, on top of the pre-existing pending/scanned IDs.
+	 *
+	 * @return array|WP_Error
+	 */
+	private function generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending ) {
+		// Citex — not Gemini — assigns each slot's Exercise and scenario,
+		// deterministically, before generation even starts. Gemini's
+		// response schema carries no exercise field, and is never trusted
+		// for author/editor count either (see Citex_AI_V2::normalise()'s
+		// target-count enforcement) — there is nothing in its response to
+		// trust or distrust for either dimension.
+		$exercise_assignments = self::build_exercise_assignments( $category_label, $type_label, $quantity );
+		$scenario_assignments = Citex_Question_Diversity::assign_scenarios( $category_label, $type_label, $quantity );
+
+		$groups      = array();
+		$group_order = array();
+		foreach ( $scenario_assignments as $index => $scenario_id ) {
+			$key = (string) $scenario_id;
+			if ( ! isset( $groups[ $key ] ) ) {
+				$groups[ $key ] = array();
+				$group_order[]  = $key;
+			}
+			$groups[ $key ][] = $index;
+		}
+
+		$existing_references = $this->collect_existing_references( $pending, $category_label );
+		$all_results          = array();
+
+		foreach ( $group_order as $scenario_id ) {
+			$indices          = $groups[ $scenario_id ];
+			$group_exercises  = array();
+			foreach ( $indices as $index ) {
+				$group_exercises[] = $exercise_assignments[ $index ];
+			}
+
+			$result = Citex_AI::generate_questions(
+				array(
+					'quantity'             => count( $indices ),
+					'starting_id'          => $starting_id,
+					'difficulty'           => $difficulty,
+					'web_verify'           => $web_verify,
+					'used_ids'             => array_keys( $used_ids ),
+					'exercise_assignments' => $group_exercises,
+					'type'                 => $type_key,
+					'category'             => $category_key,
+					'scenario'             => $scenario_id,
+					'existing_references'  => $existing_references,
+				)
+			);
+
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			foreach ( $result as $candidate ) {
+				$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
+				if ( '' !== $id ) {
+					$used_ids[ $id ] = true;
+				}
+				$reference = trim( (string) ( $candidate['reconstructedReference'] ?? '' ) );
+				if ( '' !== $reference ) {
+					$existing_references[] = $reference;
+				}
+				$all_results[] = $candidate;
+			}
+		}
+
+		return $all_results;
+	}
+
+	/**
+	 * Same-category reconstructedReference values already sitting in the
+	 * pending queue — the duplicate-book similarity guard's starting set
+	 * (see Citex_Question_Diversity::is_duplicate_reference()), grown with
+	 * each scenario group's own new references as generate_via_scenarios()
+	 * proceeds, so group 2 also never duplicates a book group 1 just added.
+	 *
+	 * @return string[]
+	 */
+	private function collect_existing_references( $pending, $category_label ) {
+		$references = array();
+		foreach ( $pending as $question ) {
+			if ( $category_label !== (string) ( $question['category'] ?? '' ) ) {
+				continue;
+			}
+			$reference = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+			if ( '' !== $reference ) {
+				$references[] = $reference;
+			}
+		}
+		return $references;
 	}
 
 	private function validate_pending_batch() {

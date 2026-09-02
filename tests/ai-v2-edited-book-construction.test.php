@@ -58,6 +58,8 @@ function get_option( $key, $default = null ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-ai-v2.php';
 
 $failures = 0;
@@ -225,16 +227,30 @@ if ( ! is_wp_error( $two_editor_result ) ) {
 }
 
 // ---------------------------------------------------------------------
-// 4. Editor-count validation: zero editors or more than two are rejected
-// before any reference construction is attempted.
+// 4. Editor-count validation: zero editors is rejected before any
+// reference construction is attempted. 3+ editors is now VALID (the
+// rule engine already supported 3+ via join_editors() — only this
+// prompt-side cap needed lifting for the dynamic-scenario framework's
+// three_or_more_editors bucket), still using "(eds)" and comma-joining
+// with a final "and", exactly like Book's own 3+-author support. A
+// genuinely excessive count (13+) is still rejected as a sanity guard.
 // ---------------------------------------------------------------------
 $zero_editors = invoke_normalise( array( one_editor_dragdrop_item( array( 'editorFullNames' => array() ) ) ), array( 'EB01' ), 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK );
 check( '[4] zero editors is rejected', is_wp_error( $zero_editors ), true );
 check( '[4] error code identifies the editor-count problem', is_wp_error( $zero_editors ) ? $zero_editors->get_error_code() : null, 'citex_ai_bad_editor_count' );
 
-$three_editors = invoke_normalise( array( one_editor_dragdrop_item( array( 'editorFullNames' => array( 'John Smith', 'Amy Jones', 'Tom Lee' ) ) ) ), array( 'EB01' ), 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK );
-check( '[4] three editors is rejected', is_wp_error( $three_editors ), true );
-check( '[4] error code identifies the editor-count problem for 3 editors too', is_wp_error( $three_editors ) ? $three_editors->get_error_code() : null, 'citex_ai_bad_editor_count' );
+$three_editors = invoke_normalise( array( one_editor_dragdrop_item( array(
+	'scenario'        => 'You are referencing a book edited by John Smith, Amy Jones and Tom Lee, titled Understanding digital culture, published in 2020 by SAGE Publications in London.',
+	'editorFullNames' => array( 'John Smith', 'Amy Jones', 'Tom Lee' ),
+) ) ), array( 'EB01' ), 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK );
+check( '[4] three editors now succeeds (the cap was lifted)', is_wp_error( $three_editors ), false );
+if ( ! is_wp_error( $three_editors ) ) {
+	check( '[4] three editors still use "(eds)", comma-joined with a final "and"', $three_editors[0]['reconstructedReference'], 'Smith, J., Jones, A. and Lee, T. (eds) (2020) Understanding digital culture. London: SAGE Publications.' );
+}
+
+$excessive_editors = invoke_normalise( array( one_editor_dragdrop_item( array( 'editorFullNames' => array_fill( 0, 13, 'John Smith' ) ) ) ), array( 'EB01' ), 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK );
+check( '[4] an excessive editor count (13) is still rejected as a sanity guard', is_wp_error( $excessive_editors ), true );
+check( '[4] error code identifies the editor-count problem for an excessive count too', is_wp_error( $excessive_editors ) ? $excessive_editors->get_error_code() : null, 'citex_ai_bad_editor_count' );
 
 // ---------------------------------------------------------------------
 // 5. A malformed editor name (no given name, so no initials can be

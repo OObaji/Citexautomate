@@ -24,6 +24,8 @@ require __DIR__ . '/../citex-tools/includes/class-citex-generator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-importer.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-populator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-questions.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-ai-v2.php';
 require __DIR__ . '/../citex-tools/includes/validators/class-citex-harvard-book-dragdrop-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-validator.php';

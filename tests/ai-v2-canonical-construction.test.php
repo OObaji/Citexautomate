@@ -52,6 +52,8 @@ function get_option( $key, $default = null ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-ai-v2.php';
 
 $failures = 0;

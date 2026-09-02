@@ -1,0 +1,126 @@
+<?php
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * The dynamic question-generation scenario catalogue — per category, the
+ * set of distinct Harvard-rule-testing scenarios a question can be built
+ * around, so generating N questions for a category tests N different
+ * pieces of referencing knowledge instead of the same "select the correct
+ * reference" pattern N times with a different book title.
+ *
+ * Pure/static, like Citex_Reference_Rules (no WordPress/ACF calls) — this
+ * is the catalogue Citex_Question_Diversity selects from and
+ * Citex_AI_V2/Citex_Generator consult to know which author/editor count to
+ * target and which rule a question's blueprint should name. Adding a new
+ * category means adding one more catalog() case here, driven by that
+ * category's own confirmed Liverpool Hope rules — never inventing a rule
+ * this catalogue doesn't already implement elsewhere (see
+ * Citex_Reference_Rules).
+ *
+ * This increment's catalogue covers the author/editor-COUNT dimension —
+ * the one Liverpool Hope rule confirmed to genuinely change the correct
+ * treatment for both existing categories. Later increments add further
+ * scenario entries (e.g. "identify_error", "choose_correct_treatment")
+ * without changing this shape.
+ */
+class Citex_Question_Scenarios {
+
+	/**
+	 * @param string $category      Citex_Reference_Rules::CATEGORY_*.
+	 * @param string $question_type 'MCQ' or 'DragDrop'.
+	 * @return array[] Each entry: {id, questionType, ruleTested, targetCounts, label}.
+	 *                 targetCounts is the set of real author/editor counts
+	 *                 this scenario may ask Gemini for — a single value for
+	 *                 an exact-count scenario, or several for an "N or
+	 *                 more" bucket (e.g. Book's four_or_more_authors tests
+	 *                 at 4, 5 or 6 — the rule is identical for any of them,
+	 *                 so testing at more than one count is what proves the
+	 *                 rule itself, not a specific number, is understood).
+	 */
+	public static function catalog( $category, $question_type ) {
+		$question_type = 'MCQ' === $question_type ? 'MCQ' : 'DragDrop';
+		$buckets        = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category
+			? self::edited_book_buckets()
+			: self::book_buckets();
+
+		$out = array();
+		foreach ( $buckets as $bucket ) {
+			$bucket['questionType'] = $question_type;
+			$out[]                  = $bucket;
+		}
+		return $out;
+	}
+
+	/**
+	 * Book author-count buckets — Liverpool Hope's confirmed reference-list
+	 * rule: 1 author alone; 2 joined with "and"; 3+ comma-separated with a
+	 * final "and"; this never changes at 4+ ("et al." is never used in the
+	 * reference list — see Citex_Reference_Rules::build_reference()'s
+	 * docblock). The four buckets exist because the STYLE of joining
+	 * changes at 1/2/3 authors and then stays fixed — testing at 4, 5 and 6
+	 * within the last bucket proves the student (and the generator) isn't
+	 * just pattern-matching a specific number.
+	 */
+	private static function book_buckets() {
+		return array(
+			array( 'id' => 'one_author', 'ruleTested' => 'author_formatting', 'targetCounts' => array( 1 ), 'label' => 'One author' ),
+			array( 'id' => 'two_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Two authors' ),
+			array( 'id' => 'three_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 3 ), 'label' => 'Three authors' ),
+			array( 'id' => 'four_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4, 5, 6 ), 'label' => 'Four or more authors' ),
+		);
+	}
+
+	/**
+	 * Edited Book editor-count buckets — the designation rule ("(ed.)" for
+	 * one, "(eds)" for two or more) is the same for 2 and 3+ editors, but
+	 * the JOINING style still changes at 3 (comma-separated with a final
+	 * "and", exactly like Book authors) — so three_or_more_editors is
+	 * tagged with the joining rule specifically, distinguishing it from
+	 * two_editors' designation-only test.
+	 */
+	private static function edited_book_buckets() {
+		return array(
+			array( 'id' => 'one_editor', 'ruleTested' => 'editor_designation', 'targetCounts' => array( 1 ), 'label' => 'One editor' ),
+			array( 'id' => 'two_editors', 'ruleTested' => 'editor_designation', 'targetCounts' => array( 2 ), 'label' => 'Two editors' ),
+			array( 'id' => 'three_or_more_editors', 'ruleTested' => 'editor_joining', 'targetCounts' => array( 3, 4 ), 'label' => 'Three or more editors' ),
+		);
+	}
+
+	/**
+	 * Look up one scenario's catalog entry by id, for the given
+	 * category/questionType — used once a scenario id has already been
+	 * assigned (by Citex_Question_Diversity::assign_scenarios()) and the
+	 * caller needs its ruleTested/targetCounts back.
+	 *
+	 * @return array|null
+	 */
+	public static function find( $category, $question_type, $scenario_id ) {
+		foreach ( self::catalog( $category, $question_type ) as $entry ) {
+			if ( $entry['id'] === $scenario_id ) {
+				return $entry;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Deterministically pick one real target count from a scenario's
+	 * targetCounts, varying by $seed (e.g. a question ID or slot index) so
+	 * repeated calls within one "four_or_more_authors" batch don't all land
+	 * on the same count — while staying reproducible for the same seed,
+	 * unlike true randomness, so this is straightforward to unit test.
+	 */
+	public static function target_count_for( array $scenario, $seed ) {
+		$counts = array_values( $scenario['targetCounts'] ?? array( 1 ) );
+		if ( empty( $counts ) ) {
+			return 1;
+		}
+		if ( 1 === count( $counts ) ) {
+			return (int) $counts[0];
+		}
+		$index = abs( crc32( (string) $seed ) ) % count( $counts );
+		return (int) $counts[ $index ];
+	}
+}
