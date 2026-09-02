@@ -60,6 +60,7 @@ class Citex_Admin {
 			array( $this->generator, 'maybe_handle_submit' ),
 			array( $this->importer, 'maybe_handle_submit' ),
 			array( $this->populator, 'maybe_handle_submit' ),
+			array( $this->populator, 'maybe_handle_finalize_submit' ),
 			array( $this->questions, 'maybe_handle_sync_submit' ),
 			array( 'Citex_AI_V2', 'maybe_handle_submit' ),
 			array( $this->diagnostics, 'maybe_handle_submit' ),

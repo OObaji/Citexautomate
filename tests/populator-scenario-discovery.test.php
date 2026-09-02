@@ -67,6 +67,9 @@ function sanitize_text_field( $v ) {
 function absint( $v ) {
 	return abs( intval( $v ) );
 }
+function sanitize_key( $v ) {
+	return strtolower( preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $v ) ) );
+}
 
 function get_posts( $args ) {
 	$post_type    = $args['post_type'] ?? '';

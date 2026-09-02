@@ -56,25 +56,43 @@ if ( ! defined( 'ABSPATH' ) ) {
  * and every row read back and compared value-for-value, in order, after
  * saving.
  *
- * Save lifecycle (see the do_action('acf/save_post', ...) call in
- * populate_one()): update_field() and wp_set_object_terms() persist their
- * values directly but do not, by themselves, fire ACF's own acf/save_post
- * action — only ACF's own admin edit-screen form-processing pipeline does
- * that (this is standard, documented ACF architecture, not specific to
- * this site). Any site logic that hooks acf/save_post — the ACF-documented
- * place to react to "this post's ACF data is now saved", commonly used for
- * indexing/cache-invalidation — never runs for values written only through
- * update_field(). Citex fires that same action once, after every field and
- * taxonomy write and the final post-status transition, for both Draft and
- * Publish, so a program­matically populated post goes through the same
- * completion step a manual admin "Update" click would trigger. This plugin
- * has no visibility into what, if anything, a separate "student app" reads
- * beyond WordPress/ACF's own data and hooks — if it has its own index or
- * cache outside of that, this cannot detect or refresh it.
+ * Save lifecycle / finalisation (see finalize_question()): update_field()
+ * and wp_set_object_terms() persist their values directly but do not, by
+ * themselves, fire ACF's own acf/save_post action — only ACF's own admin
+ * edit-screen form-processing pipeline does that (this is standard,
+ * documented ACF architecture, not specific to this site). Any site logic
+ * that hooks acf/save_post — the ACF-documented place to react to "this
+ * post's ACF data is now saved", commonly used for indexing/cache-invalidation
+ * — never runs for values written only through update_field(). Confirmed by
+ * live investigation (Citex Diagnostics, see class-citex-diagnostics.php)
+ * against this site: WordPress's own save lifecycle (save_post,
+ * save_post_{post_type}, wp_insert_post, wp_after_insert_post,
+ * transition_post_status, {old}_to_{new}) already fires identically whether
+ * a post is saved by a human in wp-admin or by Citex's own wp_update_post()
+ * call — a live before/after diagnostic capture showed a manual wp-admin
+ * "Update" click changes no WordPress-native field, meta, taxonomy term, or
+ * ACF value on the post, yet is required for the site's Appify-based
+ * student app to show the question. The real application-side mechanism is
+ * still not identified (it is not any currently-registered save_post/acf
+ * hook on this site; see class-citex-diagnostics.php's docblock), so this
+ * class does not fire a new, unverified hook to work around it. Instead,
+ * finalize_question() reproduces every standard, already-confirmed part of
+ * a manual Update click — the WordPress save lifecycle plus the explicit
+ * acf/save_post action — as a single, reusable, verified operation, used
+ * both immediately after a new question is fully populated and, via the
+ * "Finalise" action on the Questions page (maybe_handle_finalize_submit()),
+ * to repair an already-populated question without touching its content.
+ * This plugin still has no
+ * visibility into what, if anything, a separate "student app" reads beyond
+ * WordPress/ACF's own data and hooks — if it has its own index or cache
+ * outside of that, this cannot detect or refresh it.
  */
 class Citex_Populator {
 
 	const NONCE_ACTION = 'citex_populate_questions';
+
+	const NONCE_FINALIZE_ACTION = 'citex_finalize_questions';
+	const MAX_FINALIZE_BATCH    = 25;
 
 	const FIELD_FIXED_TEXT      = 'field_59c2476bc859f';
 	const FIELD_QUESTION_PARTS  = 'field_59c2476bc81b7';
@@ -325,26 +343,12 @@ class Citex_Populator {
 			$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
 
 			// Reproduce the WordPress/ACF save lifecycle a manual "Update"
-			// click goes through — for BOTH Draft and Publish, per the
-			// investigation in the class docblock: update_field() and
-			// wp_set_object_terms() alone never fire ACF's own acf/save_post
-			// action (only ACF's own admin edit-screen form processing does),
-			// so any site logic that hooks acf/save_post to react to "this
-			// post's fields are now saved" never runs for values written this
-			// way. clean_post_cache() clears WordPress's in-process object
-			// cache for this post first, the same clear-then-reread pattern
-			// already used by Citex_Bulk_Editor for the same class of
-			// stale-read problem, so every verification read below reflects
-			// what is truly persisted.
-			$status_result = wp_update_post( array( 'ID' => $new_id, 'post_status' => $final_status ), true );
-			if ( is_wp_error( $status_result ) ) {
-				throw new Exception( $status_result->get_error_message() );
-			}
-			if ( function_exists( 'clean_post_cache' ) ) {
-				clean_post_cache( $new_id );
-			}
-			if ( function_exists( 'do_action' ) ) {
-				do_action( 'acf/save_post', $new_id );
+			// click goes through — for BOTH Draft and Publish — via the same
+			// reusable, verified finalize_question() used to repair existing
+			// questions (see its docblock and the class docblock above).
+			$finalize_result = self::finalize_question( $new_id, array( 'post_status' => $final_status ) );
+			if ( is_wp_error( $finalize_result ) ) {
+				throw new Exception( 'Finalisation: ' . $finalize_result->get_error_message() );
 			}
 
 			// Consolidated post-save verification, performed AFTER the save
@@ -1136,6 +1140,212 @@ class Citex_Populator {
 
 	private function redirect_back() {
 		wp_safe_redirect( admin_url( 'admin.php?page=citex-populate' ) );
+		exit;
+	}
+
+	/**
+	 * Reusable "finalisation save": re-runs the same WordPress/ACF save
+	 * lifecycle a manual wp-admin "Update" click goes through against one
+	 * existing post ID — wp_update_post() (which unconditionally fires
+	 * save_post, save_post_{post_type}, wp_insert_post, wp_after_insert_post,
+	 * transition_post_status and the {old}_to_{new} hooks), clean_post_cache(),
+	 * then the explicit do_action('acf/save_post', ...) that only ACF's own
+	 * admin form-processing pipeline would otherwise fire (see the class
+	 * docblock for the live investigation behind this).
+	 *
+	 * Used both by populate_one() immediately after a new question's ACF
+	 * fields/taxonomies/status are written, and by
+	 * maybe_handle_finalize_submit() to re-run the same lifecycle against an
+	 * EXISTING, already-populated question by post ID — e.g. to repair a
+	 * question that was populated before this finalisation step existed,
+	 * without touching its content.
+	 *
+	 * Never writes to any field, meta, or taxonomy itself: the only value it
+	 * ever sets is post_status — $args['post_status'] if given, otherwise
+	 * the post's own current status is written back unchanged, so calling
+	 * this against an existing Draft never publishes it and calling it
+	 * against an existing Published post never drafts it. Every taxonomy
+	 * term and every ACF field value is snapshotted immediately before and
+	 * compared immediately after; if either differs, this is treated as a
+	 * failure (WP_Error) rather than a silently-accepted content change —
+	 * this method's job is exclusively to re-trigger the save lifecycle, not
+	 * to edit anything.
+	 *
+	 * @param int   $post_id
+	 * @param array $args {post_status?: string} Optional target status; the
+	 *              post's current status is preserved when omitted.
+	 * @return array|WP_Error Diagnostics on success, or a WP_Error naming
+	 *         exactly what could not be verified.
+	 */
+	public static function finalize_question( $post_id, array $args = array() ) {
+		$post_id = absint( $post_id );
+		if ( ! $post_id ) {
+			return new WP_Error( 'citex_finalize_missing_post_id', __( 'No post ID was supplied to finalise.', 'citex-tools' ) );
+		}
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return new WP_Error( 'citex_finalize_post_not_found', sprintf( __( 'No post found with ID %d.', 'citex-tools' ), $post_id ) );
+		}
+
+		$target_status = ( isset( $args['post_status'] ) && '' !== (string) $args['post_status'] )
+			? sanitize_key( (string) $args['post_status'] )
+			: $post->post_status;
+
+		$before_terms = self::snapshot_object_terms( $post_id, $post->post_type );
+		$before_acf   = function_exists( 'get_fields' ) ? ( get_fields( $post_id, false ) ?: array() ) : array();
+
+		$result = wp_update_post( array( 'ID' => $post_id, 'post_status' => $target_status ), true );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		if ( function_exists( 'clean_post_cache' ) ) {
+			clean_post_cache( $post_id );
+		}
+		if ( function_exists( 'do_action' ) ) {
+			do_action( 'acf/save_post', $post_id );
+		}
+
+		$after_status = function_exists( 'get_post_status' ) ? get_post_status( $post_id ) : $target_status;
+		if ( $after_status !== $target_status ) {
+			return new WP_Error(
+				'citex_finalize_status_not_verified',
+				sprintf( __( 'Finalisation status did not verify: expected "%1$s", found "%2$s".', 'citex-tools' ), $target_status, (string) $after_status )
+			);
+		}
+
+		$after_terms = self::snapshot_object_terms( $post_id, $post->post_type );
+		if ( $after_terms !== $before_terms ) {
+			return new WP_Error( 'citex_finalize_terms_changed', __( 'Finalisation unexpectedly changed this question\'s taxonomy terms; not keeping the change.', 'citex-tools' ) );
+		}
+
+		$after_acf = function_exists( 'get_fields' ) ? ( get_fields( $post_id, false ) ?: array() ) : array();
+		if ( $after_acf != $before_acf ) { // phpcs:ignore WordPress.PHP.StrictComparisons.LooseComparison -- structurally-equal but differently-ordered ACF field trees must not be treated as a content change.
+			return new WP_Error( 'citex_finalize_acf_changed', __( 'Finalisation unexpectedly changed this question\'s ACF field values; not keeping the change.', 'citex-tools' ) );
+		}
+
+		return array(
+			'postId'         => $post_id,
+			'statusExpected' => $target_status,
+			'statusVerified' => true,
+			'termsPreserved' => true,
+			'acfPreserved'   => true,
+		);
+	}
+
+	/**
+	 * Every taxonomy term ID attached to this post, across every taxonomy
+	 * registered for its post type, sorted deterministically — used only to
+	 * detect whether finalize_question()'s save-lifecycle re-trigger left
+	 * taxonomy state unchanged. Never written to.
+	 */
+	private static function snapshot_object_terms( $post_id, $post_type ) {
+		if ( ! function_exists( 'get_object_taxonomies' ) || ! function_exists( 'wp_get_object_terms' ) ) {
+			return array();
+		}
+		$taxonomies = get_object_taxonomies( $post_type, 'names' );
+		$snapshot   = array();
+		if ( is_array( $taxonomies ) ) {
+			sort( $taxonomies );
+			foreach ( $taxonomies as $taxonomy ) {
+				$ids = wp_get_object_terms( $post_id, $taxonomy, array( 'fields' => 'ids' ) );
+				$ids = is_wp_error( $ids ) ? array() : array_map( 'intval', (array) $ids );
+				sort( $ids );
+				$snapshot[ $taxonomy ] = $ids;
+			}
+		}
+		return $snapshot;
+	}
+
+	/**
+	 * Admin action: finalise one or more EXISTING, already-populated
+	 * questions by post ID — repairing a question that was populated before
+	 * finalize_question() existed (or otherwise never received a manual
+	 * wp-admin Update click) without requiring anyone to open and re-save it
+	 * by hand. Never changes status, content, ACF values, or taxonomy terms
+	 * — see finalize_question(). Capped at MAX_FINALIZE_BATCH per submission
+	 * so this cannot be used to silently sweep an entire Reference List in
+	 * one click; the current UI (Questions page) only ever submits one post
+	 * ID at a time, but the handler itself is batch-capable.
+	 *
+	 * Called on admin_init (before any output), matching every other Citex
+	 * admin handler's pattern — see class-citex-admin.php.
+	 */
+	public function maybe_handle_finalize_submit() {
+		if ( empty( $_POST['citex_finalize_submit'] ) ) {
+			return;
+		}
+
+		check_admin_referer( self::NONCE_FINALIZE_ACTION, 'citex_finalize_nonce' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You are not allowed to finalise Reference List questions.', 'citex-tools' ) );
+		}
+
+		$raw_ids  = isset( $_POST['citex_finalize_post_ids'] ) && is_array( $_POST['citex_finalize_post_ids'] )
+			? wp_unslash( $_POST['citex_finalize_post_ids'] )
+			: array();
+		$post_ids = array_values( array_unique( array_filter( array_map( 'absint', $raw_ids ) ) ) );
+
+		if ( empty( $post_ids ) ) {
+			Citex_Admin::set_notice( __( 'No questions were selected to finalise.', 'citex-tools' ), 'warning' );
+			$this->redirect_to_questions();
+		}
+
+		if ( count( $post_ids ) > self::MAX_FINALIZE_BATCH ) {
+			Citex_Admin::set_notice(
+				sprintf(
+					/* translators: 1: number of selected posts, 2: maximum batch size */
+					__( 'Too many questions selected at once (%1$d). Finalise at most %2$d at a time.', 'citex-tools' ),
+					count( $post_ids ),
+					self::MAX_FINALIZE_BATCH
+				),
+				'error'
+			);
+			$this->redirect_to_questions();
+		}
+
+		$succeeded = array();
+		$failed    = array();
+		foreach ( $post_ids as $post_id ) {
+			if ( ! get_post( $post_id ) ) {
+				$failed[] = sprintf( '#%1$d: %2$s', $post_id, __( 'post not found', 'citex-tools' ) );
+				continue;
+			}
+			if ( ! current_user_can( 'edit_post', $post_id ) ) {
+				$failed[] = sprintf( '#%1$d: %2$s', $post_id, __( 'no permission', 'citex-tools' ) );
+				continue;
+			}
+
+			$result = self::finalize_question( $post_id );
+			if ( is_wp_error( $result ) ) {
+				$failed[] = sprintf( '#%1$d: %2$s', $post_id, $result->get_error_message() );
+				continue;
+			}
+			$succeeded[] = $post_id;
+		}
+
+		$message = sprintf(
+			/* translators: 1: succeeded count, 2: failed count */
+			__( 'Finalisation complete. Succeeded: %1$d. Failed: %2$d.', 'citex-tools' ),
+			count( $succeeded ),
+			count( $failed )
+		);
+		if ( ! empty( $succeeded ) ) {
+			$message .= ' ' . sprintf(
+				/* translators: %s: comma-separated post IDs */
+				__( 'Finalised post IDs: %s.', 'citex-tools' ),
+				implode( ', ', $succeeded )
+			);
+		}
+		if ( ! empty( $failed ) ) {
+			$message .= ' ' . implode( ' | ', array_slice( $failed, 0, 5 ) );
+		}
+		Citex_Admin::set_notice( $message, empty( $failed ) ? 'success' : 'warning' );
+		$this->redirect_to_questions();
+	}
+
+	private function redirect_to_questions() {
+		wp_safe_redirect( admin_url( 'admin.php?page=citex-questions' ) );
 		exit;
 	}
 }

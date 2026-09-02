@@ -176,6 +176,13 @@ $wp_status_labels = array(
 					<td class="citex-actions">
 						<?php if ( ! empty( $question['editUrl'] ) ) : ?><a class="button button-small" href="<?php echo esc_url( $question['editUrl'] ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Edit', 'citex-tools' ); ?></a><?php endif; ?>
 						<?php if ( $question['validatorId'] ) : ?><button type="button" class="button button-small citex-validate-btn" data-key="<?php echo esc_attr( $question['validationKey'] ); ?>"><?php echo $question['validationResult'] ? esc_html__( 'Revalidate', 'citex-tools' ) : esc_html__( 'Validate', 'citex-tools' ); ?></button><?php endif; ?>
+						<?php if ( ! empty( $question['wpPostId'] ) ) : ?>
+							<form method="post" style="display:inline-block;margin:0;">
+								<?php wp_nonce_field( Citex_Populator::NONCE_FINALIZE_ACTION, 'citex_finalize_nonce' ); ?>
+								<input type="hidden" name="citex_finalize_post_ids[]" value="<?php echo esc_attr( absint( $question['wpPostId'] ) ); ?>" />
+								<button type="submit" name="citex_finalize_submit" value="1" class="button button-small" title="<?php esc_attr_e( 'Re-run the WordPress/ACF save lifecycle for this question, without changing its content, status, taxonomy, or ACF values — use this to make an already-populated question visible in the app without opening it manually.', 'citex-tools' ); ?>"><?php esc_html_e( 'Finalise', 'citex-tools' ); ?></button>
+							</form>
+						<?php endif; ?>
 					</td>
 				</tr>
 			<?php endforeach; ?>
