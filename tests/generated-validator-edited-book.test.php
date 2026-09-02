@@ -222,6 +222,96 @@ check( '[6] a well-formed-but-wrong-book Edited Book distractor fails (second pl
 check( '[6] reports MCQ_DISTRACTOR_LOOKS_CORRECT', has_error_code( $two_correct_looking, 'mcq_distractor_looks_correct' ), true );
 
 // ---------------------------------------------------------------------
+// 6b. CRITICAL — the reported bug (Question BK21) for Edited Book too: a
+// distractor that swaps place and publisher, keeping the same book and
+// editor(s), must be recognised as genuinely wrong (not a second plausible
+// answer) once Citex knows this question's real place/publisher.
+// ---------------------------------------------------------------------
+$eb_swapped_distractor = Citex_Generated_Validator::validate(
+	edited_book_mcq_question( array(
+		'options' => array(
+			'Smith, J. (ed.) (2022) Digital media and society. SAGE Publications: London.', // place/publisher swapped
+			Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array( 'editors' => one_editor(), 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' ) ), // correct
+			'Smith, J. (2022) Digital media and society. London: SAGE Publications.', // missing designation — genuinely malformed
+			'Smith, J. (editor) (2022) Digital media and society. London: SAGE Publications.', // wrong designation word — genuinely malformed
+		),
+		'correctOptionIndex' => 1,
+	) )
+);
+check( '[6b] a place/publisher-swapped Edited Book distractor no longer creates false ambiguity — the question PASSES', $eb_swapped_distractor['status'], 'passed' );
+check( '[6b] no errors reported', $eb_swapped_distractor['errors'], array() );
+
+// ---------------------------------------------------------------------
+// 6c. CRITICAL — the category's headline distractor pattern: a distractor
+// using the WRONG designation for this question's actual editor count
+// (e.g. "(eds)" for a one-editor question) is itself a perfectly
+// well-formed Edited Book reference by shape alone, so it used to also
+// trigger MCQ_DISTRACTOR_LOOKS_CORRECT — exactly the reported bug, and the
+// single most important distractor type this category exists to test
+// ("must not accidentally use (ed.) for a book with multiple editors").
+// Once Citex knows the real editor count, this must be recognised as
+// genuinely wrong, not a second plausible answer.
+// ---------------------------------------------------------------------
+$eb_wrong_designation_distractor = Citex_Generated_Validator::validate(
+	edited_book_mcq_question( array(
+		'options' => array(
+			'Smith, J. (eds) (2022) Digital media and society. London: SAGE Publications.', // WRONG designation for 1 editor — but otherwise well-formed
+			Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array( 'editors' => one_editor(), 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' ) ), // correct
+			'Smith, J. (2022) Digital media and society. London: SAGE Publications.', // missing designation — genuinely malformed
+			'Smith, J. (editor) (2022) Digital media and society. London: SAGE Publications.', // wrong word — genuinely malformed
+		),
+		'correctOptionIndex' => 1,
+	) )
+);
+check( '[6c] a wrong-designation-for-editor-count distractor no longer creates false ambiguity — the question PASSES', $eb_wrong_designation_distractor['status'], 'passed' );
+check( '[6c] no errors reported', $eb_wrong_designation_distractor['errors'], array() );
+
+// Sanity check the rule actually fires: the same wrong-designation
+// reference, if it were mistakenly marked correct, must itself fail.
+$eb_wrong_designation_as_correct = Citex_Generated_Validator::validate(
+	edited_book_mcq_question( array(
+		'options'            => array( 'x', 'Smith, J. (eds) (2022) Digital media and society. London: SAGE Publications.', 'y', 'z' ),
+		'correctOptionIndex' => 1,
+	) )
+);
+check( '[6c] the same reference fails when marked correct, proving the check genuinely fires', $eb_wrong_designation_as_correct['status'], 'failed' );
+check( '[6c] reports EDITED_BOOK_DESIGNATION_MISMATCH', has_error_code( $eb_wrong_designation_as_correct, 'edited_book_designation_mismatch' ), true );
+
+// ---------------------------------------------------------------------
+// 6d. A third catalogued Edited Book distractor pattern with the same
+// blind spot: two editors joined with a comma throughout ("Smith, J.,
+// Jones, A.") instead of "and" before the last name. Structurally
+// indistinguishable from correct by shape alone, so it too used to
+// trigger false ambiguity — now recognised once Citex knows the real
+// editor list.
+// ---------------------------------------------------------------------
+$eb_comma_joined_distractor = Citex_Generated_Validator::validate(
+	edited_book_mcq_question( array(
+		'editors' => two_editors(),
+		'options' => array(
+			'Smith, J., Jones, A. (eds) (2022) Digital media and society. London: SAGE Publications.', // comma instead of "and"
+			Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array( 'editors' => two_editors(), 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' ) ), // correct
+			'Smith, J. and Jones, A. (2022) Digital media and society. London: SAGE Publications.', // missing designation — genuinely malformed
+			'Smith, J. and Jones, A. (editors) (2022) Digital media and society. London: SAGE Publications.', // wrong word — genuinely malformed
+		),
+		'correctOptionIndex' => 1,
+	) )
+);
+check( '[6d] a comma-joined-editors distractor no longer creates false ambiguity — the question PASSES', $eb_comma_joined_distractor['status'], 'passed' );
+check( '[6d] no errors reported', $eb_comma_joined_distractor['errors'], array() );
+
+// Sanity check the rule actually fires.
+$eb_comma_joined_as_correct = Citex_Generated_Validator::validate(
+	edited_book_mcq_question( array(
+		'editors'            => two_editors(),
+		'options'            => array( 'x', 'Smith, J., Jones, A. (eds) (2022) Digital media and society. London: SAGE Publications.', 'y', 'z' ),
+		'correctOptionIndex' => 1,
+	) )
+);
+check( '[6d] the same reference fails when marked correct, proving the check genuinely fires', $eb_comma_joined_as_correct['status'], 'failed' );
+check( '[6d] reports EDITED_BOOK_EDITOR_JOIN_MISMATCH', has_error_code( $eb_comma_joined_as_correct, 'edited_book_editor_join_mismatch' ), true );
+
+// ---------------------------------------------------------------------
 // 7. Answer leakage: a scenario that already shows "(ed.)"/"(eds)" leaks
 // the designation answer directly.
 // ---------------------------------------------------------------------

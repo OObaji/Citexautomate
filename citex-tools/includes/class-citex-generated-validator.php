@@ -75,7 +75,7 @@ class Citex_Generated_Validator {
 		}
 
 		$reference = $reconstruction['reference'];
-		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category ) );
+		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category, $question['place'] ?? null, $question['publisher'] ?? null, self::expected_designation_for( $question, $category ), self::expected_editor_join_for( $question, $category ) ) );
 
 		$correct_lower = array_map(
 			function ( $value ) {
@@ -168,8 +168,12 @@ class Citex_Generated_Validator {
 			$seen[ $normal ] = true;
 		}
 
-		$reference = trim( (string) $options[ $correct_index ] );
-		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category ) );
+		$place        = $question['place'] ?? null;
+		$publisher    = $question['publisher'] ?? null;
+		$designation  = self::expected_designation_for( $question, $category );
+		$editor_join  = self::expected_editor_join_for( $question, $category );
+		$reference    = trim( (string) $options[ $correct_index ] );
+		$errors       = array_merge( $errors, self::validate_reference_format( $reference, $category, $place, $publisher, $designation, $editor_join ) );
 
 		// Exactly one option may look correct. A distractor that happens to
 		// pass every Harvard format rule too (different wording, but still
@@ -179,7 +183,7 @@ class Citex_Generated_Validator {
 			if ( $index === $correct_index ) {
 				continue;
 			}
-			if ( empty( self::validate_reference_format( trim( (string) $option ), $category ) ) ) {
+			if ( empty( self::validate_reference_format( trim( (string) $option ), $category, $place, $publisher, $designation, $editor_join ) ) ) {
 				$errors[] = self::error(
 					'MCQ_DISTRACTOR_LOOKS_CORRECT',
 					sprintf( 'Option %d is not marked correct but passes every Harvard format rule too — this creates a second plausible answer.', $index + 1 )
@@ -213,6 +217,46 @@ class Citex_Generated_Validator {
 	}
 
 	/**
+	 * The designation ("ed." or "eds", without parentheses) this Edited
+	 * Book question's real editor count requires — null for Book (the
+	 * concept doesn't apply) or when no editors are present at all. Shared
+	 * by validate_dragdrop() and validate_mcq() so both compute it the same
+	 * way, from Citex_Reference_Rules::designation_for_editor_count() (the
+	 * same single source of truth Citex_AI_V2 uses to build the correct
+	 * option/reconstruction in the first place).
+	 */
+	private static function expected_designation_for( $question, $category ) {
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK !== $category ) {
+			return null;
+		}
+		$editors = is_array( $question['editors'] ?? null ) ? $question['editors'] : array();
+		if ( empty( $editors ) ) {
+			return null;
+		}
+		return Citex_Reference_Rules::designation_for_editor_count( count( $editors ) );
+	}
+
+	/**
+	 * The correctly-joined multi-editor string ("Smith, J. and Jones, A.")
+	 * this question's real editors require — null for Book, or for an
+	 * Edited Book question with fewer than 2 editors (the "and" join only
+	 * applies once there is more than one name to join). Mirrors
+	 * expected_designation_for(): both feed validate_reference_format() the
+	 * one fact it needs to detect a distractor whose mistake the generic
+	 * shape regex structurally cannot see.
+	 */
+	private static function expected_editor_join_for( $question, $category ) {
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK !== $category ) {
+			return null;
+		}
+		$editors = is_array( $question['editors'] ?? null ) ? $question['editors'] : array();
+		if ( count( $editors ) < 2 ) {
+			return null;
+		}
+		return Citex_Reference_Rules::join_editors( $editors );
+	}
+
+	/**
 	 * The Harvard reference-format checks shared by DragDrop's reconstructed
 	 * reference and MCQ's correct option, for every category — punctuation
 	 * and spacing rules identical regardless of category. The one
@@ -222,7 +266,7 @@ class Citex_Generated_Validator {
 	 * categories provide instead of this method growing a new branch each
 	 * time.
 	 */
-	private static function validate_reference_format( $reference, $category = null ) {
+	private static function validate_reference_format( $reference, $category = null, $place = null, $publisher = null, $expected_designation = null, $expected_editor_join = null ) {
 		$category = $category ?? Citex_Reference_Rules::CATEGORY_BOOK;
 		$errors   = array();
 
@@ -251,6 +295,79 @@ class Citex_Generated_Validator {
 				? 'Citation does not match the Liverpool Hope Edited Book format.'
 				: 'Citation does not match the Liverpool Hope Book format.';
 			$errors[] = self::error( $code, $message );
+		}
+
+		// Place/publisher ORDER — "Place: Publisher.", never the reverse.
+		// The shape regex above cannot tell a place from a publisher; any
+		// non-empty "X: Y." satisfies it equally whichever way round X and Y
+		// are. That blind spot is exactly why an MCQ distractor built by
+		// swapping place and publisher (a real, common Harvard mistake — see
+		// Citex_Reference_Rules::mcq_distractor_patterns()) used to slip past
+		// every check above and get flagged as a second "fully valid"
+		// option. When the record's real place/publisher are known, check
+		// the literal ordering directly instead of trusting the generic
+		// shape: this can only ever fire on the SWAPPED pairing, so it never
+		// flags the correct option (Citex always builds it in the right
+		// order) and never weakens any check above — it only closes a gap
+		// those checks structurally cannot see.
+		if ( null !== $place && null !== $publisher ) {
+			$place_trim     = trim( (string) $place );
+			$publisher_trim = trim( (string) $publisher );
+			if ( '' !== $place_trim && '' !== $publisher_trim ) {
+				$correct_order = $place_trim . ': ' . $publisher_trim;
+				$swapped_order = $publisher_trim . ': ' . $place_trim;
+				if ( ! self::text_contains( $reference, $correct_order ) && self::text_contains( $reference, $swapped_order ) ) {
+					$errors[] = self::error(
+						'PLACE_PUBLISHER_ORDER_MISMATCH',
+						'Place of publication and publisher appear to be swapped — Harvard requires "Place: Publisher.", not "Publisher: Place.".'
+					);
+				}
+			}
+		}
+
+		// Edited Book designation vs. editor count — the exact same blind
+		// spot as place/publisher above, and arguably the more important
+		// one: the shape regex accepts EITHER "(ed.)" or "(eds)" as valid on
+		// their own, so it cannot tell whether the designation actually
+		// matches THIS question's editor count. A distractor using the
+		// wrong designation for the stated editor count (a real, explicitly
+		// required distractor pattern — "must not accidentally use (ed.)
+		// for a book with multiple editors") used to slip past every check
+		// above unnoticed. When the record's real editor count is known,
+		// check directly: this only ever fires on the WRONG designation, so
+		// it never flags the correct option (Citex always builds it with
+		// the right one) and never weakens EDITED_BOOK_DESIGNATION_MISMATCH's
+		// existing meaning — it only applies that same rule to every option,
+		// not just the one marked correct.
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && null !== $expected_designation && '' !== trim( (string) $expected_designation ) ) {
+			$expected = trim( (string) $expected_designation );
+			$wrong    = 'ed.' === $expected ? 'eds' : 'ed.';
+			if ( ! self::text_contains( $reference, '(' . $expected . ')' ) && self::text_contains( $reference, '(' . $wrong . ')' ) ) {
+				$errors[] = self::error(
+					'EDITED_BOOK_DESIGNATION_MISMATCH',
+					sprintf( 'The reference uses "(%1$s)" instead of the "(%2$s)" required for this question\'s editor count.', $wrong, $expected )
+				);
+			}
+		}
+
+		// Multi-editor joining — "Smith, J. and Jones, A.", never a comma
+		// throughout. Same blind spot again: the shape regex's leading `.+`
+		// swallows the whole editor-name segment however it is punctuated,
+		// so a distractor that replaces " and " with ", " is otherwise
+		// indistinguishable from correct. Only checked when we know the
+		// exact correct join AND the comma-joined variant would actually
+		// differ from it (i.e. there genuinely is an "and" to omit).
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && null !== $expected_editor_join ) {
+			$correct_join = trim( (string) $expected_editor_join );
+			if ( '' !== $correct_join && false !== strpos( $correct_join, ' and ' ) ) {
+				$comma_joined = str_replace( ' and ', ', ', $correct_join );
+				if ( $comma_joined !== $correct_join && ! self::text_contains( $reference, $correct_join ) && self::text_contains( $reference, $comma_joined ) ) {
+					$errors[] = self::error(
+						'EDITED_BOOK_EDITOR_JOIN_MISMATCH',
+						'Two or more editors must be joined with "and" before the last name (e.g. "Smith, J. and Jones, A."), not a comma throughout.'
+					);
+				}
+			}
 		}
 
 		return $errors;

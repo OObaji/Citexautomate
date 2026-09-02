@@ -176,6 +176,52 @@ check( '[5c] a well-formed-but-wrong-book distractor fails (would read as a seco
 check( '[5c] reports MCQ_DISTRACTOR_LOOKS_CORRECT', has_error_code( $two_look_correct, 'mcq_distractor_looks_correct' ), true );
 
 // ---------------------------------------------------------------------
+// 5d. CRITICAL — the reported bug (Question BK21: "Option 4 ... passes
+// every Harvard format rule too"). A distractor that swaps place and
+// publisher (a real, recommended distractor pattern — see
+// Citex_Reference_Rules::mcq_distractor_patterns()) keeps the same book,
+// author, year and title, so the generic shape regex ("X: Y.") cannot
+// tell it apart from a genuinely correct reference on its own. Since
+// Citex knows this question's real place/publisher, it must recognise the
+// swap directly and NOT treat it as a second plausible answer — the whole
+// question must PASS.
+// ---------------------------------------------------------------------
+$swapped_distractor = Citex_Generated_Validator::validate(
+	mcq_question(
+		array(
+			'options' => array(
+				'Bryman, A. (2012) Social Research Methods. Oxford University Press: Oxford.', // place/publisher swapped
+				'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.', // correct
+				'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.', // wrong order — genuinely malformed
+				'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.', // missing space — genuinely malformed
+			),
+			'correctOptionIndex'     => 1,
+			'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
+		)
+	)
+);
+check( '[5d] a place/publisher-swapped distractor no longer creates false ambiguity — the question PASSES', $swapped_distractor['status'], 'passed' );
+check( '[5d] no errors reported', $swapped_distractor['errors'], array() );
+
+// ---------------------------------------------------------------------
+// 5e. Sanity check that the new rule actually fires: a reference with
+// place and publisher swapped is itself flagged PLACE_PUBLISHER_ORDER_MISMATCH
+// when it is the one marked correct (proving 5d passes because the swap is
+// genuinely detected, not because the check is a no-op).
+// ---------------------------------------------------------------------
+$swapped_as_correct = Citex_Generated_Validator::validate(
+	mcq_question(
+		array(
+			'options'                => array( 'x', 'Bryman, A. (2012) Social Research Methods. Oxford University Press: Oxford.', 'y', 'z' ),
+			'correctOptionIndex'     => 1,
+			'reconstructedReference' => '',
+		)
+	)
+);
+check( '[5e] a swapped place/publisher reference fails when marked correct', $swapped_as_correct['status'], 'failed' );
+check( '[5e] reports PLACE_PUBLISHER_ORDER_MISMATCH', has_error_code( $swapped_as_correct, 'place_publisher_order_mismatch' ), true );
+
+// ---------------------------------------------------------------------
 // 6. The correct option itself must satisfy the Harvard Book format rules
 // (reused from DragDrop via validate_reference_format()) — a malformed
 // "correct" answer fails exactly like a malformed DragDrop reconstruction.
