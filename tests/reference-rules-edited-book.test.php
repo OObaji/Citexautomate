@@ -83,9 +83,11 @@ $three_editors = array(
 check( '[4] three editors are comma-joined with a final "and"', Citex_Reference_Rules::join_editors( $three_editors ), 'Smith, J., Jones, A. and Lee, K.' );
 
 // ---------------------------------------------------------------------
-// 5. Book's own reference construction is untouched by adding Edited Book.
+// 5. Book's own reference construction (single-author case) is untouched
+// by adding Edited Book / multi-author support — see
+// reference-rules-book-authors.test.php for the multi-author cases.
 // ---------------------------------------------------------------------
-$book_fields = array( 'surname' => 'Bryman', 'initials' => 'A.', 'year' => '2012', 'title' => 'Social Research Methods', 'place' => 'Oxford', 'publisher' => 'Oxford University Press' );
+$book_fields = array( 'authors' => array( array( 'surname' => 'Bryman', 'initials' => 'A.' ) ), 'year' => '2012', 'title' => 'Social Research Methods', 'place' => 'Oxford', 'publisher' => 'Oxford University Press' );
 check(
 	'[5] Book reference construction is unaffected',
 	Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, $book_fields ),

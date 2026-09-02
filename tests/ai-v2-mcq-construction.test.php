@@ -101,7 +101,7 @@ function mcq_item( $overrides = array() ) {
 			// MCQ rather than trusting it, in case Gemini ever sends one
 			// anyway. See test [8].
 			'scenario'    => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
-			'authorFullName' => 'Alan Bryman',
+			'authorFullNames' => array( 'Alan Bryman' ),
 			'year'        => '2012',
 			'bookTitle'   => 'Social Research Methods',
 			'place'       => 'Oxford',
@@ -226,7 +226,7 @@ check( '[5] error code identifies the missing field', is_wp_error( $missing_plac
 // with DragDrop and applies identically to MCQ candidates.
 // ---------------------------------------------------------------------
 $multi_name = invoke_normalise(
-	array( mcq_item( array( 'authorFullName' => 'John Michael Smith', 'bookTitle' => 'Systems Theory', 'distractors' => array(
+	array( mcq_item( array( 'authorFullNames' => array( 'John Michael Smith' ), 'bookTitle' => 'Systems Theory', 'distractors' => array(
 		distractor( 'Smith J.M. (2012) Systems Theory. Oxford: Oxford University Press.' ),
 		distractor( 'J.M. Smith (2012) Systems Theory. Oxford: Oxford University Press.' ),
 		distractor( 'Smith, J.M. (2012) Systems Theory. Oxford:Oxford University Press.' ),
@@ -276,7 +276,7 @@ if ( ! is_wp_error( $leaked ) ) {
 // ---------------------------------------------------------------------
 $dragdrop_item = array(
 	'scenario'       => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
-	'authorFullName' => 'Alan Bryman',
+	'authorFullNames' => array( 'Alan Bryman' ),
 	'year'           => '2012',
 	'bookTitle'      => 'Social Research Methods',
 	'place'          => 'Oxford',
@@ -342,6 +342,35 @@ $still_ambiguous = invoke_normalise(
 );
 check( '[11] a distractor that is fully valid despite its claimed errorReason still fails the quality gate', is_wp_error( $still_ambiguous ), true );
 check( '[11] error code is the existing validator-rejection code (MCQ_DISTRACTOR_LOOKS_CORRECT), not silently bypassed', is_wp_error( $still_ambiguous ) ? $still_ambiguous->get_error_code() : null, 'citex_ai_validator_rejected' );
+
+// ---------------------------------------------------------------------
+// 12. Multi-author MCQ: Citex builds the correct answer joining all
+// authors per Liverpool Hope's reference-list rule (never "et al."), and
+// the correct answer still never appears in any option.
+// ---------------------------------------------------------------------
+$multi_author_mcq = invoke_normalise(
+	array( mcq_item( array(
+		'authorFullNames' => array( 'John Smith', 'Amy Jones', 'Tom Brown' ),
+		'bookTitle'        => 'Understanding digital culture',
+		'distractors'      => array(
+			distractor( 'Smith, J., Jones, A., Brown, T. (2012) Understanding digital culture. Oxford: Oxford University Press.', 'Every author joined with a comma throughout, omitting "and" before the final author.' ),
+			distractor( 'Smith, J. & Jones, A. & Brown, T. (2012) Understanding digital culture. Oxford: Oxford University Press.', 'Authors joined with "&" instead of "and"/commas.' ),
+			distractor( 'Smith et al. (2012) Understanding digital culture. Oxford: Oxford University Press.', 'Uses "et al." instead of listing every author in the reference list.' ),
+		),
+	) ) ),
+	array( 'BK02' ),
+	'medium',
+	array(),
+	'MCQ'
+);
+check( '[12] normalise() succeeds for a multi-author MCQ item', is_wp_error( $multi_author_mcq ), false );
+if ( ! is_wp_error( $multi_author_mcq ) ) {
+	$candidate = $multi_author_mcq[0];
+	check( '[12] the Citex-built correct answer joins all three authors', $candidate['reconstructedReference'], 'Smith, J., Jones, A. and Brown, T. (2012) Understanding digital culture. Oxford: Oxford University Press.' );
+	check( '[12] "et al." never appears in the correct answer', false !== strpos( $candidate['reconstructedReference'], 'et al' ), false );
+	check( '[12] the correct answer never appears in any option', in_array( $candidate['reconstructedReference'], $candidate['options'], true ), false );
+	check( '[12] the "et al." distractor is kept as a legitimate distractor, not silently rewritten', in_array( 'Smith et al. (2012) Understanding digital culture. Oxford: Oxford University Press.', $candidate['options'], true ), true );
+}
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

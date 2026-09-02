@@ -282,7 +282,7 @@ check( '[8] error code identifies the quality-gate rejection', is_wp_error( $lea
 // ---------------------------------------------------------------------
 $book_item = array(
 	'scenario'       => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
-	'authorFullName' => 'Alan Bryman',
+	'authorFullNames' => array( 'Alan Bryman' ),
 	'year'           => '2012',
 	'bookTitle'      => 'Social Research Methods',
 	'place'          => 'Oxford',

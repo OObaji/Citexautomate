@@ -80,7 +80,7 @@ function invoke_normalise( $questions, $ids, $difficulty, $exercises = array() )
 // ---------------------------------------------------------------------
 $item_with_bad_ai_parts = array(
 	'scenario'       => 'You are referencing a book titled Critical Thinking Skills by Stella Cottrell, published in London by Red Globe Press in 2019.',
-	'authorFullName' => 'Stella Cottrell',
+	'authorFullNames' => array( 'Stella Cottrell' ),
 	'year'           => '2019',
 	'bookTitle'      => 'Critical Thinking Skills',
 	'place'          => 'London',
@@ -110,7 +110,7 @@ if ( ! is_wp_error( $result ) ) {
 // ---------------------------------------------------------------------
 $item_with_bad_scenario = array(
 	'scenario'       => 'You are referencing a book titled Skills for Success by Stella Cottrell, published in London by Red Globe Press in 2016.',
-	'authorFullName' => 'Stella Cottrell',
+	'authorFullNames' => array( 'Stella Cottrell' ),
 	'year'           => '2019',
 	'bookTitle'      => 'Critical Thinking Skills',
 	'place'          => 'London',
@@ -131,7 +131,7 @@ check( '[scenario mismatch] error code identifies the pre-queue quality gate rej
 function make_valid_item( $suffix ) {
 	return array(
 		'scenario'       => "You are referencing a book titled Book $suffix by Andrew Smith, published in London by Example Press in 2020.",
-		'authorFullName' => 'Andrew Smith',
+		'authorFullNames' => array( 'Andrew Smith' ),
 		'year'           => '2020',
 		'bookTitle'      => "Book $suffix",
 		'place'          => 'London',
@@ -161,7 +161,7 @@ check( '[exercise assignment] a missing assignment array defaults to Exercise 1'
 // ---------------------------------------------------------------------
 $multi_given_name_item = array(
 	'scenario'       => 'You are creating a reference for a book titled Systems Theory by John Michael Smith, published in Boston by Academic Press in 2015.',
-	'authorFullName' => 'John Michael Smith',
+	'authorFullNames' => array( 'John Michael Smith' ),
 	'year'           => '2015',
 	'bookTitle'      => 'Systems Theory',
 	'place'          => 'Boston',
@@ -180,7 +180,7 @@ if ( ! is_wp_error( $multi_result ) ) {
 // initials at all and must be rejected, not silently guessed.
 $incomplete_name_item = array(
 	'scenario'       => 'You are referencing a book titled Systems Theory by Smith, published in Boston by Academic Press in 2015.',
-	'authorFullName' => 'Smith',
+	'authorFullNames' => array( 'Smith' ),
 	'year'           => '2015',
 	'bookTitle'      => 'Systems Theory',
 	'place'          => 'Boston',
@@ -190,6 +190,54 @@ $incomplete_name_item = array(
 $incomplete_result = invoke_normalise( array( $incomplete_name_item ), array( 'BK21' ), 'medium' );
 check( '[author derivation] a surname-only authorFullName (no given name) is rejected', is_wp_error( $incomplete_result ), true );
 check( '[author derivation] error code identifies the incomplete name', is_wp_error( $incomplete_result ) ? $incomplete_result->get_error_code() : null, 'citex_ai_missing_field' );
+
+// ---------------------------------------------------------------------
+// 5. Multi-author Book (Liverpool Hope's reference-list rule): all authors
+// listed in full, joined with "and"/commas, "et al." never used. The
+// DragDrop shape switches to 3 parts (joined author list, year, title) —
+// the whole author list is ONE draggable part, not one part per author.
+// ---------------------------------------------------------------------
+$three_author_item = array(
+	'scenario'        => 'You are referencing a book titled Understanding digital culture by John Smith, Amy Jones and Tom Brown, published in London by SAGE Publications in 2020.',
+	'authorFullNames' => array( 'John Smith', 'Amy Jones', 'Tom Brown' ),
+	'year'            => '2020',
+	'bookTitle'       => 'Understanding digital culture',
+	'place'           => 'London',
+	'publisher'       => 'SAGE Publications',
+	'confusingWords'  => array( '2018', 'Paris', 'Routledge' ),
+);
+$three_author_result = invoke_normalise( array( $three_author_item ), array( 'BK30' ), 'medium' );
+check( '[multi-author] normalise() succeeds for three authors', is_wp_error( $three_author_result ), false );
+if ( ! is_wp_error( $three_author_result ) ) {
+	$candidate = $three_author_result[0];
+	check( '[multi-author] Question Parts are the 3-part joined shape', $candidate['questionParts'], array( 'Smith, J., Jones, A. and Brown, T.', '2020', 'Understanding digital culture' ) );
+	check( '[multi-author] Fixed Text has 3 placeholder tokens', $candidate['fixedText'], '| (||) ||. London: SAGE Publications.' );
+	check( '[multi-author] the reconstructed reference joins all three authors, never "et al."', $candidate['reconstructedReference'], 'Smith, J., Jones, A. and Brown, T. (2020) Understanding digital culture. London: SAGE Publications.' );
+	check( '[multi-author] "et al." never appears in the reference', false !== strpos( $candidate['reconstructedReference'], 'et al' ), false );
+	check( '[multi-author] authorFullNames is carried through in order', $candidate['authorFullNames'], array( 'John Smith', 'Amy Jones', 'Tom Brown' ) );
+	check( '[multi-author] the first author is kept as the back-compat authorFullName/authorSurname/authorInitials fields', $candidate['authorSurname'], 'Smith' );
+}
+
+// A 4-author question must still list every author in full — no et-al
+// cutoff at 4+, per Liverpool Hope's confirmed reference-list rule.
+$four_author_item = array(
+	'scenario'        => 'You are creating a reference for a book titled Understanding digital culture by John Smith, Amy Jones, Tom Brown and Rita Williams, published in London by SAGE Publications in 2020.',
+	'authorFullNames' => array( 'John Smith', 'Amy Jones', 'Tom Brown', 'Rita Williams' ),
+	'year'            => '2020',
+	'bookTitle'       => 'Understanding digital culture',
+	'place'           => 'London',
+	'publisher'       => 'SAGE Publications',
+	'confusingWords'  => array( '2018', 'Paris', 'Routledge' ),
+);
+$four_author_result = invoke_normalise( array( $four_author_item ), array( 'BK31' ), 'medium' );
+check( '[multi-author] normalise() succeeds for four authors', is_wp_error( $four_author_result ), false );
+if ( ! is_wp_error( $four_author_result ) ) {
+	check(
+		'[multi-author] all four authors are listed in full — no "et al." cutoff at 4+',
+		$four_author_result[0]['reconstructedReference'],
+		'Smith, J., Jones, A., Brown, T. and Williams, R. (2020) Understanding digital culture. London: SAGE Publications.'
+	);
+}
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

@@ -57,7 +57,7 @@ class Citex_Reference_Rules {
 	 * MCQ places as its correct option.
 	 *
 	 * @param string $category
-	 * @param array  $fields Book: {surname, initials, year, title, place, publisher}.
+	 * @param array  $fields Book: {authors: array<{surname, initials}>, year, title, place, publisher}.
 	 *               Edited Book: {editors: array<{surname, initials}>, year, title, place, publisher}.
 	 */
 	public static function build_reference( $category, array $fields ) {
@@ -67,11 +67,23 @@ class Citex_Reference_Rules {
 		return self::build_book_reference( $fields );
 	}
 
+	/**
+	 * Liverpool Hope Harvard — Books, reference-list author count rule
+	 * (confirmed against Liverpool Hope's current guidance): 1 author is
+	 * listed alone; 2 are joined with "and"; 3+ are comma-separated with a
+	 * final "and" before the last — ALL authors are always listed in full,
+	 * for any count, and "et al." is NEVER used. ("et al." is Liverpool
+	 * Hope's IN-TEXT CITATION convention for 4+ authors — Citex never
+	 * generates in-text citations, only reference-list entries, so that
+	 * abbreviation must never appear in build_book_reference()'s output.)
+	 * This is exactly join_people()'s joining algorithm, already proven by
+	 * Edited Book's editor list — Book authors and Edited Book editors are
+	 * joined identically.
+	 */
 	private static function build_book_reference( array $fields ) {
 		return sprintf(
-			'%s, %s (%s) %s. %s: %s.',
-			$fields['surname'],
-			$fields['initials'],
+			'%s (%s) %s. %s: %s.',
+			self::join_people( $fields['authors'] ),
 			$fields['year'],
 			$fields['title'],
 			$fields['place'],
@@ -84,7 +96,7 @@ class Citex_Reference_Rules {
 		$designation = self::designation_for_editor_count( count( $editors ) );
 		return sprintf(
 			'%s (%s) (%s) %s. %s: %s.',
-			self::join_editors( $editors ),
+			self::join_people( $editors ),
 			$designation,
 			$fields['year'],
 			$fields['title'],
@@ -104,14 +116,17 @@ class Citex_Reference_Rules {
 	}
 
 	/**
-	 * "Smith, J." for one editor; "Smith, J. and Jones, A." for two;
+	 * "Smith, J." for one person; "Smith, J. and Jones, A." for two;
 	 * "Smith, J., Jones, A. and Lee, K." for three or more (Harvard's
-	 * standard comma-separated-with-a-final-"and" list joining).
+	 * standard comma-separated-with-a-final-"and" list joining). Shared by
+	 * both Book authors and Edited Book editors — Liverpool Hope joins both
+	 * lists identically, and neither is ever abbreviated to "et al." in a
+	 * reference-list entry.
 	 */
-	public static function join_editors( array $editors ) {
+	public static function join_people( array $people ) {
 		$parts = array();
-		foreach ( $editors as $editor ) {
-			$parts[] = sprintf( '%s, %s', $editor['surname'], $editor['initials'] );
+		foreach ( $people as $person ) {
+			$parts[] = sprintf( '%s, %s', $person['surname'], $person['initials'] );
 		}
 		if ( 1 === count( $parts ) ) {
 			return $parts[0];
@@ -121,13 +136,33 @@ class Citex_Reference_Rules {
 	}
 
 	/**
+	 * @deprecated Use join_people() — kept only so any external reference to
+	 * the old editor-specific name keeps working.
+	 */
+	public static function join_editors( array $editors ) {
+		return self::join_people( $editors );
+	}
+
+	/**
 	 * The DragDrop shape for this category: the ordered draggable Question
 	 * Parts, and the Fixed Text template (Citex's established |/|| pipe
 	 * grammar — see class-citex-populator.php's docblock) that the parts
-	 * slot into. Editor(s), designation, year and title are draggable;
-	 * place and publisher are baked into the fixed template directly, from
-	 * the record, exactly like Book already does — this plugin has never
-	 * made place/publisher draggable for any category.
+	 * slot into. Editor(s)/author(s), designation, year and title are
+	 * draggable; place and publisher are baked into the fixed template
+	 * directly, from the record — this plugin has never made
+	 * place/publisher draggable for any category.
+	 *
+	 * Book branches on author count: a SINGLE author keeps the original
+	 * 4-part shape (surname and initials as two separate draggable parts —
+	 * every existing single-author question is completely unaffected). TWO
+	 * OR MORE authors use a 3-part shape (the whole author list, already
+	 * joined via join_people(), as ONE draggable part; year; title) —
+	 * exactly how Edited Book already treats its joined editor string as a
+	 * single draggable part, so a multi-author DragDrop question tests
+	 * "drag the correctly-joined author list into place," not "drag each of
+	 * N authors' 2N sub-parts," which would make the draggable-part count
+	 * (and therefore the UI) vary per question in a way the app was never
+	 * built to support.
 	 *
 	 * @return array{parts: string[], fixedText: string}
 	 */
@@ -136,13 +171,20 @@ class Citex_Reference_Rules {
 			$editors     = $fields['editors'];
 			$designation = self::designation_for_editor_count( count( $editors ) );
 			return array(
-				'parts'     => array( self::join_editors( $editors ), $designation, $fields['year'], $fields['title'] ),
+				'parts'     => array( self::join_people( $editors ), $designation, $fields['year'], $fields['title'] ),
 				'fixedText' => sprintf( '| (||) (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
 			);
 		}
+		$authors = $fields['authors'];
+		if ( 1 === count( $authors ) ) {
+			return array(
+				'parts'     => array( $authors[0]['surname'], $authors[0]['initials'], $fields['year'], $fields['title'] ),
+				'fixedText' => sprintf( '|, || (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
+			);
+		}
 		return array(
-			'parts'     => array( $fields['surname'], $fields['initials'], $fields['year'], $fields['title'] ),
-			'fixedText' => sprintf( '|, || (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
+			'parts'     => array( self::join_people( $authors ), $fields['year'], $fields['title'] ),
+			'fixedText' => sprintf( '| (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
 		);
 	}
 
@@ -159,7 +201,18 @@ class Citex_Reference_Rules {
 			// Surname(s), Initials [and Surname, Initials ...] (ed.|eds) (Year) Title. Place: Publisher.
 			return '/^.+\s+\((?:ed\.|eds)\)\s+\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u';
 		}
-		return '/^[^,]+,\s+(?:[A-Z]\.\s*)+\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u';
+		// One or more "Surname, Initials" groups (join_people()'s exact
+		// joining grammar: every pair before the last is comma-separated,
+		// and the LAST joiner must specifically be " and " — a reference
+		// that is comma-joined all the way through, with no "and" before
+		// the final author, is a real Harvard style violation and must NOT
+		// match), followed by (Year) Title. Place: Publisher. This is a
+		// real repeating group — not `.+` — specifically so a
+		// reference-list entry that abbreviates to "Smith et al." can never
+		// match: there is no literal comma/initials-group before "(Year)"
+		// in that string, so it fails this regex the same way any other
+		// malformed author list would.
+		return '/^[^,]+,\s+(?:[A-Z]\.\s*)+(?:(?:,\s+[^,]+,\s+(?:[A-Z]\.\s*)+)*\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+)?\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u';
 	}
 
 	/**
@@ -196,6 +249,13 @@ class Citex_Reference_Rules {
 			'Swapping the place of publication and publisher — e.g. "Publisher: Place" instead of "Place: Publisher".',
 			'Missing the full stop after the book title, or an extra comma between surname and initials.',
 			'Missing the parentheses around the publication year entirely.',
+			// Multi-author-specific mistakes (only realistic when the
+			// question has 2+ authors — Citex_AI_V2 only surfaces these to
+			// Gemini for questions it has assigned more than one author):
+			'For two or more authors, joining them with "&" instead of "and".',
+			'For two or more authors, omitting "and" before the final author and using a comma instead.',
+			'For three or more authors, joining every pair with "and" instead of separating all but the last with commas.',
+			'Using "et al." after the first author\'s name in the reference list for four or more authors, instead of listing every author in full — "et al." is only Liverpool Hope\'s in-text-citation convention, never used in a reference-list entry.',
 		);
 	}
 

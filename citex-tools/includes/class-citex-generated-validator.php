@@ -224,12 +224,30 @@ class Citex_Generated_Validator {
 			}
 		}
 
-		$question_parts = array(
-			trim( (string) ( $question['authorSurname'] ?? '' ) ),
-			trim( (string) ( $question['authorInitials'] ?? '' ) ),
-			trim( (string) ( $question['year'] ?? '' ) ),
-			trim( (string) ( $question['bookTitle'] ?? '' ) ),
-		);
+		// MCQ has no real draggable Question Parts of its own — this is only
+		// ever fed into validate_bibliographic_consistency()'s
+		// PARTS_MISMATCH check (Edited Book's consistency check ignores it
+		// entirely), so it is built via the exact same
+		// Citex_Reference_Rules::dragdrop_shape() call that check compares
+		// against, for whatever author count this question actually has
+		// (falling back to the singular authorSurname/authorInitials fields
+		// for a record with no `authors` array) — trivially self-consistent
+		// by construction, exactly as the old hardcoded 4-tuple was for a
+		// single author, but correct for 2+ authors too.
+		$authors_for_parts = is_array( $question['authors'] ?? null ) && ! empty( $question['authors'] )
+			? $question['authors']
+			: array( array( 'surname' => trim( (string) ( $question['authorSurname'] ?? '' ) ), 'initials' => trim( (string) ( $question['authorInitials'] ?? '' ) ) ) );
+		$question_parts = Citex_Reference_Rules::dragdrop_shape(
+			$category,
+			array(
+				'authors'   => $authors_for_parts,
+				'editors'   => is_array( $question['editors'] ?? null ) ? $question['editors'] : array(),
+				'year'      => (string) ( $question['year'] ?? '' ),
+				'title'     => (string) ( $question['bookTitle'] ?? '' ),
+				'place'     => (string) ( $question['place'] ?? '' ),
+				'publisher' => (string) ( $question['publisher'] ?? '' ),
+			)
+		)['parts'];
 		// $check_scenario = false: MCQ's question text is Citex's own fixed,
 		// category-generic stem (see Citex_Reference_Rules::mcq_question_stem()),
 		// checked below instead via MCQ_QUESTION_STEM_MISMATCH — the
@@ -510,15 +528,26 @@ class Citex_Generated_Validator {
 			);
 		}
 
-		// One person (Book: authorSurname/authorInitials) or several
-		// (Edited Book: $question['editors']) — every one of them is
-		// checked identically, since a leak of ANY editor's abbreviated
-		// citation or initials value is just as much an answer leak.
+		// One or more people — Book: $question['authors'] (falling back to
+		// the singular authorSurname/authorInitials for any record that
+		// never carries the array), Edited Book: $question['editors'] —
+		// every one of them is checked identically, since a leak of ANY
+		// author/editor's abbreviated citation or initials value is just as
+		// much an answer leak.
 		$people = array();
-		$surname  = trim( (string) ( $question['authorSurname'] ?? '' ) );
-		$initials = trim( (string) ( $question['authorInitials'] ?? '' ) );
-		if ( '' !== $surname || '' !== $initials ) {
-			$people[] = array( 'surname' => $surname, 'initials' => $initials );
+		if ( ! empty( $question['authors'] ) && is_array( $question['authors'] ) ) {
+			foreach ( $question['authors'] as $author ) {
+				$people[] = array(
+					'surname'  => trim( (string) ( $author['surname'] ?? '' ) ),
+					'initials' => trim( (string) ( $author['initials'] ?? '' ) ),
+				);
+			}
+		} else {
+			$surname  = trim( (string) ( $question['authorSurname'] ?? '' ) );
+			$initials = trim( (string) ( $question['authorInitials'] ?? '' ) );
+			if ( '' !== $surname || '' !== $initials ) {
+				$people[] = array( 'surname' => $surname, 'initials' => $initials );
+			}
 		}
 		foreach ( (array) ( $question['editors'] ?? array() ) as $editor ) {
 			$people[] = array(
@@ -562,92 +591,118 @@ class Citex_Generated_Validator {
 	 * bug where a generated question's scenario described one real book while
 	 * its Question Parts/Fixed Text were built from a different one (both
 	 * internally self-consistent, so earlier checks never caught it). This
-	 * only runs when the pending record actually carries a canonical
-	 * bibliographic record (authorSurname/bookTitle) — Citex-generated
-	 * questions always do (see Citex_AI_V2::normalise()); externally
-	 * imported records that never captured one are unaffected, so nothing
-	 * that previously passed import validation is weakened.
+	 * only runs when the pending record actually carries at least one
+	 * canonical author or a book title — Citex-generated questions always
+	 * do (see Citex_AI_V2::normalise()); externally imported records that
+	 * never captured one are unaffected, so nothing that previously passed
+	 * import validation is weakened.
 	 *
-	 * A generated record's Question Parts and Fixed Text are themselves now
-	 * *constructed* from this same canonical record (Citex is the sole
-	 * source of truth for both — see Citex_AI_V2::normalise()), so checks
-	 * 1-10 below are a deliberate, defensive second confirmation rather than
-	 * the only line of defence. Check 11 (the scenario) is the one novel
-	 * gap: nothing else in this class, or in Citex_AI_V2, ever inspects the
-	 * scenario's own wording against the bibliographic facts.
+	 * Reshaped for one-or-more authors (mirrors
+	 * validate_edited_book_consistency()'s per-editor loop exactly — Book
+	 * authors and Edited Book editors are joined by the same Liverpool Hope
+	 * rule and validated the same way): every author's surname/initials must
+	 * appear in the reconstructed reference, and (scenario checks only)
+	 * every author's surname must appear in the scenario. A record with no
+	 * `authors` array falls back to the singular authorSurname/authorInitials
+	 * fields (treated as a single author) — this keeps every pre-multi-author
+	 * record, and any externally imported record that only ever populated
+	 * the singular fields, validating exactly as before. Question Parts must
+	 * exactly match Citex_Reference_Rules::dragdrop_shape()'s own output for
+	 * these same canonical authors — reusing that method (rather than
+	 * re-deriving its author-count branching here) is what keeps this check
+	 * correct for any author count instead of assuming a fixed 4-part shape.
 	 */
 	private static function validate_bibliographic_consistency( $question, $question_parts, $reference, $check_scenario = true ) {
-		$errors = array();
+		$errors  = array();
+		$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		if ( empty( $authors ) ) {
+			$fallback_surname  = trim( (string) ( $question['authorSurname'] ?? '' ) );
+			$fallback_initials = trim( (string) ( $question['authorInitials'] ?? '' ) );
+			if ( '' !== $fallback_surname || '' !== $fallback_initials ) {
+				$authors = array( array( 'surname' => $fallback_surname, 'initials' => $fallback_initials ) );
+			}
+		}
+		$title = trim( (string) ( $question['bookTitle'] ?? '' ) );
 
-		$canonical = array(
-			'authorSurname'  => trim( (string) ( $question['authorSurname'] ?? '' ) ),
-			'authorInitials' => trim( (string) ( $question['authorInitials'] ?? '' ) ),
-			'year'           => trim( (string) ( $question['year'] ?? '' ) ),
-			'bookTitle'      => trim( (string) ( $question['bookTitle'] ?? '' ) ),
-			'place'          => trim( (string) ( $question['place'] ?? '' ) ),
-			'publisher'      => trim( (string) ( $question['publisher'] ?? '' ) ),
-		);
-
-		if ( '' === $canonical['authorSurname'] && '' === $canonical['bookTitle'] ) {
+		if ( empty( $authors ) && '' === $title ) {
+			return $errors;
+		}
+		if ( empty( $authors ) ) {
+			$errors[] = self::error( 'BOOK_AUTHORS_MISSING', 'No authors were provided for this Book question.' );
 			return $errors;
 		}
 
-		// 1-4: Question Parts must be exactly [surname, initials, year, title].
-		$parts_padded  = array_slice( array_pad( array_map( 'trim', $question_parts ), 4, '' ), 0, 4 );
-		$expected_parts = array( $canonical['authorSurname'], $canonical['authorInitials'], $canonical['year'], $canonical['bookTitle'] );
-		if ( $expected_parts !== $parts_padded ) {
+		$year      = trim( (string) ( $question['year'] ?? '' ) );
+		$place     = trim( (string) ( $question['place'] ?? '' ) );
+		$publisher = trim( (string) ( $question['publisher'] ?? '' ) );
+
+		// Question Parts must be EXACTLY the shape Citex_Reference_Rules::
+		// dragdrop_shape() would build for these canonical authors — reusing
+		// that same method (rather than re-deriving the branching logic
+		// here) is what makes this check meaningful for any author count: 4
+		// parts (surname, initials, year, title) for one author, or 3 parts
+		// (joined author list, year, title) for two or more.
+		$expected_shape = Citex_Reference_Rules::dragdrop_shape(
+			Citex_Reference_Rules::CATEGORY_BOOK,
+			array( 'authors' => $authors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher )
+		);
+		$expected_parts = array_map( 'trim', $expected_shape['parts'] );
+		$actual_parts   = array_map( 'trim', (array) $question_parts );
+		if ( $expected_parts !== array_values( $actual_parts ) ) {
 			$errors[] = self::error(
 				'BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH',
-				'Question Parts do not exactly match the canonical bibliographic record (surname, initials, year, title).'
+				'Question Parts do not exactly match the canonical bibliographic record (author(s), year, title) for this author count.'
 			);
 		}
 
-		// 5-10: the reconstructed reference must contain every canonical fact.
-		foreach (
-			array(
-				'authorSurname'  => 'author surname',
-				'authorInitials' => 'author initials',
-				'year'           => 'publication year',
-				'bookTitle'      => 'book title',
-				'place'          => 'place of publication',
-				'publisher'      => 'publisher',
-			) as $field => $label
-		) {
-			if ( '' !== $canonical[ $field ] && ! self::text_contains( $reference, $canonical[ $field ] ) ) {
-				$errors[] = self::error(
-					'BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH',
-					sprintf( 'The reconstructed reference does not contain the canonical %s: "%s".', $label, $canonical[ $field ] )
-				);
+		foreach ( $authors as $index => $author ) {
+			$author_surname  = trim( (string) ( $author['surname'] ?? '' ) );
+			$author_initials = trim( (string) ( $author['initials'] ?? '' ) );
+			if ( '' !== $author_surname && ! self::text_contains( $reference, $author_surname ) ) {
+				$errors[] = self::error( 'BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
+			}
+			if ( '' !== $author_initials && ! self::text_contains( $reference, $author_initials ) ) {
+				$errors[] = self::error( 'BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s initials: "%2$s".', $index + 1, $author_initials ) );
+			}
+			// Scenario check: author initials are deliberately excluded — a
+			// natural scenario names the author (e.g. "Stella Cottrell"),
+			// not their initials, so checking initials against the scenario
+			// text would reject genuinely correct scenarios. Skipped when
+			// $check_scenario is false (MCQ): its scenario is Citex's own
+			// fixed, category-generic question stem, which by design names
+			// no book-specific fact at all.
+			if ( $check_scenario && '' !== $author_surname && ! self::text_contains( (string) ( $question['scenario'] ?? '' ), $author_surname ) ) {
+				$errors[] = self::error( 'BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
 			}
 		}
 
-		// 11: the scenario must identify the same bibliographic record. Author
-		// initials are deliberately excluded here: a natural scenario names the
-		// author (e.g. "Stella Cottrell"), not their initials, so checking
-		// initials against the scenario text would reject genuinely correct
-		// scenarios.
-		//
-		// Skipped when $check_scenario is false (MCQ): its scenario is now
-		// Citex's own fixed, category-generic question stem, which by
-		// design names no book-specific fact at all — checking it against
-		// the canonical record would always fail, for the right reason
-		// (nothing to leak) rather than a real inconsistency.
+		foreach (
+			array(
+				'year'      => array( $year, 'publication year' ),
+				'title'     => array( $title, 'book title' ),
+				'place'     => array( $place, 'place of publication' ),
+				'publisher' => array( $publisher, 'publisher' ),
+			) as $pair
+		) {
+			list( $value, $label ) = $pair;
+			if ( '' !== $value && ! self::text_contains( $reference, $value ) ) {
+				$errors[] = self::error( 'BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', sprintf( 'The reconstructed reference does not contain the canonical %1$s: "%2$s".', $label, $value ) );
+			}
+		}
+
 		if ( $check_scenario ) {
 			$scenario = (string) ( $question['scenario'] ?? '' );
 			foreach (
 				array(
-					'bookTitle'     => 'book title',
-					'authorSurname' => 'author surname',
-					'year'          => 'publication year',
-					'place'         => 'place of publication',
-					'publisher'     => 'publisher',
-				) as $field => $label
+					'title'     => array( $title, 'book title' ),
+					'year'      => array( $year, 'publication year' ),
+					'place'     => array( $place, 'place of publication' ),
+					'publisher' => array( $publisher, 'publisher' ),
+				) as $pair
 			) {
-				if ( '' !== $canonical[ $field ] && ! self::text_contains( $scenario, $canonical[ $field ] ) ) {
-					$errors[] = self::error(
-						'BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH',
-						sprintf( 'The scenario does not mention the canonical %s: "%s".', $label, $canonical[ $field ] )
-					);
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
 				}
 			}
 		}
