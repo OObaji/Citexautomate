@@ -54,6 +54,13 @@ class Citex_Generated_Validator {
 			if ( 'identify_error' === (string) ( $question['mcqPattern'] ?? '' ) ) {
 				return self::validate_identify_error( $question );
 			}
+			// "Choose the correct rule/treatment": pure rule knowledge, no
+			// bibliographic record at all — see normalise_choose_treatment_item()
+			// in class-citex-ai-v2.php. Routed the same way as identify_error,
+			// on `mcqPattern`.
+			if ( 'choose_treatment' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_choose_treatment( $question );
+			}
 			return self::validate_mcq( $question );
 		}
 
@@ -452,6 +459,91 @@ class Citex_Generated_Validator {
 		}
 
 		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $true_description );
+	}
+
+	/**
+	 * "Choose the correct rule/treatment" MCQ counterpart to validate_mcq():
+	 * same 4-option shape and "never duplicate the answer into an option"
+	 * rule, but there is no bibliographic record at all here — this
+	 * question tests pure rule knowledge (see normalise_choose_treatment_item()
+	 * in class-citex-ai-v2.php), so none of validate_mcq()'s reference-
+	 * format or bibliographic-consistency checks apply. What this
+	 * validates instead: the scenario and the answer must exactly match
+	 * Citex_Reference_Rules::treatment_question()'s own fixed stem/
+	 * correctStatement for this question's `treatmentBucket` — the same
+	 * "Citex authors it, then independently re-checks what was actually
+	 * written" pattern MCQ_QUESTION_STEM_MISMATCH already uses for
+	 * select_correct.
+	 */
+	private static function validate_choose_treatment( $question ) {
+		$errors   = array();
+		$category = (string) ( $question['category'] ?? Citex_Reference_Rules::CATEGORY_BOOK );
+		$options  = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong statements + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong statement.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the true statement belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$true_statement = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $true_statement ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The true rule statement (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$true_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $true_statement ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $true_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the true statement — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$bucket_id = (string) ( $question['treatmentBucket'] ?? '' );
+		$expected  = Citex_Reference_Rules::treatment_question( $category, $bucket_id );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'TREATMENT_BUCKET_UNKNOWN', sprintf( 'Unrecognised choose-treatment bucket: "%s".', $bucket_id ) );
+			return self::result( 'failed', $errors, $true_statement );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'TREATMENT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $true_statement !== $expected['correctStatement'] ) {
+			$errors[] = self::error( 'TREATMENT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own true statement for this bucket: "%s".', $expected['correctStatement'] ) );
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $true_statement ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $true_statement );
 	}
 
 	/**

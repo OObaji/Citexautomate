@@ -68,16 +68,37 @@ class Citex_Question_Scenarios {
 	/**
 	 * MCQ mechanics beyond "select the correct reference" (which itself
 	 * lives in the count buckets above, tagged by author/editor count).
-	 * Deliberately kept to a single real author/editor count (targetCounts
-	 * = [1]) for now — combining "identify a deliberately broken reference"
-	 * with "and also vary the author count" compounds two kinds of
-	 * complexity in the same question; author-count variation for this
-	 * mechanic is explicit backlog, not silently out of scope.
+	 *
+	 * `identify_error` is deliberately kept to a single real author/editor
+	 * count (targetCounts = [1]) for now — combining "identify a
+	 * deliberately broken reference" with "and also vary the author count"
+	 * compounds two kinds of complexity in the same question; author-count
+	 * variation for that mechanic is explicit backlog, not silently out of
+	 * scope.
+	 *
+	 * `choose_treatment_*` tests the joining/designation RULE directly —
+	 * "which statement is correct", not "which reference is correct" — one
+	 * scenario per count bucket where the rule's wording genuinely differs
+	 * (matches the user's own worked examples exactly, including the
+	 * four_or_more_authors "et al." misconception test). No one_author/
+	 * one_editor variant: with only one person there is no joining
+	 * convention to state a rule about, so there is nothing genuinely
+	 * different from select_correct's own one_author/one_editor scenario to
+	 * test here.
 	 */
 	private static function mcq_only_scenarios( $category ) {
-		return array(
+		$scenarios = array(
 			array( 'id' => 'identify_error', 'ruleTested' => 'error_identification', 'targetCounts' => array( 1 ), 'label' => 'Identify the error' ),
 		);
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			$scenarios[] = array( 'id' => 'choose_treatment_two_editors', 'ruleTested' => 'editor_designation', 'targetCounts' => array( 2 ), 'label' => 'Choose the correct treatment (two editors)' );
+			$scenarios[] = array( 'id' => 'choose_treatment_three_or_more_editors', 'ruleTested' => 'editor_joining', 'targetCounts' => array( 3 ), 'label' => 'Choose the correct treatment (three or more editors)' );
+		} else {
+			$scenarios[] = array( 'id' => 'choose_treatment_two_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Choose the correct treatment (two authors)' );
+			$scenarios[] = array( 'id' => 'choose_treatment_three_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 3 ), 'label' => 'Choose the correct treatment (three authors)' );
+			$scenarios[] = array( 'id' => 'choose_treatment_four_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4 ), 'label' => 'Choose the correct treatment (four or more authors)' );
+		}
+		return $scenarios;
 	}
 
 	/**

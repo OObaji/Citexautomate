@@ -151,6 +151,13 @@ class Citex_AI_V2 {
 		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
 			return self::build_prompt_identify_error( $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 		}
+		if ( 'MCQ' === $type && 0 === strpos( (string) $scenario_id, 'choose_treatment_' ) ) {
+			// No scenario_instruction here: this mechanic asks for no
+			// author/editor list at all (see build_prompt_choose_treatment()'s
+			// docblock), so an "exactly N authors" instruction would be
+			// meaningless noise in the prompt.
+			return self::build_prompt_choose_treatment( $category, substr( (string) $scenario_id, strlen( 'choose_treatment_' ) ), $ids, $difficulty, $verify, $quality_feedback );
+		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return 'MCQ' === $type
 				? self::build_prompt_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
@@ -186,6 +193,9 @@ class Citex_AI_V2 {
 		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
 			return self::schema_identify_error( $category );
 		}
+		if ( 'MCQ' === $type && 0 === strpos( (string) $scenario_id, 'choose_treatment_' ) ) {
+			return self::schema_choose_treatment();
+		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return 'MCQ' === $type ? self::schema_edited_book_mcq() : self::schema_edited_book();
 		}
@@ -195,6 +205,9 @@ class Citex_AI_V2 {
 	private static function system_instruction_for( $type, $category, $scenario_id = '' ) {
 		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
 			return self::system_instruction_identify_error( $category );
+		}
+		if ( 'MCQ' === $type && 0 === strpos( (string) $scenario_id, 'choose_treatment_' ) ) {
+			return self::system_instruction_choose_treatment( $category );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return 'MCQ' === $type
@@ -338,6 +351,52 @@ class Citex_AI_V2 {
 		$noun            = $is_edited_book ? 'editor' : 'author';
 		$plural_field    = $is_edited_book ? 'editorFullNames' : 'authorFullNames';
 		return "You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University Harvard ReferenceList \"Identify the error\" multiple-choice questions, not tests or fictional examples. Verify bibliographic facts when web verification is enabled. Never invent books, {$noun}s, years, publishers, or places. This question type shows the student ONE deliberately broken reference and asks what is wrong with it — you provide that one broken reference (brokenReference: {reference, errorReason}, built by deliberately applying exactly one named Harvard error pattern to the real record described by {$plural_field}/year/bookTitle/place/publisher) plus THREE plausible-but-untrue `wrongDescriptions` of other things that could be wrong but are not actually true of brokenReference. Citex is the sole authority for the correct answer (errorReason itself) and never asks you for it separately — your job is only to make brokenReference genuinely, specifically broken in exactly the one way you claim, and to make the three wrongDescriptions plausible distractors that are demonstrably NOT true of brokenReference when re-read carefully. Before returning each question, perform a strict self-check: brokenReference contains every canonical fact with exactly one deliberate mistake; errorReason names that mistake specifically; and none of the three wrongDescriptions is also true of brokenReference (that would create a second correct answer, which Citex will reject). Return only the requested JSON.";
+	}
+
+	/**
+	 * "Choose the correct rule/treatment" MCQ mechanic
+	 * (Citex_Question_Scenarios' `choose_treatment_*`, both categories) —
+	 * tests the joining/designation RULE directly ("which statement is
+	 * correct"), not via any specific book. Citex is the SOLE author of
+	 * both the question stem and the one true statement
+	 * (Citex_Reference_Rules::treatment_question()) — this is pure rule
+	 * knowledge, so unlike every other MCQ pattern there is no
+	 * bibliographic record at all for Gemini to verify, invent, or leak an
+	 * answer through. Gemini's only job is three plausible-but-wrong
+	 * `wrongStatements`, reusing the exact same "3 distractors, 1 blank,
+	 * answer = full text, never duplicated into an option" shape every
+	 * other MCQ pattern uses.
+	 */
+	private static function build_prompt_choose_treatment( $category, $bucket_id, $ids, $difficulty, $verify, $quality_feedback = '' ) {
+		$treatment = Citex_Reference_Rules::treatment_question( $category, $bucket_id );
+		$noun      = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editor' : 'author';
+		$patterns  = Citex_Reference_Rules::mcq_distractor_patterns( $category );
+		$catalogue = '';
+		foreach ( $patterns as $index => $pattern ) {
+			$catalogue .= "\n  " . ( $index + 1 ) . '. ' . $pattern;
+		}
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList \"choose the correct rule\" multiple-choice questions, EVERY ONE of them testing this exact same rule statement (there is no specific book involved at all — this is pure rule knowledge):\n\nTHE TRUE STATEMENT (Citex will use this as the correct answer — you never provide it):\n\"" . $treatment['correctStatement'] . "\"\n\nYour ONLY job for each question is to provide exactly THREE `wrongStatements`: plausible-but-INCORRECT statements about this same rule area (how multiple {$noun}s are referenced), each describing a real, specific Harvard-referencing misconception — drawn from known error patterns such as:$catalogue\n- A wrongStatement must be a genuinely different claim from the true statement above, not a reworded copy of it.\n- Every wrongStatement must be clearly, specifically wrong — never vague, never nonsensical, never trivially obvious.\n- The three must be mutually distinct from each other.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. Exactly 3 wrongStatements are provided.\n2. None of them is a reworded copy of the true statement — each describes a genuinely different (and wrong) claim.\n3. All three are mutually distinct from each other.\n4. Only return questions that pass all three checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	private static function system_instruction_choose_treatment( $category ) {
+		$noun = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editor' : 'author';
+		return "You are Citex, an academic question-generation engine. Generate real, usable Liverpool Hope University \"choose the correct rule\" multiple-choice questions about how multiple {$noun}s are referenced in the Liverpool Hope Harvard reference list. This question type tests pure rule knowledge, not any specific book — Citex supplies the entire question (the stem and the one true rule statement) itself, so there is no bibliographic record for you to verify, invent, or leak an answer through at all. Your only job is to provide exactly THREE plausible-but-wrong `wrongStatements` about the same rule area, each a genuinely different (and specifically incorrect) claim from the true statement Citex will use as the answer — never a reworded copy of it, never vague, never nonsensical. Before returning each question, perform a strict self-check: all three wrongStatements are mutually distinct, each is a clearly wrong (not merely reworded-correct) claim, and none of them could be read as another way of stating the true rule. Return only the requested JSON.";
+	}
+
+	/**
+	 * Schema for the "choose the correct rule" MCQ mechanic — deliberately
+	 * the simplest schema in the whole file: no bibliographic fields at
+	 * all (authorFullNames/year/bookTitle/etc never apply — this question
+	 * tests a rule, not a book), just the three wrong statements.
+	 */
+	private static function schema_choose_treatment() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId'      => $s,
+			'wrongStatements' => array( 'type' => 'array', 'items' => $s ),
+		), 'required' => array( 'questionId', 'wrongStatements' ) ) ) ), 'required' => array( 'questions' ) );
 	}
 
 	private static function schema_edited_book() {
@@ -564,7 +623,13 @@ class Citex_AI_V2 {
 			// matrix built before generation began, never read from $item.
 			$exercise = isset( $exercises[ $i ] ) ? sanitize_text_field( (string) $exercises[ $i ] ) : 'Exercise 1';
 
-			if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
+			if ( 'MCQ' === $type && 0 === strpos( (string) $scenario_id, 'choose_treatment_' ) ) {
+				// "Choose the correct rule/treatment" needs none of the
+				// generic bibliographic-data fields at all — no book, no
+				// author/editor list — since it tests pure rule knowledge;
+				// see normalise_choose_treatment_item()'s docblock.
+				$candidate = self::normalise_choose_treatment_item( $item, $id, $category, substr( (string) $scenario_id, strlen( 'choose_treatment_' ) ), $exercise, $difficulty );
+			} elseif ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
 				// "Identify the error" has its own normaliser (a
 				// fundamentally different data shape — a shown broken
 				// reference plus text descriptions, not a generic fixed
@@ -907,6 +972,88 @@ class Citex_AI_V2 {
 			'answerExplanation' => sanitize_textarea_field( $answer_explanation ),
 			'reconstructedReference' => sanitize_text_field( $true_description ),
 			'mcqPattern' => 'identify_error',
+			'status' => 'pending',
+			'validationStatus' => 'not_validated',
+			'validationErrors' => array(),
+			'origin' => 'generated_ai',
+			'aiProvider' => 'Gemini',
+			'aiModel' => self::get_model(),
+			'generatedAt' => gmdate( 'c' ),
+		);
+	}
+
+	/**
+	 * "Choose the correct rule/treatment" MCQ mechanic (Citex_Question_Scenarios'
+	 * `choose_treatment_*`, both categories) — see build_prompt_choose_treatment()'s
+	 * docblock for the full mechanic description. Citex builds BOTH the
+	 * scenario (the fixed stem for this bucket) and the correct answer (the
+	 * fixed true statement for this bucket) itself, via
+	 * Citex_Reference_Rules::treatment_question() — there is no
+	 * bibliographic record involved at all, unlike every other MCQ
+	 * pattern. wrongStatements become options 1-3 (order preserved),
+	 * option 4 stays blank, and the Answer field (reconstructedReference)
+	 * holds the true statement — never duplicated into any option, exactly
+	 * like every other MCQ pattern's correct answer.
+	 *
+	 * @param string $bucket_id e.g. "two_authors", "four_or_more_authors" —
+	 *               the count-bucket vocabulary Citex_Reference_Rules::
+	 *               treatment_question() understands (NOT the
+	 *               "choose_treatment_"-prefixed scenario catalog id).
+	 * @return array|WP_Error
+	 */
+	private static function normalise_choose_treatment_item( $item, $id, $category, $bucket_id, $exercise, $difficulty ) {
+		$treatment = Citex_Reference_Rules::treatment_question( $category, $bucket_id );
+		if ( null === $treatment ) {
+			return new WP_Error( 'citex_ai_unknown_treatment_bucket', sprintf( __( 'Question %1$s: unrecognised choose-treatment bucket "%2$s".', 'citex-tools' ), $id, $bucket_id ) );
+		}
+		$correct_statement = $treatment['correctStatement'];
+
+		$wrong_statements = array_values( array_filter( array_map( 'trim', (array) ( $item['wrongStatements'] ?? array() ) ), 'strlen' ) );
+		if ( 3 !== count( $wrong_statements ) ) {
+			return new WP_Error( 'citex_ai_treatment_bad_option_count', sprintf( __( 'Question %1$s has %2$d wrongStatements; exactly 3 are required.', 'citex-tools' ), $id, count( $wrong_statements ) ) );
+		}
+
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_statement ) ) );
+		$seen           = array( $correct_normal => true );
+		foreach ( $wrong_statements as $statement ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $statement ) ) );
+			if ( $normal === $correct_normal ) {
+				return new WP_Error( 'citex_ai_treatment_option_matches_answer', sprintf( __( 'Question %s has a "wrong" statement identical to the true one.', 'citex-tools' ), $id ) );
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				return new WP_Error( 'citex_ai_treatment_duplicate_option', sprintf( __( 'Question %s has a duplicate wrongStatement.', 'citex-tools' ), $id ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		// Option 1-3 hold the 3 wrong statements, in the order Gemini
+		// supplied them; Option 4 is ALWAYS blank — the true statement
+		// lives only in the Answer field, below.
+		$options   = $wrong_statements;
+		$options[] = '';
+
+		$category_label = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'Edited Book' : 'Book';
+		$hint            = Citex_Reference_Rules::treatment_hint( $category );
+		$answer_explanation = sprintf( 'The correct rule statement: %s', $correct_statement );
+
+		return array(
+			'key' => wp_generate_uuid4(),
+			'questionId' => $id,
+			'title' => sprintf( 'Harvard | ReferenceList | %s | MCQ | %s', $category_label, $id ),
+			'source' => 'Harvard',
+			'group' => 'ReferenceList',
+			'category' => $category_label,
+			'exercise' => $exercise,
+			'type' => 'MCQ',
+			'institution' => 'Liverpool Hope University',
+			'difficulty' => ucfirst( $difficulty ),
+			'scenario' => sanitize_textarea_field( $treatment['stem'] ),
+			'options' => array_values( array_map( 'sanitize_text_field', $options ) ),
+			'hint' => sanitize_textarea_field( $hint ),
+			'answerExplanation' => sanitize_textarea_field( $answer_explanation ),
+			'reconstructedReference' => sanitize_text_field( $correct_statement ),
+			'mcqPattern' => 'choose_treatment',
+			'treatmentBucket' => sanitize_key( $bucket_id ),
 			'status' => 'pending',
 			'validationStatus' => 'not_validated',
 			'validationErrors' => array(),

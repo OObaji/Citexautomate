@@ -312,4 +312,72 @@ class Citex_Reference_Rules {
 		}
 		return 'Work through the reference rule by rule: the order of surname and initials, how multiple authors are joined (if there is more than one), the position of the year, and the punctuation between title, place and publisher.';
 	}
+
+	/**
+	 * "Choose the correct rule" MCQ scenario — the fixed, Citex-authored
+	 * question stem and the ONE TRUE rule statement for one author/editor-
+	 * count bucket, keyed by the same bucket ids Citex_Question_Scenarios
+	 * already uses for select_correct/construct_reference (e.g.
+	 * "two_authors", "four_or_more_authors"). Citex is the sole authority
+	 * for BOTH the stem and the correct statement — this question tests
+	 * pure rule knowledge, not any specific real book, so unlike every
+	 * other MCQ pattern there is no bibliographic record for Gemini to
+	 * verify or leak an answer through at all; Gemini's only job is
+	 * supplying three plausible-but-wrong statements (see
+	 * Citex_AI_V2::build_prompt_choose_treatment()).
+	 *
+	 * Wording for "four_or_more_authors" matches the user's own confirmed
+	 * example exactly (including naming the "et al." misconception this
+	 * bucket exists to test — the exact confusion between Liverpool Hope's
+	 * reference-list rule, which never uses "et al.", and its separate
+	 * in-text-citation convention, which does).
+	 *
+	 * @return array{stem: string, correctStatement: string}|null null for
+	 *         an unrecognised bucket id.
+	 */
+	public static function treatment_question( $category, $bucket_id ) {
+		if ( self::CATEGORY_EDITED_BOOK === $category ) {
+			$catalogue = array(
+				'two_editors'            => array(
+					'stem'             => 'Which of the following statements is correct about referencing a book edited by two people in the Liverpool Hope Harvard reference list?',
+					'correctStatement' => 'Both editors are included, joined by "and", followed by the designation "(eds)" — e.g. Smith, J. and Jones, A. (eds).',
+				),
+				'three_or_more_editors'  => array(
+					'stem'             => 'Which of the following statements is correct about referencing a book edited by three or more people in the Liverpool Hope Harvard reference list?',
+					'correctStatement' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)" — e.g. Smith, J., Jones, A. and Brown, T. (eds).',
+				),
+			);
+			return $catalogue[ $bucket_id ] ?? null;
+		}
+		$catalogue = array(
+			'two_authors'            => array(
+				'stem'             => 'Which of the following statements is correct about referencing a book written by two authors in the Liverpool Hope Harvard reference list?',
+				'correctStatement' => 'Both authors are included, joined by "and" — e.g. Smith, J. and Jones, A.',
+			),
+			'three_authors'          => array(
+				'stem'             => 'Which of the following statements is correct about referencing a book written by three authors in the Liverpool Hope Harvard reference list?',
+				'correctStatement' => 'All three authors are included, separated by commas with "and" before the final author — e.g. Smith, J., Jones, A. and Brown, T.',
+			),
+			'four_or_more_authors'   => array(
+				'stem'             => 'Which statement is correct about a book with four or more authors in the Liverpool Hope Harvard reference list?',
+				'correctStatement' => 'All authors should be included; et al. is not used in the reference list.',
+			),
+		);
+		return $catalogue[ $bucket_id ] ?? null;
+	}
+
+	/**
+	 * The fixed, non-revealing hint for the "Choose the correct rule"
+	 * scenario — same "never name the answer" standard as mcq_hint()/
+	 * identify_error_hint(), phrased for a pure rule-knowledge question:
+	 * points the student at the general distinction to reason about
+	 * (author/editor-count joining conventions, and the reference-list vs
+	 * in-text-citation distinction) without stating which statement is true.
+	 */
+	public static function treatment_hint( $category ) {
+		if ( self::CATEGORY_EDITED_BOOK === $category ) {
+			return 'Think about how the editor designation and the joining of multiple editor names change (or don\'t change) as the editor count grows — and remember this is the reference-list rule, not the separate in-text-citation convention.';
+		}
+		return 'Think about how the joining of multiple author names changes (or doesn\'t change) as the author count grows — and remember this is the reference-list rule, not the separate in-text-citation convention (which does use "et al.").';
+	}
 }

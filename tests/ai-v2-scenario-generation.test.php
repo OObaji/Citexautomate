@@ -278,5 +278,37 @@ if ( ! is_wp_error( $identify_error_result ) ) {
 	check( '[6] the Answer field holds the true description, not a reference', $identify_error_candidate['reconstructedReference'], 'Uses the author\'s full first name instead of initials, and is missing the comma after the surname.' );
 }
 
+// ---------------------------------------------------------------------
+// 7. The "choose_treatment_*" scenario routes through generate_questions()
+// to its own prompt/schema/system-instruction/normaliser end-to-end — an
+// even simpler Gemini response shape than identify_error (no bibliographic
+// fields at all, just wrongStatements), proving the dispatch generalises
+// to a genuinely different mechanic shape, not just two special cases.
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__next_response'] = gemini_response_for( array( array(
+	'questionId'      => 'BK07',
+	'wrongStatements' => array(
+		'The first author is listed and the rest are shortened to et al.',
+		'Only the first three authors are listed; the rest are omitted.',
+		'Authors are joined with an ampersand (&) instead of commas and "and".',
+	),
+) ) );
+$treatment_result = Citex_AI_V2::generate_questions( array(
+	'quantity'    => 1,
+	'starting_id' => 'BK07',
+	'difficulty'  => 'medium',
+	'type'        => 'mcq',
+	'category'    => 'book',
+	'scenario'    => 'choose_treatment_four_or_more_authors',
+) );
+check( '[7] generation succeeds for the choose_treatment_four_or_more_authors scenario', is_wp_error( $treatment_result ), false );
+if ( ! is_wp_error( $treatment_result ) ) {
+	$treatment_candidate = $treatment_result[0];
+	check( '[7] mcqPattern is choose_treatment', $treatment_candidate['mcqPattern'], 'choose_treatment' );
+	check( '[7] blueprint scenario is the full choose_treatment_ scenario id', $treatment_candidate['blueprint']['scenario'], 'choose_treatment_four_or_more_authors' );
+	check( '[7] the Answer field holds Citex\'s own fixed true statement', $treatment_candidate['reconstructedReference'], 'All authors should be included; et al. is not used in the reference list.' );
+}
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
