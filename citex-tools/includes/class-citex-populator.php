@@ -108,6 +108,18 @@ class Citex_Populator {
 	const FIELD_OPTION_3 = 'field_6818e8100fd21';
 	const FIELD_OPTION_4 = 'field_6818e81a0fd22';
 
+	// Shared fields visible on the real "Add New Reference" edit screen for
+	// EVERY question (both DragDrop and MCQ) — Question Class and Hint —
+	// also confirmed via Citex Diagnostics. Only MCQ writes these today
+	// (see write_mcq_acf_values()): DragDrop already works without Citex
+	// setting them explicitly (Question Class already carries an ACF
+	// default of "Harvard" on new posts), so they are left untouched there
+	// per "do not change working DragDrop behaviour" — MCQ has no such
+	// track record yet, so it sets both explicitly rather than relying on
+	// the same default holding.
+	const FIELD_QUESTION_CLASS = 'field_59e09466a6813';
+	const FIELD_HINT           = 'field_59c2476bc879d';
+
 	public function render() {
 		$this->maybe_handle_submit();
 
@@ -347,6 +359,17 @@ class Citex_Populator {
 				throw new Exception( 'Category/Exercise: ' . $classification_result->get_error_message() );
 			}
 
+			// A plain WordPress post meta key (deliberately not an ACF field —
+			// no such field exists on this site, and this needs no ACF schema
+			// change at all) making the question type ("DragDrop"/"MCQ")
+			// explicitly machine-readable, in addition to it already being
+			// implicit in which set of fields is populated. Purely additive:
+			// nothing currently reads this key, so writing it cannot change
+			// any existing behaviour.
+			if ( function_exists( 'update_post_meta' ) ) {
+				update_post_meta( $new_id, '_citex_question_type', $classification['type'] );
+			}
+
 			// Question Parts/Confusing Words are ACF repeaters whose real shape
 			// is only known by introspecting the field itself (see
 			// resolve_repeater_text_row_shape()) — never assumed from the
@@ -486,13 +509,18 @@ class Citex_Populator {
 	}
 
 	/**
-	 * Write MCQ's ACF fields: option_1-4 (the confirmed real field keys —
-	 * see FIELD_OPTION_1..4) plus Scenario, and the Answer field that
-	 * identifies which option is correct. The Answer field's own accepted
-	 * value shape is not assumed — see resolve_mcq_answer_choice().
+	 * Write MCQ's ACF fields: option_1-4 and Scenario (the confirmed real
+	 * field keys — see FIELD_OPTION_1..4), Hint (holding the explanation —
+	 * there is no separate "explanation" field on this site; Hint is the
+	 * real, confirmed field that plays that role), Question Class (fixed
+	 * "Harvard" — DragDrop already works without Citex setting this
+	 * explicitly via its own ACF default, but MCQ sets it directly since it
+	 * has no such track record yet), and the Answer field that identifies
+	 * which option is correct. The Answer field's own accepted value shape
+	 * is not assumed — see resolve_mcq_answer_choice().
 	 *
 	 * @throws Exception on any write-shape failure.
-	 * @return array {options: string[4], correctIndex: int, answerValue: string}
+	 * @return array {options: string[4], correctIndex: int, answerValue: string, hint: string}
 	 */
 	private function write_mcq_acf_values( $new_id, $field_map, $question ) {
 		$options = array_values( is_array( $question['options'] ?? null ) ? $question['options'] : array() );
@@ -510,13 +538,17 @@ class Citex_Populator {
 		$this->write_acf_value( $new_id, $field_map['option4'], (string) $options[3] );
 		$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
 
+		$hint = (string) ( $question['explanation'] ?? '' );
+		$this->write_acf_value( $new_id, $field_map['hint'], $hint );
+		$this->write_acf_value( $new_id, $field_map['questionClass'], 'Harvard' );
+
 		$answer_value = $this->resolve_mcq_answer_choice( $field_map['answer'], $correct_index + 1 );
 		if ( is_wp_error( $answer_value ) ) {
 			throw new Exception( 'Answer: ' . $answer_value->get_error_message() );
 		}
 		$this->write_acf_value( $new_id, $field_map['answer'], $answer_value );
 
-		return array( 'options' => $options, 'correctIndex' => $correct_index, 'answerValue' => $answer_value );
+		return array( 'options' => $options, 'correctIndex' => $correct_index, 'answerValue' => $answer_value, 'hint' => $hint );
 	}
 
 	private function verify_mcq_acf_values( $new_id, $field_map, $question, $write_result ) {
@@ -539,6 +571,12 @@ class Citex_Populator {
 			throw new Exception( 'Scenario did not persist to the new Reference List record.' );
 		}
 
+		$stored_hint = get_field( $field_map['hint'], $new_id, false );
+		$diagnostics['hintVerified'] = trim( (string) $stored_hint ) === trim( (string) $write_result['hint'] );
+		if ( ! $diagnostics['hintVerified'] ) {
+			throw new Exception( 'Hint/explanation did not persist to the new Reference List record.' );
+		}
+
 		$stored_answer = get_field( $field_map['answer'], $new_id, false );
 		$diagnostics['answerVerified'] = ( (string) $stored_answer === (string) $write_result['answerValue'] );
 		if ( ! $diagnostics['answerVerified'] ) {
@@ -553,40 +591,47 @@ class Citex_Populator {
 	 * options is correct, but its accepted value shape is site-specific and
 	 * was not knowable in advance — unlike Question Parts/Confusing Words,
 	 * no real MCQ example existed on the live site to capture via
-	 * Diagnostics before this was written. So, exactly like
-	 * resolve_repeater_text_row_shape(), this is discovered from the
-	 * field's own ACF definition rather than assumed:
+	 * Diagnostics before this was written (the real "Answer" field on the
+	 * live edit screen is a plain single-line text input, not a
+	 * dropdown/radio, but that alone does not reveal what string it
+	 * expects). So, exactly like resolve_repeater_text_row_shape(), the
+	 * value is discovered from the field's own ACF definition rather than
+	 * assumed:
 	 *
 	 * - If Answer is a choice-type field (select/radio/button_group), the
-	 *   one choice whose key or label unambiguously names this option
-	 *   number ("option_2", "Option 2", or "2") is used. More than one
-	 *   equally-plausible match is a genuine ambiguity Citex will not guess
-	 *   through.
-	 * - Otherwise (a plain text/number field), the literal option field name
-	 *   ("option_2") is written — the most common alternative shape for a
-	 *   "which option is correct" field referencing its sibling fields by
-	 *   name.
+	 *   one choice whose key or label unambiguously names this option — by
+	 *   number ("option_2", "Option 2", "2") or by letter ("B", "Option B")
+	 *   — is used. More than one equally-plausible match is a genuine
+	 *   ambiguity Citex will not guess through.
+	 * - Otherwise (a plain text field, matching what the live site actually
+	 *   shows), the option LETTER ("A"/"B"/"C"/"D") is written — a stable,
+	 *   human-readable option identifier, matching how this is meant to be
+	 *   graded (never by comparing option text).
 	 *
 	 * @return string|WP_Error
 	 */
 	private function resolve_mcq_answer_choice( $answer_field_key, $option_number ) {
-		$field = function_exists( 'acf_get_field' ) ? acf_get_field( $answer_field_key ) : null;
+		$letter = chr( 64 + max( 1, min( 4, (int) $option_number ) ) ); // 1..4 -> A..D
+		$field  = function_exists( 'acf_get_field' ) ? acf_get_field( $answer_field_key ) : null;
 		if ( ! is_array( $field ) ) {
-			return 'option_' . $option_number;
+			return $letter;
 		}
 
 		$type = (string) ( $field['type'] ?? '' );
 		if ( ! in_array( $type, array( 'select', 'radio', 'button_group' ), true ) || empty( $field['choices'] ) || ! is_array( $field['choices'] ) ) {
-			return 'option_' . $option_number;
+			return $letter;
 		}
 
 		$needle_number = (string) $option_number;
-		$needle_word   = $this->normalise_label( 'option ' . $option_number );
+		$needle_letter = $this->normalise_label( $letter );
+		$needle_word    = $this->normalise_label( 'option ' . $option_number );
+		$needle_word_ltr = $this->normalise_label( 'option ' . $letter );
 		$candidates    = array();
 		foreach ( $field['choices'] as $choice_value => $choice_label ) {
 			$normalised_value = $this->normalise_label( (string) $choice_value );
 			$normalised_label = $this->normalise_label( (string) $choice_label );
-			if ( $normalised_value === $needle_number || $normalised_label === $needle_number || $normalised_value === $needle_word || $normalised_label === $needle_word ) {
+			$needles = array( $needle_number, $needle_letter, $needle_word, $needle_word_ltr );
+			if ( in_array( $normalised_value, $needles, true ) || in_array( $normalised_label, $needles, true ) ) {
 				$candidates[] = (string) $choice_value;
 			}
 		}
@@ -598,8 +643,9 @@ class Citex_Populator {
 		return new WP_Error(
 			'citex_mcq_answer_choice_ambiguous',
 			sprintf(
-				'Citex could not determine which Answer choice corresponds to option %1$d. Available choices: %2$s.',
+				'Citex could not determine which Answer choice corresponds to option %1$d (%2$s). Available choices: %3$s.',
 				$option_number,
+				$letter,
 				implode( ', ', array_keys( $field['choices'] ) )
 			)
 		);
@@ -677,12 +723,14 @@ class Citex_Populator {
 	private static function field_map_for_type( $type, $scenario_key ) {
 		if ( 'MCQ' === $type ) {
 			return array(
-				'scenario' => $scenario_key,
-				'option1'  => self::FIELD_OPTION_1,
-				'option2'  => self::FIELD_OPTION_2,
-				'option3'  => self::FIELD_OPTION_3,
-				'option4'  => self::FIELD_OPTION_4,
-				'answer'   => self::FIELD_ANSWER,
+				'scenario'      => $scenario_key,
+				'option1'       => self::FIELD_OPTION_1,
+				'option2'       => self::FIELD_OPTION_2,
+				'option3'       => self::FIELD_OPTION_3,
+				'option4'       => self::FIELD_OPTION_4,
+				'answer'        => self::FIELD_ANSWER,
+				'hint'          => self::FIELD_HINT,
+				'questionClass' => self::FIELD_QUESTION_CLASS,
 			);
 		}
 		return array(
@@ -695,7 +743,7 @@ class Citex_Populator {
 
 	private function assert_known_acf_fields_registered( $type = 'DragDrop' ) {
 		$required = 'MCQ' === $type
-			? array( self::FIELD_OPTION_1, self::FIELD_OPTION_2, self::FIELD_OPTION_3, self::FIELD_OPTION_4, self::FIELD_ANSWER )
+			? array( self::FIELD_OPTION_1, self::FIELD_OPTION_2, self::FIELD_OPTION_3, self::FIELD_OPTION_4, self::FIELD_ANSWER, self::FIELD_HINT, self::FIELD_QUESTION_CLASS )
 			: array( self::FIELD_FIXED_TEXT, self::FIELD_QUESTION_PARTS, self::FIELD_CONFUSING_WORDS );
 		foreach ( $required as $field_key ) {
 			if ( function_exists( 'acf_get_field' ) && ! acf_get_field( $field_key ) ) {

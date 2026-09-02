@@ -152,6 +152,22 @@ class Citex_Generated_Validator {
 		$reference = trim( (string) $options[ $correct_index ] );
 		$errors    = array_merge( $errors, self::validate_reference_format( $reference ) );
 
+		// Exactly one option may look correct. A distractor that happens to
+		// pass every Harvard Book format rule too (different wording, but
+		// still structurally valid) is a second "reasonably correct" answer
+		// — precisely the ambiguity a real MCQ must never contain.
+		foreach ( $options as $index => $option ) {
+			if ( $index === $correct_index ) {
+				continue;
+			}
+			if ( empty( self::validate_reference_format( trim( (string) $option ) ) ) ) {
+				$errors[] = self::error(
+					'MCQ_DISTRACTOR_LOOKS_CORRECT',
+					sprintf( 'Option %d is not marked correct but passes every Harvard Book format rule too — this creates a second plausible answer.', $index + 1 )
+				);
+			}
+		}
+
 		$expected = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
 		if ( '' !== $expected && $expected !== $reference ) {
 			$errors[] = self::error( 'RECONSTRUCTED_REFERENCE_MISMATCH', 'The correct option does not match the canonical reconstructed reference.' );
@@ -165,6 +181,14 @@ class Citex_Generated_Validator {
 		);
 		$errors = array_merge( $errors, self::validate_bibliographic_consistency( $question, $question_parts, $reference ) );
 		$errors = array_merge( $errors, self::validate_answer_leakage( $question ) );
+
+		// The explanation is written into the real "Hint" field on
+		// population (see class-citex-populator.php's FIELD_HINT) — a
+		// missing one is a structural gap the same way a missing Fixed Text
+		// is for DragDrop.
+		if ( '' === trim( (string) ( $question['explanation'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_EXPLANATION_MISSING', 'Explanation is missing.' );
+		}
 
 		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $reference );
 	}

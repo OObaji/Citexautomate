@@ -115,6 +115,9 @@ if ( ! is_wp_error( $result ) ) {
 	check( '[1] reconstructedReference matches the correct option', $candidate['reconstructedReference'], $candidate['options'][0] );
 	check( '[1] the other 3 options are exactly Gemini\'s incorrectReferences', array_slice( $candidate['options'], 1 ), mcq_item()['incorrectReferences'] );
 	check( '[1] validation passed (pre-queue quality gate)', $candidate['validationStatus'], 'passed' );
+	check( '[1] correctOptionLetter matches correctOptionIndex (0 -> A)', $candidate['correctOptionLetter'], 'A' );
+	check( '[1] an explanation is generated (written to the real Hint field on population)', '' !== trim( $candidate['explanation'] ), true );
+	check( '[1] the explanation names the correct letter', false !== strpos( $candidate['explanation'], 'A is correct' ), true );
 }
 
 // A second ID with a different crc32-derived slot proves the position
@@ -123,6 +126,8 @@ $result2 = invoke_normalise( array( mcq_item() ), array( 'BK04' ), 'medium', arr
 if ( ! is_wp_error( $result2 ) ) {
 	check( '[1] a different question ID lands the correct option in a different slot', $result2[0]['correctOptionIndex'], 1 );
 	check( '[1] the correct option is still Citex\'s own construction at the new slot', $result2[0]['options'][1], 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' );
+	check( '[1] correctOptionLetter tracks the new slot (1 -> B)', $result2[0]['correctOptionLetter'], 'B' );
+	check( '[1] the explanation names the new correct letter', false !== strpos( $result2[0]['explanation'], 'B is correct' ), true );
 }
 
 // ---------------------------------------------------------------------

@@ -91,6 +91,7 @@ function mcq_question( $overrides = array() ) {
 			'options'                => $options,
 			'correctOptionIndex'     => 1,
 			'reconstructedReference' => $correct,
+			'explanation'            => 'B is correct because it follows the required Harvard reference structure: Surname, Initials. (Year) Title. Place: Publisher.',
 		),
 		$overrides
 	);
@@ -141,6 +142,37 @@ $correct = 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University
 $duplicate = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( $correct, $correct, 'x', 'y' ), 'correctOptionIndex' => 0 ) ) );
 check( '[5] a duplicated correct option fails', $duplicate['status'], 'failed' );
 check( '[5] reports MCQ_DUPLICATE_OPTION', has_error_code( $duplicate, 'mcq_duplicate_option' ), true );
+
+// ---------------------------------------------------------------------
+// 5b. A missing explanation fails — it is written into the real "Hint"
+// field on population, so a missing one is a structural gap.
+// ---------------------------------------------------------------------
+$missing_explanation = Citex_Generated_Validator::validate( mcq_question( array( 'explanation' => '' ) ) );
+check( '[5b] a missing explanation fails', $missing_explanation['status'], 'failed' );
+check( '[5b] reports MCQ_EXPLANATION_MISSING', has_error_code( $missing_explanation, 'mcq_explanation_missing' ), true );
+
+// ---------------------------------------------------------------------
+// 5c. A distractor that ALSO happens to pass every Harvard Book format
+// rule (different wording, still structurally valid) is a second
+// plausible answer and must fail — "avoid situations where two answers
+// could reasonably be considered correct."
+// ---------------------------------------------------------------------
+$two_look_correct = Citex_Generated_Validator::validate(
+	mcq_question(
+		array(
+			'options' => array(
+				'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.', // correct
+				'Smith, J. (2018) A Different Book. London: A Different Press.', // WRONG book, but structurally well-formed too
+				'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.', // wrong order — genuinely malformed
+				'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.', // missing space — genuinely malformed
+			),
+			'correctOptionIndex'     => 0,
+			'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
+		)
+	)
+);
+check( '[5c] a well-formed-but-wrong-book distractor fails (would read as a second correct answer)', $two_look_correct['status'], 'failed' );
+check( '[5c] reports MCQ_DISTRACTOR_LOOKS_CORRECT', has_error_code( $two_look_correct, 'mcq_distractor_looks_correct' ), true );
 
 // ---------------------------------------------------------------------
 // 6. The correct option itself must satisfy the Harvard Book format rules
