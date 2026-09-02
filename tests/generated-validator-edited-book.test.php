@@ -117,11 +117,14 @@ function edited_book_mcq_question( $overrides = array() ) {
 		'place'     => 'London',
 		'publisher' => 'SAGE Publications',
 	) );
+	// Option 1-3 hold 3 distractors; option 4 is always blank. The correct
+	// answer ($reference) lives only in reconstructedReference — never
+	// among the options.
 	$options = array(
 		'Smith, J. (2022) Digital media and society. London: SAGE Publications.', // missing designation
-		$reference,
 		'Smith, J. (editor) Digital media and society. London: SAGE Publications (2022).', // wrong designation word + year placement
 		'Smith, J. (2022) (ed.) Digital media and society. SAGE Publications: London.', // ed./year swapped + place/publisher swapped
+		'',
 	);
 	return array_merge(
 		array(
@@ -139,7 +142,6 @@ function edited_book_mcq_question( $overrides = array() ) {
 			// more; see schema_edited_book_mcq()).
 			'scenario'               => 'Which of the following is the correct Harvard reference for an edited book?',
 			'options'                => $options,
-			'correctOptionIndex'     => 1,
 			'reconstructedReference' => $reference,
 			// A non-revealing hint — never names a letter or reproduces the
 			// correct reference.
@@ -215,11 +217,10 @@ $two_correct_looking = Citex_Generated_Validator::validate(
 	edited_book_mcq_question( array(
 		'options' => array(
 			'Smith, J. (2022) Digital media and society. London: SAGE Publications.',
-			Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array( 'editors' => one_editor(), 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' ) ),
 			'Jones, A. (ed.) (2019) A totally different book. Manchester: Routledge.', // wrong book, but well-formed Edited Book shape too
 			'Smith, J. (2022) (ed.) Digital media and society. SAGE Publications: London.',
+			'',
 		),
-		'correctOptionIndex' => 1,
 	) )
 );
 check( '[6] a well-formed-but-wrong-book Edited Book distractor fails (second plausible answer)', $two_correct_looking['status'], 'failed' );
@@ -235,11 +236,10 @@ $eb_swapped_distractor = Citex_Generated_Validator::validate(
 	edited_book_mcq_question( array(
 		'options' => array(
 			'Smith, J. (ed.) (2022) Digital media and society. SAGE Publications: London.', // place/publisher swapped
-			Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array( 'editors' => one_editor(), 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' ) ), // correct
 			'Smith, J. (2022) Digital media and society. London: SAGE Publications.', // missing designation — genuinely malformed
 			'Smith, J. (editor) (2022) Digital media and society. London: SAGE Publications.', // wrong designation word — genuinely malformed
+			'',
 		),
-		'correctOptionIndex' => 1,
 	) )
 );
 check( '[6b] a place/publisher-swapped Edited Book distractor no longer creates false ambiguity — the question PASSES', $eb_swapped_distractor['status'], 'passed' );
@@ -260,25 +260,24 @@ $eb_wrong_designation_distractor = Citex_Generated_Validator::validate(
 	edited_book_mcq_question( array(
 		'options' => array(
 			'Smith, J. (eds) (2022) Digital media and society. London: SAGE Publications.', // WRONG designation for 1 editor — but otherwise well-formed
-			Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array( 'editors' => one_editor(), 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' ) ), // correct
 			'Smith, J. (2022) Digital media and society. London: SAGE Publications.', // missing designation — genuinely malformed
 			'Smith, J. (editor) (2022) Digital media and society. London: SAGE Publications.', // wrong word — genuinely malformed
+			'',
 		),
-		'correctOptionIndex' => 1,
 	) )
 );
 check( '[6c] a wrong-designation-for-editor-count distractor no longer creates false ambiguity — the question PASSES', $eb_wrong_designation_distractor['status'], 'passed' );
 check( '[6c] no errors reported', $eb_wrong_designation_distractor['errors'], array() );
 
 // Sanity check the rule actually fires: the same wrong-designation
-// reference, if it were mistakenly marked correct, must itself fail.
+// reference, if it were mistakenly the correct answer, must itself fail.
 $eb_wrong_designation_as_correct = Citex_Generated_Validator::validate(
 	edited_book_mcq_question( array(
-		'options'            => array( 'x', 'Smith, J. (eds) (2022) Digital media and society. London: SAGE Publications.', 'y', 'z' ),
-		'correctOptionIndex' => 1,
+		'options'                => array( 'x', 'y', 'z', '' ),
+		'reconstructedReference' => 'Smith, J. (eds) (2022) Digital media and society. London: SAGE Publications.',
 	) )
 );
-check( '[6c] the same reference fails when marked correct, proving the check genuinely fires', $eb_wrong_designation_as_correct['status'], 'failed' );
+check( '[6c] the same reference fails when it is the correct answer, proving the check genuinely fires', $eb_wrong_designation_as_correct['status'], 'failed' );
 check( '[6c] reports EDITED_BOOK_DESIGNATION_MISMATCH', has_error_code( $eb_wrong_designation_as_correct, 'edited_book_designation_mismatch' ), true );
 
 // ---------------------------------------------------------------------
@@ -294,11 +293,11 @@ $eb_comma_joined_distractor = Citex_Generated_Validator::validate(
 		'editors' => two_editors(),
 		'options' => array(
 			'Smith, J., Jones, A. (eds) (2022) Digital media and society. London: SAGE Publications.', // comma instead of "and"
-			Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array( 'editors' => two_editors(), 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' ) ), // correct
 			'Smith, J. and Jones, A. (2022) Digital media and society. London: SAGE Publications.', // missing designation — genuinely malformed
 			'Smith, J. and Jones, A. (editors) (2022) Digital media and society. London: SAGE Publications.', // wrong word — genuinely malformed
+			'',
 		),
-		'correctOptionIndex' => 1,
+		'reconstructedReference' => Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array( 'editors' => two_editors(), 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' ) ),
 	) )
 );
 check( '[6d] a comma-joined-editors distractor no longer creates false ambiguity — the question PASSES', $eb_comma_joined_distractor['status'], 'passed' );
@@ -307,12 +306,12 @@ check( '[6d] no errors reported', $eb_comma_joined_distractor['errors'], array()
 // Sanity check the rule actually fires.
 $eb_comma_joined_as_correct = Citex_Generated_Validator::validate(
 	edited_book_mcq_question( array(
-		'editors'            => two_editors(),
-		'options'            => array( 'x', 'Smith, J., Jones, A. (eds) (2022) Digital media and society. London: SAGE Publications.', 'y', 'z' ),
-		'correctOptionIndex' => 1,
+		'editors'                => two_editors(),
+		'options'                => array( 'x', 'y', 'z', '' ),
+		'reconstructedReference' => 'Smith, J., Jones, A. (eds) (2022) Digital media and society. London: SAGE Publications.',
 	) )
 );
-check( '[6d] the same reference fails when marked correct, proving the check genuinely fires', $eb_comma_joined_as_correct['status'], 'failed' );
+check( '[6d] the same reference fails when it is the correct answer, proving the check genuinely fires', $eb_comma_joined_as_correct['status'], 'failed' );
 check( '[6d] reports EDITED_BOOK_EDITOR_JOIN_MISMATCH', has_error_code( $eb_comma_joined_as_correct, 'edited_book_editor_join_mismatch' ), true );
 
 // ---------------------------------------------------------------------

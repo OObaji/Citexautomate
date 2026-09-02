@@ -148,15 +148,17 @@ if ( ! is_wp_error( $mcq_result ) ) {
 	$mcq_candidate = $mcq_result[0];
 	check( '[2] candidate category is Edited Book', $mcq_candidate['category'], 'Edited Book' );
 	check( '[2] candidate type is MCQ', $mcq_candidate['type'], 'MCQ' );
-	check( '[2] exactly 4 options', count( $mcq_candidate['options'] ), 4 );
-	check( '[2] the correct option is Citex\'s own construction with the correct designation', $mcq_candidate['options'][ $mcq_candidate['correctOptionIndex'] ], 'Miller, V. (ed.) (2020) Understanding digital culture. London: SAGE Publications.' );
-	check( '[2] reconstructedReference matches the correct option', $mcq_candidate['reconstructedReference'], $mcq_candidate['options'][ $mcq_candidate['correctOptionIndex'] ] );
+	check( '[2] exactly 4 option slots', count( $mcq_candidate['options'] ), 4 );
+	check( '[2] options 1-3 are the 3 distractors, in order', array_slice( $mcq_candidate['options'], 0, 3 ), array_column( one_editor_mcq_item()['distractors'], 'reference' ) );
+	check( '[2] option 4 is always blank', $mcq_candidate['options'][3], '' );
+	check( '[2] the correct answer is Citex\'s own construction with the correct designation, and appears in no option slot', $mcq_candidate['reconstructedReference'], 'Miller, V. (ed.) (2020) Understanding digital culture. London: SAGE Publications.' );
+	check( '[2] the correct answer never appears among the options', in_array( $mcq_candidate['reconstructedReference'], $mcq_candidate['options'], true ), false );
 	check( '[2] the question text is Citex\'s own fixed Edited Book MCQ stem', $mcq_candidate['scenario'], 'Which of the following is the correct Harvard reference for an edited book?' );
 	check( '[2] a hint is generated', '' !== trim( $mcq_candidate['hint'] ), true );
-	check( '[2] the hint does NOT reproduce the correct reference', false !== strpos( $mcq_candidate['hint'], $mcq_candidate['options'][ $mcq_candidate['correctOptionIndex'] ] ), false );
+	check( '[2] the hint does NOT reproduce the correct reference', false !== strpos( $mcq_candidate['hint'], $mcq_candidate['reconstructedReference'] ), false );
 	check( '[2] an internal-only answerExplanation is also generated', '' !== trim( $mcq_candidate['answerExplanation'] ), true );
-	check( '[2] the correct slot\'s error reason is null', $mcq_candidate['optionErrorReasons'][ $mcq_candidate['correctOptionIndex'] ], null );
-	check( '[2] every non-correct slot carries a non-empty error reason', count( array_filter( array_diff_key( $mcq_candidate['optionErrorReasons'], array( $mcq_candidate['correctOptionIndex'] => true ) ), 'strlen' ) ), 3 );
+	check( '[2] the first 3 slots carry their distractor\'s error reason, in order', array_slice( $mcq_candidate['optionErrorReasons'], 0, 3 ), array_column( one_editor_mcq_item()['distractors'], 'errorReason' ) );
+	check( '[2] the blank 4th slot\'s error reason is null', $mcq_candidate['optionErrorReasons'][3], null );
 }
 
 // ---------------------------------------------------------------------

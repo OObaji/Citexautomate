@@ -81,10 +81,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 					<td><?php echo esc_html( $question['scenario'] ?? '' ); ?></td>
 					<td>
 						<?php if ( 'MCQ' === $q_type ) : ?>
-							<?php $correct_index = (int) ( $question['correctOptionIndex'] ?? -1 ); $option_reasons = (array) ( $question['optionErrorReasons'] ?? array() ); ?>
-							<ol style="margin:0 0 0 18px;">
+							<?php $option_reasons = (array) ( $question['optionErrorReasons'] ?? array() ); ?>
+							<strong><?php esc_html_e( 'Answer:', 'citex-tools' ); ?></strong> <?php echo esc_html( $question['reconstructedReference'] ?? '' ); ?>
+							<ol style="margin:6px 0 0 18px;">
 								<?php foreach ( (array) ( $question['options'] ?? array() ) as $option_index => $option_text ) : ?>
-									<li<?php echo $option_index === $correct_index ? ' style="font-weight:600;"' : ''; ?>><?php echo esc_html( $option_text ); ?><?php echo $option_index === $correct_index ? esc_html__( ' (correct)', 'citex-tools' ) : ''; ?><?php if ( $option_index !== $correct_index && ! empty( $option_reasons[ $option_index ] ) ) : ?><br /><span class="description"><?php esc_html_e( 'Error:', 'citex-tools' ); ?> <?php echo esc_html( $option_reasons[ $option_index ] ); ?></span><?php endif; ?></li>
+									<li><?php echo '' !== trim( (string) $option_text ) ? esc_html( $option_text ) : '<em>' . esc_html__( '(blank)', 'citex-tools' ) . '</em>'; ?><?php if ( ! empty( $option_reasons[ $option_index ] ) ) : ?><br /><span class="description"><?php esc_html_e( 'Error:', 'citex-tools' ); ?> <?php echo esc_html( $option_reasons[ $option_index ] ); ?></span><?php endif; ?></li>
 								<?php endforeach; ?>
 							</ol>
 							<?php if ( ! empty( $question['hint'] ) ) : ?><strong><?php esc_html_e( 'Hint:', 'citex-tools' ); ?></strong> <?php echo esc_html( $question['hint'] ); ?><?php endif; ?>

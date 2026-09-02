@@ -8,8 +8,16 @@
  * authorSurname/authorInitials/scenario fields present on any question
  * type, not on DragDrop-specific fixedText/questionParts), plus a new
  * shared validate_reference_format() helper (the same Harvard Book format
- * checks previously inlined in the DragDrop path) applied to whichever of
- * the 4 options is marked correct.
+ * checks previously inlined in the DragDrop path) applied to the correct
+ * answer's own text (reconstructedReference).
+ *
+ * The correct answer is NEVER placed into, or duplicated into, any of the
+ * 4 option slots — Option 1-3 hold the 3 distractors, Option 4 is always
+ * blank, and the answer lives only in reconstructedReference (the source
+ * of the real "Answer" ACF field). A real live-site Diagnostics capture
+ * showed that duplicating the correct answer into both an option slot and
+ * the Answer field made the student app render the two copies as
+ * separate, simultaneously-"selected" choices.
  *
  * Repo-level only, run with plain
  * `php tests/generated-validator-mcq.test.php` — not shipped in
@@ -64,17 +72,18 @@ function has_error_code( $result, $code ) {
 
 /**
  * The correct reference is 'Bryman, A. (2012) Social Research Methods.
- * Oxford: Oxford University Press.' at options[$correct_index] by default —
- * matching what Citex_AI_V2::normalise_mcq_item() actually produces (Citex
- * builds the correct option itself; Gemini only ever supplies incorrect ones).
+ * Oxford: Oxford University Press.', carried ONLY in reconstructedReference
+ * — matching what Citex_AI_V2::normalise_mcq_item() actually produces
+ * (Citex builds the correct answer itself; Gemini only ever supplies the 3
+ * distractors, which occupy options[0..2]; options[3] is always blank).
  */
 function mcq_question( $overrides = array() ) {
 	$correct  = 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.';
 	$options  = array(
 		'Bryman A. (2012) Social Research Methods. Oxford: Oxford University Press.', // missing comma after surname
-		$correct,
 		'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.', // wrong order
 		'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.', // missing space after colon
+		'', // always blank
 	);
 	return array_merge(
 		array(
@@ -93,7 +102,6 @@ function mcq_question( $overrides = array() ) {
 			// any more; see schema_mcq()).
 			'scenario'               => 'Which of the following is the correct Harvard reference for a book?',
 			'options'                => $options,
-			'correctOptionIndex'     => 1,
 			'reconstructedReference' => $correct,
 			// A non-revealing hint — never names a letter or reproduces the
 			// correct reference (see Citex_Reference_Rules::mcq_hint()).
@@ -109,11 +117,10 @@ function mcq_question( $overrides = array() ) {
 $good = Citex_Generated_Validator::validate( mcq_question() );
 check( '[1] a correct MCQ question passes', $good['status'], 'passed' );
 check( '[1] no errors reported', $good['errors'], array() );
-check( '[1] reconstructedReference is the correct option\'s text', $good['reconstructedReference'], 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' );
+check( '[1] reconstructedReference is the correct answer\'s text', $good['reconstructedReference'], 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' );
 
 // ---------------------------------------------------------------------
-// 2. Wrong number of options fails structurally, without crashing on the
-// out-of-range correctOptionIndex checks.
+// 2. Wrong number of options fails structurally.
 // ---------------------------------------------------------------------
 $three_options = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( 'a', 'b', 'c' ) ) ) );
 check( '[2] 3 options (not 4) fails', $three_options['status'], 'failed' );
@@ -124,29 +131,36 @@ check( '[2] 5 options (not 4) fails', $five_options['status'], 'failed' );
 check( '[2] reports MCQ_OPTION_COUNT_MISMATCH', has_error_code( $five_options, 'mcq_option_count_mismatch' ), true );
 
 // ---------------------------------------------------------------------
-// 3. An empty option fails.
+// 3. An empty option among the first 3 (distractor slots) fails.
 // ---------------------------------------------------------------------
-$empty_option = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( '', 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.', 'x', 'y' ) ) ) );
-check( '[3] an empty option fails', $empty_option['status'], 'failed' );
+$empty_option = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( '', 'x', 'y', '' ) ) ) );
+check( '[3] an empty distractor slot fails', $empty_option['status'], 'failed' );
 check( '[3] reports MCQ_OPTION_EMPTY', has_error_code( $empty_option, 'mcq_option_empty' ), true );
 
 // ---------------------------------------------------------------------
-// 4. An out-of-range correctOptionIndex fails safely.
-// ---------------------------------------------------------------------
-$bad_index = Citex_Generated_Validator::validate( mcq_question( array( 'correctOptionIndex' => 4 ) ) );
-check( '[4] correctOptionIndex 4 (out of range 0-3) fails', $bad_index['status'], 'failed' );
-check( '[4] reports MCQ_CORRECT_INDEX_INVALID', has_error_code( $bad_index, 'mcq_correct_index_invalid' ), true );
-
-$negative_index = Citex_Generated_Validator::validate( mcq_question( array( 'correctOptionIndex' => -1 ) ) );
-check( '[4] a missing/negative correctOptionIndex fails', $negative_index['status'], 'failed' );
-check( '[4] reports MCQ_CORRECT_INDEX_INVALID', has_error_code( $negative_index, 'mcq_correct_index_invalid' ), true );
-
-// ---------------------------------------------------------------------
-// 5. Duplicate options fail.
+// 4. CRITICAL — the reported bug: the correct answer duplicated into an
+// option slot fails, even though the same text is also (correctly) the
+// reconstructedReference/Answer value. And a non-blank 4th option fails
+// too, since it must always be left blank.
 // ---------------------------------------------------------------------
 $correct = 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.';
-$duplicate = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( $correct, $correct, 'x', 'y' ), 'correctOptionIndex' => 0 ) ) );
-check( '[5] a duplicated correct option fails', $duplicate['status'], 'failed' );
+$answer_duplicated = Citex_Generated_Validator::validate(
+	mcq_question( array( 'options' => array( $correct, 'x', 'y', '' ) ) )
+);
+check( '[4] the correct answer duplicated into an option slot fails', $answer_duplicated['status'], 'failed' );
+check( '[4] reports MCQ_OPTION_MATCHES_ANSWER', has_error_code( $answer_duplicated, 'mcq_option_matches_answer' ), true );
+
+$fourth_option_filled = Citex_Generated_Validator::validate(
+	mcq_question( array( 'options' => array( 'w', 'x', 'y', 'z' ) ) )
+);
+check( '[4] a non-blank 4th option fails', $fourth_option_filled['status'], 'failed' );
+check( '[4] reports MCQ_FOURTH_OPTION_NOT_BLANK', has_error_code( $fourth_option_filled, 'mcq_fourth_option_not_blank' ), true );
+
+// ---------------------------------------------------------------------
+// 5. Duplicate distractors fail.
+// ---------------------------------------------------------------------
+$duplicate = Citex_Generated_Validator::validate( mcq_question( array( 'options' => array( 'x', 'x', 'y', '' ) ) ) );
+check( '[5] duplicated distractors fail', $duplicate['status'], 'failed' );
 check( '[5] reports MCQ_DUPLICATE_OPTION', has_error_code( $duplicate, 'mcq_duplicate_option' ), true );
 
 // ---------------------------------------------------------------------
@@ -193,13 +207,11 @@ $two_look_correct = Citex_Generated_Validator::validate(
 	mcq_question(
 		array(
 			'options' => array(
-				'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.', // correct
 				'Smith, J. (2018) A Different Book. London: A Different Press.', // WRONG book, but structurally well-formed too
 				'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.', // wrong order — genuinely malformed
 				'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.', // missing space — genuinely malformed
+				'',
 			),
-			'correctOptionIndex'     => 0,
-			'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
 		)
 	)
 );
@@ -222,12 +234,10 @@ $swapped_distractor = Citex_Generated_Validator::validate(
 		array(
 			'options' => array(
 				'Bryman, A. (2012) Social Research Methods. Oxford University Press: Oxford.', // place/publisher swapped
-				'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.', // correct
 				'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.', // wrong order — genuinely malformed
 				'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.', // missing space — genuinely malformed
+				'',
 			),
-			'correctOptionIndex'     => 1,
-			'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
 		)
 	)
 );
@@ -237,19 +247,18 @@ check( '[5d] no errors reported', $swapped_distractor['errors'], array() );
 // ---------------------------------------------------------------------
 // 5e. Sanity check that the new rule actually fires: a reference with
 // place and publisher swapped is itself flagged PLACE_PUBLISHER_ORDER_MISMATCH
-// when it is the one marked correct (proving 5d passes because the swap is
+// when it is the correct answer (proving 5d passes because the swap is
 // genuinely detected, not because the check is a no-op).
 // ---------------------------------------------------------------------
 $swapped_as_correct = Citex_Generated_Validator::validate(
 	mcq_question(
 		array(
-			'options'                => array( 'x', 'Bryman, A. (2012) Social Research Methods. Oxford University Press: Oxford.', 'y', 'z' ),
-			'correctOptionIndex'     => 1,
-			'reconstructedReference' => '',
+			'options'                => array( 'x', 'y', 'z', '' ),
+			'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford University Press: Oxford.',
 		)
 	)
 );
-check( '[5e] a swapped place/publisher reference fails when marked correct', $swapped_as_correct['status'], 'failed' );
+check( '[5e] a swapped place/publisher reference fails when it is the correct answer', $swapped_as_correct['status'], 'failed' );
 check( '[5e] reports PLACE_PUBLISHER_ORDER_MISMATCH', has_error_code( $swapped_as_correct, 'place_publisher_order_mismatch' ), true );
 
 // ---------------------------------------------------------------------
@@ -260,13 +269,12 @@ check( '[5e] reports PLACE_PUBLISHER_ORDER_MISMATCH', has_error_code( $swapped_a
 $bad_format = Citex_Generated_Validator::validate(
 	mcq_question(
 		array(
-			'options'            => array( 'x', 'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.', 'y', 'z' ),
-			'correctOptionIndex' => 1,
-			'reconstructedReference' => '',
+			'options'                => array( 'x', 'y', 'z', '' ),
+			'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.', // missing space after colon
 		)
 	)
 );
-check( '[6] a correct option missing the space after the colon FAILS (reused Harvard format check)', $bad_format['status'], 'failed' );
+check( '[6] a correct answer missing the space after the colon FAILS (reused Harvard format check)', $bad_format['status'], 'failed' );
 check( '[6] reports MISSING_SPACE_AFTER_COLON', has_error_code( $bad_format, 'missing_space_after_colon' ), true );
 
 // ---------------------------------------------------------------------
@@ -304,7 +312,7 @@ check( '[8] does NOT report BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH — that
 
 // ---------------------------------------------------------------------
 // 8b. The reference-must-contain-the-facts checks (unaffected by
-// $check_scenario) still run for MCQ — a correct option that omits a
+// $check_scenario) still run for MCQ — a correct answer that omits a
 // canonical fact (here: the book title) still fails bibliographic
 // consistency, just via the reference check rather than the (now-skipped)
 // scenario one.
@@ -314,24 +322,16 @@ $reference_missing_title = Citex_Generated_Validator::validate(
 		array(
 			'options'                => array(
 				'Bryman A. (2012) Social Research Methods. Oxford: Oxford University Press.',
-				'Bryman, A. (2012) A Different Title Entirely. Oxford: Oxford University Press.', // correct option, but wrong title
 				'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.',
 				'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.',
+				'',
 			),
-			'reconstructedReference' => 'Bryman, A. (2012) A Different Title Entirely. Oxford: Oxford University Press.',
+			'reconstructedReference' => 'Bryman, A. (2012) A Different Title Entirely. Oxford: Oxford University Press.', // correct answer, but wrong title
 		)
 	)
 );
-check( '[8b] the correct option omitting the canonical book title still FAILS', $reference_missing_title['status'], 'failed' );
+check( '[8b] the correct answer omitting the canonical book title still FAILS', $reference_missing_title['status'], 'failed' );
 check( '[8b] reports BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', has_error_code( $reference_missing_title, 'bibliographic_consistency_reference_mismatch' ), true );
-
-// ---------------------------------------------------------------------
-// 9. The generated expected reference (reconstructedReference) must match
-// the correct option's own text.
-// ---------------------------------------------------------------------
-$mismatched_expected = Citex_Generated_Validator::validate( mcq_question( array( 'reconstructedReference' => 'A completely different reference.' ) ) );
-check( '[9] a reconstructedReference that does not match the correct option FAILS', $mismatched_expected['status'], 'failed' );
-check( '[9] reports RECONSTRUCTED_REFERENCE_MISMATCH', has_error_code( $mismatched_expected, 'reconstructed_reference_mismatch' ), true );
 
 // ---------------------------------------------------------------------
 // 10. Unsupported combinations (wrong source/group/category, or an

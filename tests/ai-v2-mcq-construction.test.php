@@ -118,9 +118,11 @@ function mcq_item( $overrides = array() ) {
 
 // ---------------------------------------------------------------------
 // 1. A valid MCQ item produces a correctly-shaped MCQ candidate: type=MCQ,
-// exactly 4 options, and the correct option is CITEX'S OWN construction —
-// never one of Gemini's distractors, even coincidentally. Each option's
-// error reason rides along in optionErrorReasons (null at the correct slot).
+// exactly 4 option slots — Option 1-3 hold the 3 distractors in order,
+// Option 4 is ALWAYS blank — and the correct answer lives ONLY in
+// reconstructedReference (the Answer field's source), never duplicated
+// into any option. Each distractor's error reason rides along in
+// optionErrorReasons (null at the blank 4th slot).
 // ---------------------------------------------------------------------
 $result = invoke_normalise( array( mcq_item() ), array( 'BK02' ), 'medium', array(), 'MCQ' );
 check( '[1] normalise() succeeds for a valid MCQ item', is_wp_error( $result ), false );
@@ -128,35 +130,29 @@ if ( ! is_wp_error( $result ) ) {
 	$candidate = $result[0];
 	check( '[1] candidate type is MCQ', $candidate['type'], 'MCQ' );
 	check( '[1] candidate title names MCQ', $candidate['title'], 'Harvard | ReferenceList | Book | MCQ | BK02' );
-	check( '[1] exactly 4 options', count( $candidate['options'] ), 4 );
-	// crc32('BK02') % 4 === 0 — deterministic, computed independently of the
-	// implementation to avoid a tautological test.
-	check( '[1] the correct option position is derived deterministically from the question ID', $candidate['correctOptionIndex'], 0 );
-	check( '[1] the correct option is Citex\'s own construction, not any Gemini distractor', $candidate['options'][0], 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' );
-	check( '[1] reconstructedReference matches the correct option', $candidate['reconstructedReference'], $candidate['options'][0] );
-	check( '[1] the other 3 options are exactly Gemini\'s distractor references', array_slice( $candidate['options'], 1 ), array_column( mcq_item()['distractors'], 'reference' ) );
+	check( '[1] exactly 4 option slots', count( $candidate['options'] ), 4 );
+	check( '[1] options 1-3 are exactly Gemini\'s distractor references, in order', array_slice( $candidate['options'], 0, 3 ), array_column( mcq_item()['distractors'], 'reference' ) );
+	check( '[1] option 4 is always blank', $candidate['options'][3], '' );
+	check( '[1] the correct answer is Citex\'s own construction and appears in NO option slot', in_array( $candidate['reconstructedReference'], $candidate['options'], true ), false );
+	check( '[1] reconstructedReference is Citex\'s own construction', $candidate['reconstructedReference'], 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' );
 	check( '[1] validation passed (pre-queue quality gate)', $candidate['validationStatus'], 'passed' );
-	check( '[1] correctOptionLetter matches correctOptionIndex (0 -> A)', $candidate['correctOptionLetter'], 'A' );
 	check( '[1] the question text is Citex\'s own fixed Book MCQ stem, never Gemini\'s scenario', $candidate['scenario'], 'Which of the following is the correct Harvard reference for a book?' );
 	check( '[1] a hint is generated (written to the real Hint field on population)', '' !== trim( $candidate['hint'] ), true );
-	check( '[1] the hint does NOT name the correct letter', false !== strpos( $candidate['hint'], 'A is correct' ), false );
-	check( '[1] the hint does NOT reproduce the correct reference', false !== strpos( $candidate['hint'], $candidate['options'][0] ), false );
-	check( '[1] an internal-only answerExplanation is also generated (never written to WordPress)', false !== strpos( $candidate['answerExplanation'], 'A is correct' ), true );
+	check( '[1] the hint does NOT reproduce the correct reference', false !== strpos( $candidate['hint'], $candidate['reconstructedReference'] ), false );
+	check( '[1] an internal-only answerExplanation is also generated (never written to WordPress)', '' !== trim( $candidate['answerExplanation'] ), true );
 	check( '[1] optionErrorReasons has 4 entries, aligned with options', count( $candidate['optionErrorReasons'] ), 4 );
-	check( '[1] the correct slot\'s error reason is null', $candidate['optionErrorReasons'][0], null );
-	check( '[1] the other 3 slots carry their distractor\'s error reason', array_slice( $candidate['optionErrorReasons'], 1 ), array_column( mcq_item()['distractors'], 'errorReason' ) );
+	check( '[1] the first 3 slots carry their distractor\'s error reason, in order', array_slice( $candidate['optionErrorReasons'], 0, 3 ), array_column( mcq_item()['distractors'], 'errorReason' ) );
+	check( '[1] the blank 4th slot\'s error reason is null', $candidate['optionErrorReasons'][3], null );
 }
 
-// A second ID with a different crc32-derived slot proves the position
-// genuinely varies per question rather than being a fixed constant.
+// A second, different question ID produces the exact same shape — there is
+// no more per-question "correct slot" to vary, since the answer is never
+// placed among the options at all.
 $result2 = invoke_normalise( array( mcq_item() ), array( 'BK04' ), 'medium', array(), 'MCQ' );
 if ( ! is_wp_error( $result2 ) ) {
-	check( '[1] a different question ID lands the correct option in a different slot', $result2[0]['correctOptionIndex'], 1 );
-	check( '[1] the correct option is still Citex\'s own construction at the new slot', $result2[0]['options'][1], 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' );
-	check( '[1] correctOptionLetter tracks the new slot (1 -> B)', $result2[0]['correctOptionLetter'], 'B' );
-	check( '[1] the internal answerExplanation names the new correct letter', false !== strpos( $result2[0]['answerExplanation'], 'B is correct' ), true );
-	check( '[1] the hint is still the same fixed, non-revealing text regardless of slot', $result2[0]['hint'], $result[0]['hint'] );
-	check( '[1] the correct slot\'s error reason is still null at the new slot', $result2[0]['optionErrorReasons'][1], null );
+	check( '[1] a different question ID still keeps option 4 blank', $result2[0]['options'][3], '' );
+	check( '[1] a different question ID still keeps the answer out of every option', in_array( $result2[0]['reconstructedReference'], $result2[0]['options'], true ), false );
+	check( '[1] the hint is still the same fixed, non-revealing text regardless of question ID', $result2[0]['hint'], $result[0]['hint'] );
 }
 
 // ---------------------------------------------------------------------
@@ -244,7 +240,7 @@ check( '[6] normalise() succeeds for a multi-given-name MCQ author', is_wp_error
 if ( ! is_wp_error( $multi_name ) ) {
 	check( '[6] surname is derived the same way as DragDrop', $multi_name[0]['authorSurname'], 'Smith' );
 	check( '[6] initials are derived the same way as DragDrop', $multi_name[0]['authorInitials'], 'J.M.' );
-	check( '[6] the Citex-built correct option uses the derived surname/initials', $multi_name[0]['options'][ $multi_name[0]['correctOptionIndex'] ], 'Smith, J.M. (2012) Systems Theory. Oxford: Oxford University Press.' );
+	check( '[6] the Citex-built correct answer uses the derived surname/initials', $multi_name[0]['reconstructedReference'], 'Smith, J.M. (2012) Systems Theory. Oxford: Oxford University Press.' );
 }
 
 // ---------------------------------------------------------------------

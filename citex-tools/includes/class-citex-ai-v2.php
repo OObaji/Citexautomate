@@ -497,10 +497,18 @@ class Citex_AI_V2 {
 			$seen[ $normal ] = true;
 		}
 
-		list( $options, $option_reasons, $correct_index ) = self::place_mcq_options( $id, $reference, $distractors );
-		// A-D letter, matching the position options actually land in — never
-		// a fixed letter, since correct_index itself varies per question.
-		$correct_letter = chr( 65 + $correct_index );
+		// Option 1-3 hold the 3 distractors, in the order Gemini supplied
+		// them; Option 4 is ALWAYS left blank. The correct answer lives only
+		// in the Answer field (reconstructedReference, below) — it is never
+		// placed into, or duplicated into, any option slot. This is the
+		// direct fix for a real reported bug: the previous design placed the
+		// correct reference into a random option slot AND into the Answer
+		// field, and the student app rendered the two copies as separate,
+		// simultaneously-"selected" choices.
+		$options = $incorrect;
+		$options[] = '';
+		$option_reasons = array_map( 'sanitize_text_field', array_column( $distractors, 'errorReason' ) );
+		$option_reasons[] = null;
 
 		// Citex — not Gemini — writes the hint too, deterministically from
 		// the category's own fixed, non-revealing clue (see
@@ -509,22 +517,19 @@ class Citex_AI_V2 {
 		// is no separate "explanation" field — see
 		// class-citex-populator.php's FIELD_HINT), and it is shown to the
 		// student BEFORE they answer, so it must never identify the correct
-		// option — see Citex_Generated_Validator::validate_mcq_hint_safety().
+		// answer — see Citex_Generated_Validator::validate_mcq_hint_safety().
 		$hint = Citex_Reference_Rules::mcq_hint( Citex_Reference_Rules::CATEGORY_BOOK );
 
 		// The revealing counterpart — internal/admin-only, never written to
 		// WordPress (no such field exists on the real site) and never read
 		// by validation. Kept purely so an admin reviewing the pending
-		// queue can see WHY the correct option is correct, matching the
-		// "hint never reveals, explanation may (once shown post-answer)"
+		// queue can see WHY the Answer field's value is correct, matching
+		// the "hint never reveals, explanation may (once shown post-answer)"
 		// distinction even though only the non-revealing hint currently has
 		// a real field to live in.
-		$answer_explanation = sprintf(
-			'%1$s is correct because it follows the required Harvard reference structure: Surname, Initials. (Year) Title. Place: Publisher.',
-			$correct_letter
-		);
+		$answer_explanation = 'The correct reference follows the required Harvard reference structure: Surname, Initials. (Year) Title. Place: Publisher.';
 
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'authorFullName' => sanitize_text_field( $full_name ), 'authorSurname' => sanitize_text_field( $surname ), 'authorInitials' => sanitize_text_field( $initials ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'optionErrorReasons' => $option_reasons, 'correctOptionIndex' => $correct_index, 'correctOptionLetter' => $correct_letter, 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'authorFullName' => sanitize_text_field( $full_name ), 'authorSurname' => sanitize_text_field( $surname ), 'authorInitials' => sanitize_text_field( $initials ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'optionErrorReasons' => $option_reasons, 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**
@@ -569,32 +574,6 @@ class Citex_AI_V2 {
 		return $distractors;
 	}
 
-	/**
-	 * Places the correct reference and the 3 {reference, errorReason}
-	 * distractors into the 4 option slots, at the same crc32(question ID)
-	 * derived position used since MCQ was first introduced — shared by
-	 * every category's normalise_*_mcq_item() so the placement rule (and
-	 * its determinism, for tests) lives in exactly one place.
-	 *
-	 * @return array{0: string[], 1: array<string|null>, 2: int} [options, optionErrorReasons (null at the correct slot), correctOptionIndex]
-	 */
-	private static function place_mcq_options( $id, $reference, $distractors ) {
-		$correct_index = crc32( $id ) % 4;
-		$options = array();
-		$reasons = array();
-		$cursor  = 0;
-		for ( $slot = 0; $slot < 4; $slot++ ) {
-			if ( $slot === $correct_index ) {
-				$options[] = $reference;
-				$reasons[] = null;
-			} else {
-				$options[] = $distractors[ $cursor ]['reference'];
-				$reasons[] = sanitize_text_field( $distractors[ $cursor ]['errorReason'] );
-				$cursor++;
-			}
-		}
-		return array( $options, $reasons, $correct_index );
-	}
 
 	/**
 	 * Edited Book counterpart to normalise_dragdrop_item(). Citex — never
@@ -658,8 +637,15 @@ class Citex_AI_V2 {
 			$seen[ $normal ] = true;
 		}
 
-		list( $options, $option_reasons, $correct_index ) = self::place_mcq_options( $id, $reference, $distractors );
-		$correct_letter = chr( 65 + $correct_index );
+		// Option 1-3 hold the 3 distractors, in the order Gemini supplied
+		// them; Option 4 is ALWAYS left blank. The correct answer lives only
+		// in the Answer field (reconstructedReference, below) — never placed
+		// into, or duplicated into, any option slot. See
+		// normalise_mcq_item()'s matching comment for the full rationale.
+		$options = $incorrect;
+		$options[] = '';
+		$option_reasons = array_map( 'sanitize_text_field', array_column( $distractors, 'errorReason' ) );
+		$option_reasons[] = null;
 
 		$expected_designation = Citex_Reference_Rules::designation_for_editor_count( count( $editors ) );
 
@@ -672,14 +658,13 @@ class Citex_AI_V2 {
 		// Internal/admin-only revealing counterpart — never written to
 		// WordPress, never read by validation.
 		$answer_explanation = sprintf(
-			'%1$s is correct because it follows the required Harvard Edited Book reference structure — Editor(s), Initials. (%2$s) (Year) Title. Place: Publisher — using "(%2$s)" for %3$d editor(s).',
-			$correct_letter,
+			'The correct reference follows the required Harvard Edited Book reference structure — Editor(s), Initials. (%1$s) (Year) Title. Place: Publisher — using "(%1$s)" for %2$d editor(s).',
 			$expected_designation,
 			count( $editors )
 		);
 
 		$editor_full_names = array_column( $editors, 'fullName' );
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Edited Book | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'initials' => sanitize_text_field( $editor['initials'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'optionErrorReasons' => $option_reasons, 'correctOptionIndex' => $correct_index, 'correctOptionLetter' => $correct_letter, 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Edited Book | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'initials' => sanitize_text_field( $editor['initials'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'optionErrorReasons' => $option_reasons, 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	private static function output_text( $data ) {

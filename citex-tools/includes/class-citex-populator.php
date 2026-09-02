@@ -519,26 +519,35 @@ class Citex_Populator {
 	 * explicitly via its own ACF default, but MCQ sets it directly since it
 	 * has no such track record yet), and the Answer field.
 	 *
-	 * The Answer field holds the FULL TEXT of the correct option — the same
-	 * string written to that option's own Option N field — never a letter,
-	 * number, or other short identifier. This is what lets the frontend
-	 * grade a submission with a direct value comparison
+	 * Option 1-3 hold the 3 distractors; Option 4 is ALWAYS blank. The
+	 * Answer field holds the FULL TEXT of the correct reference — never a
+	 * letter, number, or other short identifier, and never ALSO duplicated
+	 * into one of the 4 option slots. A real live-site Diagnostics capture
+	 * showed that duplicating the correct answer into both an option slot
+	 * and the Answer field made the student app render the two copies as
+	 * separate, simultaneously-"selected" choices — the answer belongs
+	 * ONLY in the Answer field. This is also what lets the frontend grade a
+	 * submission with a direct value comparison
 	 * (selectedOptionText === answer) instead of needing to translate a
 	 * letter back into option text.
 	 *
 	 * @throws Exception on any write-shape failure.
-	 * @return array {options: string[4], correctIndex: int, answerValue: string, hint: string}
+	 * @return array {options: string[4], answerValue: string, hint: string}
 	 */
 	private function write_mcq_acf_values( $new_id, $field_map, $question ) {
 		$options = array_values( is_array( $question['options'] ?? null ) ? $question['options'] : array() );
 		if ( 4 !== count( $options ) ) {
-			throw new Exception( sprintf( 'Expected exactly 4 MCQ options, found %d.', count( $options ) ) );
+			throw new Exception( sprintf( 'Expected exactly 4 MCQ option slots (3 distractors + 1 blank), found %d.', count( $options ) ) );
 		}
-		$correct_index = isset( $question['correctOptionIndex'] ) ? (int) $question['correctOptionIndex'] : -1;
-		if ( $correct_index < 0 || $correct_index > 3 ) {
-			throw new Exception( 'MCQ correctOptionIndex is missing or out of range.' );
+		$answer_value = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $answer_value ) {
+			throw new Exception( 'MCQ correct answer (reconstructedReference) is missing.' );
 		}
 
+		// Option 1-3 hold the 3 distractors; Option 4 is always blank — the
+		// correct answer goes ONLY into the Answer field below, never
+		// duplicated into an option. See Citex_Generated_Validator::validate_mcq()'s
+		// docblock for the reported bug this fixes.
 		$this->write_acf_value( $new_id, $field_map['option1'], (string) $options[0] );
 		$this->write_acf_value( $new_id, $field_map['option2'], (string) $options[1] );
 		$this->write_acf_value( $new_id, $field_map['option3'], (string) $options[2] );
@@ -549,10 +558,9 @@ class Citex_Populator {
 		$this->write_acf_value( $new_id, $field_map['hint'], $hint );
 		$this->write_acf_value( $new_id, $field_map['questionClass'], 'Harvard' );
 
-		$answer_value = (string) $options[ $correct_index ];
 		$this->write_acf_value( $new_id, $field_map['answer'], $answer_value );
 
-		return array( 'options' => $options, 'correctIndex' => $correct_index, 'answerValue' => $answer_value, 'hint' => $hint );
+		return array( 'options' => $options, 'answerValue' => $answer_value, 'hint' => $hint );
 	}
 
 	private function verify_mcq_acf_values( $new_id, $field_map, $question, $write_result ) {

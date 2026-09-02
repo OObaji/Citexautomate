@@ -8,15 +8,17 @@
  * citex-reference post type (see FIELD_OPTION_1..4/FIELD_ANSWER in
  * class-citex-populator.php) — not guessed.
  *
- * The Answer field holds the FULL TEXT of the correct option — the same
- * string written to that option's own Option N field — never a letter,
- * number, or other short identifier, regardless of the field's own ACF
- * configuration. A real live-site Diagnostics capture (WordPress post
- * #5006113, an "Edited Book | MCQ" question) showed the previous
- * letter-based Answer value ("C") rendering as a spurious, pre-selected 5th
- * option in the student app, because the app has no way to translate a bare
- * letter back into option text on its own — writing the full option text
- * directly removes the need for any such translation.
+ * The Answer field holds the FULL TEXT of the correct reference
+ * (reconstructedReference) — never a letter, number, or other short
+ * identifier, and it is NEVER also duplicated into one of the 4 Option
+ * slots. Option 1-3 hold the 3 distractors, in order; Option 4 is ALWAYS
+ * left blank. A real live-site Diagnostics capture (WordPress post
+ * #5006113, an "Edited Book | MCQ" question) showed the previous design —
+ * which placed the correct reference into a pseudo-random option slot AND
+ * into the Answer field — rendering as duplicate, simultaneously-"selected"
+ * options in the student app, because the two copies were treated as
+ * separate choices. Writing the answer ONLY to the Answer field, and never
+ * into any option, removes the duplication entirely.
  *
  * Repo-level only, run with plain
  * `php tests/populator-mcq-population.test.php` — not shipped in
@@ -308,20 +310,23 @@ function reset_environment() {
 function mcq_question( $overrides = array() ) {
 	return array_merge(
 		array(
-			'questionId'         => 'BK-MCQ-1',
-			'title'              => 'Harvard | ReferenceList | Book | MCQ | BK-MCQ-1',
-			'category'           => 'Book',
-			'exercise'           => 'Exercise 1',
-			'type'               => 'MCQ',
-			'scenario'           => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
-			'options'            => array(
+			'questionId'           => 'BK-MCQ-1',
+			'title'                => 'Harvard | ReferenceList | Book | MCQ | BK-MCQ-1',
+			'category'             => 'Book',
+			'exercise'             => 'Exercise 1',
+			'type'                 => 'MCQ',
+			'scenario'             => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
+			// Option 1-3 are the 3 distractors; Option 4 is always blank. The
+			// correct answer lives only in reconstructedReference, below — it
+			// is never placed into, or duplicated into, any option slot.
+			'options'              => array(
 				'Bryman A. (2012) Social Research Methods. Oxford: Oxford University Press.',
-				'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
 				'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.',
 				'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.',
+				'',
 			),
-			'correctOptionIndex' => 1,
-			'hint'               => 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the title, place and publisher.',
+			'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
+			'hint'                 => 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the title, place and publisher.',
 		),
 		$overrides
 	);
@@ -351,21 +356,23 @@ check( '[1] MCQ population succeeds', is_wp_error( $result ), false );
 if ( ! is_wp_error( $result ) ) {
 	$post_id = $result['postId'];
 	check( '[1] result reports type MCQ', $result['type'], 'MCQ' );
-	check( '[1] option 1 persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_1 ], $question['options'][0] );
-	check( '[1] option 2 (the correct one) persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_2 ], $question['options'][1] );
-	check( '[1] option 3 persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_3 ], $question['options'][2] );
-	check( '[1] option 4 persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_4 ], $question['options'][3] );
+	check( '[1] option 1 (a distractor) persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_1 ], $question['options'][0] );
+	check( '[1] option 2 (a distractor) persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_2 ], $question['options'][1] );
+	check( '[1] option 3 (a distractor) persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_3 ], $question['options'][2] );
+	check( '[1] option 4 persisted blank', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_4 ], '' );
 	check( '[1] scenario persisted', $GLOBALS['__acf_values'][ $post_id ]['field_scenario'], $question['scenario'] );
 	check( '[1] Hint persisted with the generated non-revealing hint (there is no separate "explanation" field on this site)', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_HINT ], $question['hint'] );
 	check( '[1] Question Class is set to Harvard', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_QUESTION_CLASS ], 'Harvard' );
 	// CRITICAL — the Answer field holds the FULL TEXT of the correct
-	// option (identical to what was written to Option 2), never a bare
-	// letter. This is the direct fix for the reported bug: the student app
-	// was rendering the previous letter value ("C") as a spurious,
-	// pre-selected 5th option because it could not translate a letter back
-	// into option text on its own.
-	check( '[1] Answer field written as the FULL correct option text, never a letter', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_ANSWER ], $question['options'][1] );
+	// reference (reconstructedReference), never a bare letter, and it is
+	// NEVER also duplicated into one of the 4 option slots. This is the
+	// direct fix for the reported bug: the previous design placed the
+	// correct reference into a pseudo-random option slot AND into the
+	// Answer field, and the student app rendered the two copies as
+	// separate, simultaneously-"selected" options.
+	check( '[1] Answer field written as the FULL correct reference text, never a letter', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_ANSWER ], $question['reconstructedReference'] );
 	check( '[1] Answer field is NOT a bare letter', in_array( $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_ANSWER ], array( 'A', 'B', 'C', 'D' ), true ), false );
+	check( '[1] the correct answer is never duplicated into any option slot', in_array( $question['reconstructedReference'], $question['options'], true ), false );
 	check( '[1] result reports optionsVerified 4/4', $result['optionsVerified'], '4/4' );
 	check( '[1] result reports answerVerified', $result['answerVerified'], true );
 	check( '[1] result reports scenarioVerified', $result['scenarioVerified'], true );
@@ -398,7 +405,7 @@ $question2  = mcq_question();
 $result2 = invoke_private( $populator2, 'populate_one', array( $question2, 'question', 0, $field_map, 'draft' ) );
 check( '[2] population succeeds even with a choice-type Answer field', is_wp_error( $result2 ), false );
 if ( ! is_wp_error( $result2 ) ) {
-	check( '[2] the FULL correct option text is written, not a choice key', $GLOBALS['__acf_values'][ $result2['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question2['options'][1] );
+	check( '[2] the FULL correct reference text is written, not a choice key', $GLOBALS['__acf_values'][ $result2['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question2['reconstructedReference'] );
 }
 
 // ---------------------------------------------------------------------
@@ -416,7 +423,7 @@ $question3  = mcq_question();
 $result3 = invoke_private( $populator3, 'populate_one', array( $question3, 'question', 0, $field_map, 'draft' ) );
 check( '[3] population succeeds with a numerically-keyed choice Answer field', is_wp_error( $result3 ), false );
 if ( ! is_wp_error( $result3 ) ) {
-	check( '[3] the FULL correct option text is written, not "2"', $GLOBALS['__acf_values'][ $result3['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question3['options'][1] );
+	check( '[3] the FULL correct reference text is written, not "2"', $GLOBALS['__acf_values'][ $result3['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question3['reconstructedReference'] );
 }
 
 // ---------------------------------------------------------------------
@@ -437,7 +444,7 @@ $question3b  = mcq_question();
 $result3b = invoke_private( $populator3b, 'populate_one', array( $question3b, 'question', 0, $field_map, 'draft' ) );
 check( '[3b] population succeeds with a letter-keyed choice Answer field', is_wp_error( $result3b ), false );
 if ( ! is_wp_error( $result3b ) ) {
-	check( '[3b] the FULL correct option text is written, not "B"', $GLOBALS['__acf_values'][ $result3b['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question3b['options'][1] );
+	check( '[3b] the FULL correct reference text is written, not "B"', $GLOBALS['__acf_values'][ $result3b['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question3b['reconstructedReference'] );
 }
 
 // ---------------------------------------------------------------------
@@ -457,7 +464,7 @@ $question4  = mcq_question();
 $result4 = invoke_private( $populator4, 'populate_one', array( $question4, 'question', 0, $field_map, 'draft' ) );
 check( '[4] population succeeds regardless of how unrelated the Answer field\'s choices are', is_wp_error( $result4 ), false );
 if ( ! is_wp_error( $result4 ) ) {
-	check( '[4] the FULL correct option text is still written', $GLOBALS['__acf_values'][ $result4['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question4['options'][1] );
+	check( '[4] the FULL correct reference text is still written', $GLOBALS['__acf_values'][ $result4['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question4['reconstructedReference'] );
 }
 
 // ---------------------------------------------------------------------

@@ -137,13 +137,16 @@ class Citex_Generated_Validator {
 	}
 
 	/**
-	 * MCQ counterpart to validate_dragdrop(): exactly 4 non-empty, mutually
-	 * distinct options, a correctOptionIndex identifying one of them, and the
+	 * MCQ counterpart to validate_dragdrop(): exactly 4 option slots — the
+	 * first 3 holding distinct distractors, the 4th always blank — and the
 	 * SAME Harvard-format/bibliographic-consistency/answer-leakage checks
-	 * already used for DragDrop applied to the correct option's own text —
-	 * Citex constructs that option itself (see Citex_AI_V2::normalise_mcq_item()),
-	 * so it must satisfy exactly the same format rules DragDrop's
-	 * reconstructed reference does.
+	 * already used for DragDrop applied to the correct answer's own text
+	 * (reconstructedReference). Citex constructs that answer itself (see
+	 * Citex_AI_V2::normalise_mcq_item()), so it must satisfy exactly the
+	 * same format rules DragDrop's reconstructed reference does. The
+	 * correct answer is never placed into, or duplicated into, any option
+	 * slot — it lives ONLY in the Answer field (see write_mcq_acf_values()
+	 * in class-citex-populator.php).
 	 */
 	private static function validate_mcq( $question ) {
 		$errors   = array();
@@ -151,19 +154,25 @@ class Citex_Generated_Validator {
 		$options  = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
 
 		if ( 4 !== count( $options ) ) {
-			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 options are required; %d were provided.', count( $options ) ) );
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 distractors + 1 blank); %d were provided.', count( $options ) ) );
 			return self::result( 'failed', $errors, null );
-		}
-		foreach ( $options as $index => $option ) {
-			if ( '' === trim( (string) $option ) ) {
-				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty.', $index + 1 ) );
-			}
 		}
 
-		$correct_index = isset( $question['correctOptionIndex'] ) ? (int) $question['correctOptionIndex'] : -1;
-		if ( $correct_index < 0 || $correct_index > 3 ) {
-			$errors[] = self::error( 'MCQ_CORRECT_INDEX_INVALID', 'correctOptionIndex must identify one of the 4 options (0-3).' );
-			return self::result( 'failed', $errors, null );
+		// Option 1-3 hold the 3 distractors; Option 4 is ALWAYS left blank.
+		// The correct answer lives only in the Answer field
+		// (reconstructedReference, below) — it must never be placed into, or
+		// duplicated into, any option slot. This is the direct fix for a
+		// real reported bug: placing the correct reference into one of the
+		// 4 option slots AND into the Answer field made the student app
+		// render the two copies as separate, simultaneously-"selected"
+		// choices.
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a distractor.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
 		}
 
 		$seen = array();
@@ -182,28 +191,37 @@ class Citex_Generated_Validator {
 		$publisher    = $question['publisher'] ?? null;
 		$designation  = self::expected_designation_for( $question, $category );
 		$editor_join  = self::expected_editor_join_for( $question, $category );
-		$reference    = trim( (string) $options[ $correct_index ] );
-		$errors       = array_merge( $errors, self::validate_reference_format( $reference, $category, $place, $publisher, $designation, $editor_join ) );
+		$reference    = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $reference ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$errors = array_merge( $errors, self::validate_reference_format( $reference, $category, $place, $publisher, $designation, $editor_join ) );
 
-		// Exactly one option may look correct. A distractor that happens to
-		// pass every Harvard format rule too (different wording, but still
-		// structurally valid) is a second "reasonably correct" answer —
-		// precisely the ambiguity a real MCQ must never contain.
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $reference ) ) );
 		foreach ( $options as $index => $option ) {
-			if ( $index === $correct_index ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
 				continue;
 			}
-			if ( empty( self::validate_reference_format( trim( (string) $option ), $category, $place, $publisher, $designation, $editor_join ) ) ) {
+			// The correct answer must never appear as an option — it
+			// belongs only in the Answer field.
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — the answer must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+				continue;
+			}
+			// No distractor may itself look like a fully valid Harvard
+			// reference — that would be a second plausible answer, exactly
+			// the ambiguity a real MCQ must never contain.
+			if ( empty( self::validate_reference_format( $option_text, $category, $place, $publisher, $designation, $editor_join ) ) ) {
 				$errors[] = self::error(
 					'MCQ_DISTRACTOR_LOOKS_CORRECT',
-					sprintf( 'Option %d is not marked correct but passes every Harvard format rule too — this creates a second plausible answer.', $index + 1 )
+					sprintf( 'Option %d passes every Harvard format rule too — this creates a second plausible answer.', $index + 1 )
 				);
 			}
-		}
-
-		$expected = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
-		if ( '' !== $expected && $expected !== $reference ) {
-			$errors[] = self::error( 'RECONSTRUCTED_REFERENCE_MISMATCH', 'The correct option does not match the canonical reconstructed reference.' );
 		}
 
 		$question_parts = array(
