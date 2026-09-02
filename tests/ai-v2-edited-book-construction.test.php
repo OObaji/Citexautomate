@@ -93,19 +93,23 @@ function one_editor_dragdrop_item( $overrides = array() ) {
 	);
 }
 
+function edited_book_distractor( $reference, $reason = 'Missing the editor designation (ed.)' ) {
+	return array( 'reference' => $reference, 'errorReason' => $reason );
+}
+
 function one_editor_mcq_item( $overrides = array() ) {
 	return array_merge(
 		array(
-			'scenario'            => 'You are referencing a book edited by Vincent Miller, titled Understanding digital culture, published in 2020 by SAGE Publications in London.',
-			'editorFullNames'     => array( 'Vincent Miller' ),
-			'year'                => '2020',
-			'bookTitle'           => 'Understanding digital culture',
-			'place'               => 'London',
-			'publisher'           => 'SAGE Publications',
-			'incorrectReferences' => array(
-				'Miller, V. (2020) Understanding digital culture. London: SAGE Publications.',
-				'Miller, V. (editor) (2020) Understanding digital culture. London: SAGE Publications.',
-				'Miller, V. (2020) (ed.) Understanding digital culture. London: SAGE Publications.',
+			'scenario'        => 'You are referencing a book edited by Vincent Miller, titled Understanding digital culture, published in 2020 by SAGE Publications in London.',
+			'editorFullNames' => array( 'Vincent Miller' ),
+			'year'            => '2020',
+			'bookTitle'       => 'Understanding digital culture',
+			'place'           => 'London',
+			'publisher'       => 'SAGE Publications',
+			'distractors'     => array(
+				edited_book_distractor( 'Miller, V. (2020) Understanding digital culture. London: SAGE Publications.', 'Missing the editor designation (ed.) entirely.' ),
+				edited_book_distractor( 'Miller, V. (editor) (2020) Understanding digital culture. London: SAGE Publications.', 'Uses the full word "(editor)" instead of the correct "(ed.)" abbreviation.' ),
+				edited_book_distractor( 'Miller, V. (2020) (ed.) Understanding digital culture. London: SAGE Publications.', 'Places the designation after the year instead of immediately after the editor name.' ),
 			),
 		),
 		$overrides
@@ -148,7 +152,52 @@ if ( ! is_wp_error( $mcq_result ) ) {
 	check( '[2] the correct option is Citex\'s own construction with the correct designation', $mcq_candidate['options'][ $mcq_candidate['correctOptionIndex'] ], 'Miller, V. (ed.) (2020) Understanding digital culture. London: SAGE Publications.' );
 	check( '[2] reconstructedReference matches the correct option', $mcq_candidate['reconstructedReference'], $mcq_candidate['options'][ $mcq_candidate['correctOptionIndex'] ] );
 	check( '[2] an explanation is generated', '' !== trim( $mcq_candidate['explanation'] ), true );
+	check( '[2] the correct slot\'s error reason is null', $mcq_candidate['optionErrorReasons'][ $mcq_candidate['correctOptionIndex'] ], null );
+	check( '[2] every non-correct slot carries a non-empty error reason', count( array_filter( array_diff_key( $mcq_candidate['optionErrorReasons'], array( $mcq_candidate['correctOptionIndex'] => true ) ), 'strlen' ) ), 3 );
 }
+
+// ---------------------------------------------------------------------
+// 2b. A distractor missing its errorReason is rejected for Edited Book MCQ
+// too — the same structural gate as Book.
+// ---------------------------------------------------------------------
+$eb_missing_reason = invoke_normalise(
+	array( one_editor_mcq_item( array( 'distractors' => array(
+		array( 'reference' => 'Miller, V. (2020) Understanding digital culture. London: SAGE Publications.', 'errorReason' => '' ),
+		edited_book_distractor( 'Miller, V. (editor) (2020) Understanding digital culture. London: SAGE Publications.' ),
+		edited_book_distractor( 'Miller, V. (2020) (ed.) Understanding digital culture. London: SAGE Publications.' ),
+	) ) ) ),
+	array( 'EB02' ),
+	'medium',
+	array(),
+	'MCQ',
+	Citex_Reference_Rules::CATEGORY_EDITED_BOOK
+);
+check( '[2b] a distractor with an empty errorReason is rejected for Edited Book MCQ', is_wp_error( $eb_missing_reason ), true );
+check( '[2b] error code identifies the missing reason', is_wp_error( $eb_missing_reason ) ? $eb_missing_reason->get_error_code() : null, 'citex_ai_mcq_distractor_reason_missing' );
+
+// ---------------------------------------------------------------------
+// 2c. CRITICAL — a designation distractor that is claimed wrong but is
+// actually fully valid (e.g. Gemini accidentally used the CORRECT
+// designation for the stated editor count while claiming a mistake) still
+// fails the ambiguity gate — an errorReason never overrides Citex's own
+// independent re-validation.
+// ---------------------------------------------------------------------
+$eb_still_ambiguous = invoke_normalise(
+	array( one_editor_mcq_item( array( 'distractors' => array(
+		edited_book_distractor( 'Miller, V. (2020) Understanding digital culture. London: SAGE Publications.', 'Missing the editor designation (ed.) entirely.' ),
+		edited_book_distractor( 'Miller, V. (editor) (2020) Understanding digital culture. London: SAGE Publications.', 'Uses the full word "(editor)" instead of "(ed.)".' ),
+		// Fully valid Edited Book shape for a different, unrelated book —
+		// Gemini claims a mistake, but none is actually present.
+		edited_book_distractor( 'Adams, R. (ed.) (2015) A Totally Different Book. Manchester: Routledge.', 'Wrong publisher for this book.' ),
+	) ) ) ),
+	array( 'EB02' ),
+	'medium',
+	array(),
+	'MCQ',
+	Citex_Reference_Rules::CATEGORY_EDITED_BOOK
+);
+check( '[2c] a distractor that is fully valid despite its claimed errorReason still fails the quality gate', is_wp_error( $eb_still_ambiguous ), true );
+check( '[2c] error code is the existing validator-rejection code, not silently bypassed', is_wp_error( $eb_still_ambiguous ) ? $eb_still_ambiguous->get_error_code() : null, 'citex_ai_validator_rejected' );
 
 // ---------------------------------------------------------------------
 // 3. CRITICAL — two editors must produce "(eds)", never "(ed.)". This is

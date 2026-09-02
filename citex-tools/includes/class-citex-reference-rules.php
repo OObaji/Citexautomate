@@ -141,4 +141,41 @@ class Citex_Reference_Rules {
 		}
 		return '/^[^,]+,\s+(?:[A-Z]\.\s*)+\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u';
 	}
+
+	/**
+	 * The catalogue of named, realistic Harvard rule-violations MCQ
+	 * distractors for this category should be built from — the
+	 * category-specific "common mistakes" a new category supplies alongside
+	 * its rules, so Citex_AI_V2's MCQ prompts can ask Gemini for a specific,
+	 * rule-based mistake per distractor (and require it to name which one it
+	 * used as that distractor's error_reason) instead of leaving Gemini to
+	 * invent arbitrary "different-looking" references that can accidentally
+	 * still be fully valid. This never changes what counts as a "correct"
+	 * reference — format_regex()/build_reference() remain the sole
+	 * authority for that — it only shapes what kind of wrong Gemini is
+	 * asked to produce.
+	 *
+	 * @return string[]
+	 */
+	public static function mcq_distractor_patterns( $category ) {
+		if ( self::CATEGORY_EDITED_BOOK === $category ) {
+			return array(
+				'Missing the editor designation "(ed.)"/"(eds)" entirely, as if it were a Book reference with no editor marked.',
+				'Using "(eds)" for a question with only one editor, or "(ed.)" for a question with two editors — the wrong designation for the stated editor count.',
+				'Using the full word "(editor)" or "(author)" instead of the correct "(ed.)"/"(eds)" abbreviation.',
+				'Placing the designation after the year instead of immediately after the editor name(s) — e.g. "(2020) (ed.)" instead of "(ed.) (2020)".',
+				'Swapping the place of publication and publisher — e.g. "Publisher: Place" instead of "Place: Publisher".',
+				'Missing the full stop after the book title, or an extra comma before the year.',
+				'For two editors, omitting "and" between them or joining them with the wrong punctuation.',
+			);
+		}
+		return array(
+			'Using the author\'s full first name instead of initials — e.g. "John Smith" instead of "Smith, J.".',
+			'Placing the initials before the surname — e.g. "J. Smith" instead of "Smith, J.".',
+			'Placing the year outside its parentheses, or in the wrong position relative to the author.',
+			'Swapping the place of publication and publisher — e.g. "Publisher: Place" instead of "Place: Publisher".',
+			'Missing the full stop after the book title, or an extra comma between surname and initials.',
+			'Missing the parentheses around the publication year entirely.',
+		);
+	}
 }

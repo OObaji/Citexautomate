@@ -160,5 +160,21 @@ check( '[8] a plain Book-format reference does not satisfy the Edited Book regex
 $book_regex = Citex_Reference_Rules::format_regex( Citex_Reference_Rules::CATEGORY_BOOK );
 check( '[8] an Edited Book reference does not satisfy the plain Book format regex either', 1 === preg_match( $book_regex, 'Smith, J. (ed.) (2022) Digital media and society. London: SAGE Publications.' ), false );
 
+// ---------------------------------------------------------------------
+// 9. mcq_distractor_patterns() — the category-specific "common mistakes"
+// catalogue Citex_AI_V2's MCQ prompts build distractor instructions from.
+// Every category must supply a non-empty list of distinct, non-empty
+// pattern descriptions, and Book vs Edited Book must differ (each
+// category's patterns are its own, not a shared generic list).
+// ---------------------------------------------------------------------
+$book_patterns = Citex_Reference_Rules::mcq_distractor_patterns( Citex_Reference_Rules::CATEGORY_BOOK );
+$edited_book_patterns = Citex_Reference_Rules::mcq_distractor_patterns( Citex_Reference_Rules::CATEGORY_EDITED_BOOK );
+check( '[9] Book has at least one distractor pattern', count( $book_patterns ) > 0, true );
+check( '[9] Edited Book has at least one distractor pattern', count( $edited_book_patterns ) > 0, true );
+check( '[9] every Book pattern is a non-empty string', count( array_filter( $book_patterns, function ( $p ) { return is_string( $p ) && '' !== trim( $p ); } ) ), count( $book_patterns ) );
+check( '[9] every Edited Book pattern is a non-empty string', count( array_filter( $edited_book_patterns, function ( $p ) { return is_string( $p ) && '' !== trim( $p ); } ) ), count( $edited_book_patterns ) );
+check( '[9] Book and Edited Book have their own distinct pattern lists', $book_patterns === $edited_book_patterns, false );
+check( '[9] Edited Book patterns specifically mention the designation rule this category tests', count( array_filter( $edited_book_patterns, function ( $p ) { return false !== stripos( $p, 'ed.' ) || false !== stripos( $p, 'eds' ); } ) ) > 0, true );
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
