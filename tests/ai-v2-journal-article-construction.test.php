@@ -147,8 +147,12 @@ foreach ( $author_sets as $count => $names ) {
 	if ( ! is_wp_error( $result ) ) {
 		$candidate = $result[0];
 		check( "[$count author(s)] category is 'Journal Article'", $candidate['category'], 'Journal Article' );
-		check( "[$count author(s)] Question Parts always contain exactly 7 items", count( $candidate['questionParts'] ), 7 );
-		check( "[$count author(s)] Fixed Text is the constant 7-placeholder template", $candidate['fixedText'], '| (||) ||. ||, ||(||), pp.||.' );
+		// Journal Article's mobile-first redesign: one small draggable
+		// chip PER AUTHOR (never a giant pre-joined "X and Y" string), so
+		// the full_reference design's part/placeholder count is
+		// (author count + 6), not a constant 7.
+		check( "[$count author(s)] Question Parts contain one chip per author plus 6 fixed fields", count( $candidate['questionParts'] ), $count + 6 );
+		check( "[$count author(s)] Fixed Text has the correct author-joining prefix, one chip per author", $candidate['fixedText'], Citex_Reference_Rules::journal_article_author_parts_fixed_text( $count ) . ' (||) ||. ||, ||(||), pp.||.' );
 		check( "[$count author(s)] reconstructedReference contains \"et al.\"? (must not)", false !== stripos( $candidate['reconstructedReference'], 'et al' ), false );
 		check( "[$count author(s)] validates and enters the queue as 'passed'", $candidate['validationStatus'], 'passed' );
 	}
@@ -164,7 +168,7 @@ if ( ! is_wp_error( $result_initials ) ) {
 	$c = $result_initials[0];
 	check( '[6] initials correctly derived: "Sarah Mitchell" -> surname "Mitchell", initials "S."', $c['authors'][0]['surname'] . '|' . $c['authors'][0]['initials'], 'Mitchell|S.' );
 	check( '[6] second author too: "Daniel Evans" -> "Evans", "D."', $c['authors'][1]['surname'] . '|' . $c['authors'][1]['initials'], 'Evans|D.' );
-	check( '[6] Question Parts reflect the correctly-derived, joined author list', $c['questionParts'][0], 'Mitchell, S. and Evans, D.' );
+	check( '[6] Question Parts reflect the correctly-derived author chips, one per author (never pre-joined)', $c['questionParts'][0] . '|' . $c['questionParts'][1], 'Mitchell, S.|Evans, D.' );
 }
 
 // ---------------------------------------------------------------------

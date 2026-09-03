@@ -93,17 +93,26 @@ class Citex_Question_Scenarios {
 	 * test here.
 	 */
 	private static function mcq_only_scenarios( $category ) {
-		// Journal Article implements only the required select_correct (MCQ)
-		// and construct_reference (DragDrop) mechanics in this task — it has
-		// no identify_error/choose_treatment prompt/schema/normaliser support
-		// in Citex_AI_V2 yet, so it must never be offered these MCQ-only
-		// scenarios (offering one here without AI-v2/Reference_Rules support
-		// for it would silently mis-route the request as a Book question).
+		// Journal Article's ONE MCQ-only mechanic: author_initials — a
+		// single author's "Surname, I." tested in isolation (design
+		// 'author_only'). This is deliberately MCQ-only: a 1-part answer
+		// can never satisfy DragDrop's 3-meaningful-parts floor (see
+		// Citex_Reference_Rules::journal_article_designs()'s docblock), but
+		// MCQ has no such floor — testing one meaningful formatting
+		// decision is exactly what requirement 8's "correct initials"
+		// objective asks for. Journal Article has no identify_error/
+		// choose_treatment prompt/schema/normaliser support — those remain
+		// out of scope for this category.
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return array(
+				array( 'id' => 'author_initials', 'ruleTested' => 'author_initial_format', 'targetCounts' => array( 1 ), 'label' => 'Author initials format', 'exerciseDesign' => 'author_only' ),
+			);
+		}
 		// Website implements only the required select_correct (MCQ) and
-		// construct_reference (DragDrop) mechanics in this task too — same
-		// reasoning as Journal Article above: no identify_error/choose_treatment
-		// prompt/schema/normaliser support exists for it yet.
-		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category || Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+		// construct_reference (DragDrop) mechanics in this task — no
+		// identify_error/choose_treatment prompt/schema/normaliser support
+		// exists for it yet.
+		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			return array();
 		}
 		$scenarios = array(
@@ -156,46 +165,39 @@ class Citex_Question_Scenarios {
 	}
 
 	/**
-	 * Journal Article author-count buckets — FIVE distinct buckets rather
-	 * than Book's collapsed four, per the confirmed requirement that
-	 * generation must dynamically test 1, 2, 3, 4 and 5+ authors as separate,
-	 * explicitly tracked scenarios (not folded into a single "four or more"
-	 * bucket): the joining STYLE changes at 1/2/3 authors exactly like Book,
-	 * and the "list every author, never et al." rule is tested at both 4 and
-	 * 5+ so a 4-author-only generator can never accidentally pass by
-	 * coincidence.
+	 * Journal Article learning-objective buckets — REDESIGNED so every
+	 * DragDrop question tests at least 3 meaningful referencing components
+	 * in small, individually-draggable chips (never a giant pre-joined
+	 * author string, never a punctuation-only objective — see
+	 * Citex_Reference_Rules::journal_article_designs()'s docblock for the
+	 * full rationale). Each entry's 'exerciseDesign' is read by
+	 * Citex_AI_V2::normalise() to pick the matching
+	 * Citex_Reference_Rules::journal_article_dragdrop_shape() case; the
+	 * full canonical source record is still always required and validated
+	 * regardless of which of these is assigned (see
+	 * Citex_Generated_Validator::validate_journal_article_consistency()).
+	 *
+	 * Author-count buckets (1, 2, 3, 4, 5+) use 'author_context' for 1-3
+	 * authors (author chip(s) + year + article title — always >= 3 parts)
+	 * and 'author_list_year' for 4+ (author chips + year only, deliberately
+	 * dropping the article title to keep a 4-7-chip question mobile-sized —
+	 * the author list alone already clears the 3-part floor). 'full_reference'
+	 * is offered as its own separate, occasional variety scenario across a
+	 * range of counts, now built from one small chip PER AUTHOR rather than
+	 * one giant pre-joined string for 2+ authors.
 	 */
 	private static function journal_article_buckets() {
 		return array(
-			// The original 5 full-reference buckets — UNCHANGED, still the
-			// existing 7-part construct_reference/select_correct mechanic
-			// (every entry here implicitly carries no 'exerciseDesign' key,
-			// which Citex_AI_V2 reads as 'full_reference' — see
-			// Citex_Reference_Rules::journal_article_dragdrop_shape()'s
-			// docblock). Kept exactly as before so every existing test/
-			// behaviour for these 5 ids is untouched.
-			array( 'id' => 'one_author', 'ruleTested' => 'author_formatting', 'targetCounts' => array( 1 ), 'label' => 'One author' ),
-			array( 'id' => 'two_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Two authors' ),
-			array( 'id' => 'three_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 3 ), 'label' => 'Three authors' ),
-			array( 'id' => 'four_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4 ), 'label' => 'Four authors' ),
-			array( 'id' => 'five_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 5, 6, 7 ), 'label' => 'Five or more authors' ),
-			// Mobile-suitability rework: five ADDITIONAL, smaller "exercise
-			// design" buckets testing one meaningful component instead of
-			// the full 7-part reconstruction every time — the diversity
-			// engine's least-used-first selection now naturally rotates
-			// batches between complete- and partial-reference questions
-			// instead of always generating the largest possible draggable
-			// shape. Each entry's 'exerciseDesign' is read by
-			// Citex_AI_V2::normalise() to pick the matching
-			// Citex_Reference_Rules::journal_article_dragdrop_shape() case;
-			// the full canonical source record is still always required and
-			// validated regardless of which of these is assigned (see
-			// Citex_Generated_Validator::validate_journal_article_consistency()).
-			array( 'id' => 'author_format', 'ruleTested' => 'author_initial_derivation', 'targetCounts' => array( 1 ), 'label' => 'Author format (surname + initial)', 'exerciseDesign' => 'author_format' ),
-			array( 'id' => 'author_joining_pair', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Two-author joining (component only)', 'exerciseDesign' => 'author_joining_pair' ),
+			array( 'id' => 'one_author', 'ruleTested' => 'author_formatting', 'targetCounts' => array( 1 ), 'label' => 'One author (author + year + title)', 'exerciseDesign' => 'author_context' ),
+			array( 'id' => 'two_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Two authors (author + year + title)', 'exerciseDesign' => 'author_context' ),
+			array( 'id' => 'three_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 3 ), 'label' => 'Three authors (author + year + title)', 'exerciseDesign' => 'author_context' ),
+			array( 'id' => 'four_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4 ), 'label' => 'Four authors (author list + year)', 'exerciseDesign' => 'author_list_year' ),
+			array( 'id' => 'five_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 5, 6, 7 ), 'label' => 'Five or more authors (author list + year)', 'exerciseDesign' => 'author_list_year' ),
+			array( 'id' => 'full_reference', 'ruleTested' => 'full_reference_construction', 'targetCounts' => array( 1, 2, 3, 4, 5 ), 'label' => 'Full reference (all fields, one chip per author)', 'exerciseDesign' => 'full_reference' ),
 			array( 'id' => 'volume_issue_pages', 'ruleTested' => 'volume_issue_pages_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Volume/issue/page range structure', 'exerciseDesign' => 'volume_issue_pages' ),
-			array( 'id' => 'title_journal_punctuation', 'ruleTested' => 'title_journal_punctuation', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Article/journal title punctuation', 'exerciseDesign' => 'title_journal_punctuation' ),
-			array( 'id' => 'punctuation_final_stop', 'ruleTested' => 'terminal_punctuation', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Terminal punctuation (full content shown)', 'exerciseDesign' => 'punctuation_final_stop' ),
+			array( 'id' => 'journal_volume_issue', 'ruleTested' => 'journal_title_placement', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Journal title, volume and issue', 'exerciseDesign' => 'journal_volume_issue' ),
+			array( 'id' => 'title_journal_volume', 'ruleTested' => 'article_title_placement', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Article title, journal title and volume', 'exerciseDesign' => 'title_journal_volume' ),
+			array( 'id' => 'partial_reference', 'ruleTested' => 'reference_body_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Partial reference (title/journal/volume/issue/pages)', 'exerciseDesign' => 'reference_body' ),
 		);
 	}
 

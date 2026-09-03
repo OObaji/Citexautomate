@@ -263,21 +263,20 @@ class Citex_Generated_Validator {
 			}
 			// No distractor may itself look like a fully valid Harvard
 			// reference — that would be a second plausible answer, exactly
-			// the ambiguity a real MCQ must never contain. SKIPPED for
-			// Journal Article's short "identify the correct VALUE" partial
-			// designs (author_format, author_joining_pair, volume_issue_pages,
-			// title_journal_punctuation): their whole point is comparing
-			// several equally well-FORMATTED candidates (e.g. "Brown, B."
-			// vs "Brown, S." — both genuinely valid "Surname, I." shapes)
-			// and asking which one is the real, correct VALUE — a
-			// same-shape distractor there is the intended, correct kind of
-			// distractor, not an ambiguity bug. This check keeps its full
-			// meaning for 'full_reference'/'punctuation_final_stop' (and
+			// the ambiguity a real MCQ must never contain. SKIPPED for every
+			// Journal Article short "identify the correct VALUE" partial
+			// design (anything other than 'full_reference'): their whole
+			// point is comparing several equally well-FORMATTED candidates
+			// (e.g. "Brown, B." vs "Brown, S." — both genuinely valid
+			// "Surname, I." shapes) and asking which one is the real,
+			// correct VALUE — a same-shape distractor there is the
+			// intended, correct kind of distractor, not an ambiguity bug.
+			// This check keeps its full meaning for 'full_reference' (and
 			// every other category), where a real distractor is expected to
 			// contain a genuine Harvard RULE violation, not just a
 			// different value.
 			$skip_distractor_looks_correct = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category
-				&& in_array( $exercise_design, array( 'author_format', 'author_joining_pair', 'volume_issue_pages', 'title_journal_punctuation' ), true );
+				&& 'full_reference' !== $exercise_design;
 			if ( ! $skip_distractor_looks_correct && empty( self::validate_reference_format( $option_text, $category, $place, $publisher, $designation, $editor_join, $exercise_design ) ) ) {
 				$errors[] = self::error(
 					'MCQ_DISTRACTOR_LOOKS_CORRECT',
@@ -704,12 +703,14 @@ class Citex_Generated_Validator {
 		if ( preg_match( '/:(?!\/\/)\S/', $reference ) ) {
 			$errors[] = self::error( 'MISSING_SPACE_AFTER_COLON', 'A space is required after the colon between place of publication and publisher.' );
 		}
-		// Journal Article's 'title_journal_punctuation' partial design
-		// deliberately reconstructs a FRAGMENT that ends in a comma (e.g.
-		// "Learning Online. Research Studies,") — there is genuinely more
-		// of the real Harvard reference after this fragment, so it must
-		// never be flagged for lacking a final full stop.
-		$skip_final_period_check = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category && 'title_journal_punctuation' === $exercise_design;
+		// Some Journal Article partial designs deliberately reconstruct a
+		// FRAGMENT that stops mid-reference (e.g. 'author_list_year's
+		// "Smith, J. (2020)", with no full stop between the year's closing
+		// parenthesis and the article title that follows it in the real
+		// reference) — those must never be flagged for lacking a final full
+		// stop. See Citex_Reference_Rules::journal_article_design_skips_final_period().
+		$skip_final_period_check = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category
+			&& Citex_Reference_Rules::journal_article_design_skips_final_period( $exercise_design );
 		if ( ! $skip_final_period_check && ! preg_match( '/\.\s*$/', $reference ) ) {
 			$errors[] = self::error( 'MISSING_FINAL_PERIOD', 'Missing final full stop.' );
 		}

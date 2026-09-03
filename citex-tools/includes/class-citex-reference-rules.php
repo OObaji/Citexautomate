@@ -299,10 +299,43 @@ class Citex_Reference_Rules {
 	 * design id is given, so every existing call site/behaviour is
 	 * untouched) — every other id here is new.
 	 *
+	 * MOBILE/LEARNING-OBJECTIVE REDESIGN: the previous 'author_format' (2
+	 * parts: a single author's surname/initials split apart) and
+	 * 'author_joining_pair' (1 giant pre-joined "X and Y" chip) both failed
+	 * the "at least 3 meaningful parts, no giant chunks" requirement;
+	 * 'title_journal_punctuation' and 'punctuation_final_stop' both made
+	 * PUNCTUATION itself the learning objective, which is never allowed —
+	 * punctuation stays part of correctness validation only. All four are
+	 * removed and replaced by designs that (a) always test at least 3
+	 * genuine referencing facts, (b) never combine 2+ authors into one
+	 * draggable chip (see journal_article_author_parts_fixed_text()), and
+	 * (c) are each named for the referencing knowledge they test, not for
+	 * a punctuation mark.
+	 *
+	 * - author_context (1-3 authors): author(s) + year + article title —
+	 *   "Author(s) (Year) Article title." — tests author formatting/joining
+	 *   together with year placement and title placement.
+	 * - author_list_year (4+ authors): author(s) + year only — "Author(s)
+	 *   (Year)" — deliberately drops the article title for larger author
+	 *   counts so a 4-7-author question never becomes an oversized mobile
+	 *   layout; the author list alone already satisfies the 3-part floor at
+	 *   4+ real authors.
+	 * - volume_issue_pages (unchanged): volume + issue + pages.
+	 * - journal_volume_issue: journal title + volume + issue.
+	 * - title_journal_volume: article title + journal title + volume.
+	 * - reference_body: article title + journal title + volume + issue +
+	 *   pages — the "second half" of the reference, a genuinely distinct,
+	 *   larger partial-reference exercise.
+	 * - author_only (MCQ-only — see Citex_Question_Scenarios): a single
+	 *   author's "Surname, I." in isolation, always exactly 1 author. Never
+	 *   offered as a DragDrop design (a single chip cannot meet the 3-part
+	 *   DragDrop floor); MCQ has no such floor since it tests one meaningful
+	 *   decision, not a reconstruction.
+	 *
 	 * @return string[] design ids.
 	 */
 	public static function journal_article_designs() {
-		return array( 'full_reference', 'author_format', 'author_joining_pair', 'volume_issue_pages', 'title_journal_punctuation', 'punctuation_final_stop' );
+		return array( 'full_reference', 'author_context', 'author_list_year', 'volume_issue_pages', 'journal_volume_issue', 'title_journal_volume', 'reference_body', 'author_only' );
 	}
 
 	/**
@@ -318,62 +351,121 @@ class Citex_Reference_Rules {
 	 */
 	public static function journal_article_design_fields( $design ) {
 		$map = array(
-			'full_reference'             => array( 'authors', 'year', 'articleTitle', 'journalTitle', 'volume', 'issue', 'pages' ),
-			'author_format'              => array( 'authors' ),
-			'author_joining_pair'        => array( 'authors' ),
-			'volume_issue_pages'         => array( 'volume', 'issue', 'pages' ),
-			'title_journal_punctuation'  => array( 'articleTitle', 'journalTitle' ),
-			'punctuation_final_stop'     => array( 'authors', 'year', 'articleTitle', 'journalTitle', 'volume', 'issue', 'pages' ),
+			'full_reference'    => array( 'authors', 'year', 'articleTitle', 'journalTitle', 'volume', 'issue', 'pages' ),
+			'author_context'    => array( 'authors', 'year', 'articleTitle' ),
+			'author_list_year'  => array( 'authors', 'year' ),
+			'volume_issue_pages'=> array( 'volume', 'issue', 'pages' ),
+			'journal_volume_issue' => array( 'journalTitle', 'volume', 'issue' ),
+			'title_journal_volume' => array( 'articleTitle', 'journalTitle', 'volume' ),
+			'reference_body'    => array( 'articleTitle', 'journalTitle', 'volume', 'issue', 'pages' ),
+			'author_only'       => array( 'authors' ),
+		);
+		return $map[ $design ] ?? null;
+	}
+
+	/**
+	 * The Harvard-correct "join N author chips into one draggable sequence"
+	 * fixed-text fragment — one `|`/`||` placeholder PER AUTHOR (never one
+	 * placeholder for the whole joined list), with the exact same
+	 * comma-separated-with-a-final-"and" punctuation join_people() applies
+	 * when it joins a whole list into one string. This is the fix for the
+	 * "giant draggable chunk" problem: a 4-author question now produces 4
+	 * small "Surname, I." chips plus the fixed joining punctuation, instead
+	 * of one long pre-joined chip like "Bennett, S., Maton, K. and Kervin, L.".
+	 */
+	public static function journal_article_author_parts_fixed_text( $count ) {
+		$count = max( 1, (int) $count );
+		if ( 1 === $count ) {
+			return '|';
+		}
+		if ( 2 === $count ) {
+			return '| and ||';
+		}
+		return '|' . str_repeat( ', ||', $count - 2 ) . ' and ||';
+	}
+
+	/**
+	 * One author formatted as "Surname, I." — the small, single-author
+	 * draggable chip every Journal Article design uses (never a pre-joined
+	 * multi-author string — see journal_article_author_parts_fixed_text()).
+	 */
+	private static function journal_article_author_chip( array $person ) {
+		return sprintf( '%s, %s', $person['surname'], $person['initials'] );
+	}
+
+	/**
+	 * Whether a design's reconstructed string is a genuine COMPLETE sentence
+	 * ending in a real Harvard full stop ('full_reference', 'author_context'
+	 * — "...Article title." really is followed by a period in the full
+	 * reference — 'reference_body', 'volume_issue_pages' and 'author_only'
+	 * all end this way), or a fragment that legitimately stops mid-reference
+	 * with no full stop at that point (e.g. 'author_list_year's "...(Year)"
+	 * — the real reference has NO period between the year's closing
+	 * parenthesis and the article title that follows it). Used by
+	 * Citex_Generated_Validator to avoid flagging a legitimate mid-reference
+	 * fragment as MISSING_FINAL_PERIOD.
+	 */
+	public static function journal_article_design_skips_final_period( $design ) {
+		return in_array( $design, array( 'author_list_year', 'journal_volume_issue', 'title_journal_volume' ), true );
+	}
+
+	/**
+	 * The real author-count range a design requires, or null when the
+	 * design has no author-count constraint of its own beyond whatever the
+	 * assigned scenario's targetCounts already enforce. Defence in depth —
+	 * see the call site in Citex_AI_V2::normalise() — for a direct caller
+	 * that bypasses scenario assignment entirely.
+	 *
+	 * @return array{0:int,1:int}|null [min, max] inclusive.
+	 */
+	public static function journal_article_design_author_bounds( $design ) {
+		$map = array(
+			'author_only'      => array( 1, 1 ),
+			'author_context'   => array( 1, 3 ),
+			'author_list_year' => array( 4, 12 ),
 		);
 		return $map[ $design ] ?? null;
 	}
 
 	/**
 	 * Journal Article's DragDrop shape, per exercise design. $design of
-	 * null or 'full_reference' is the ORIGINAL, UNCHANGED constant 7-part
-	 * shape for every author count (1, 2, 3, 4, 5+) — the joined author
-	 * list is always ONE draggable part even for a single author, so the
-	 * draggable-part count never varies with author count. Every other
-	 * design tests a smaller, meaningful component instead:
-	 *
-	 * - author_format (1 author only): surname + initials as 2 short
-	 *   draggable parts — tests full-name-to-Harvard-initial derivation.
-	 * - author_joining_pair (2 authors only): the joined "Smith, A. and
-	 *   Jones, D." string as ONE draggable part — tests the "and" joining
-	 *   rule specifically, without the rest of the reference.
-	 * - volume_issue_pages: volume, issue, pages as 3 short draggable
-	 *   parts — tests the "Volume(Issue), pp.Start-End." structure.
-	 * - title_journal_punctuation: article title + journal title as 2
-	 *   draggable parts — tests the "Title. Journal," punctuation
-	 *   transition.
-	 * - punctuation_final_stop: the ENTIRE reference is shown as given,
-	 *   literal content, except the single final full stop, which is the
-	 *   one draggable part — tests terminal punctuation specifically (see
-	 *   Citex_Generated_Validator's "punctuation can be a valid Question
-	 *   Part" support).
-	 *
-	 * There is no place/publisher to bake into the fixed template for any
-	 * design — this category has none.
+	 * null or 'full_reference' reconstructs the complete reference for any
+	 * author count (1, 2, 3, 4, 5+) — but UNLIKE the pre-redesign shape,
+	 * 2+ authors are now ONE SMALL CHIP PER AUTHOR (never one giant
+	 * pre-joined chip — see journal_article_author_parts_fixed_text()); the
+	 * reconstructed STRING is identical to before (the join punctuation is
+	 * simply baked into fixedText instead of pre-joined into a single
+	 * part), so this is a pure "which pieces are draggable" fix, not a
+	 * format change. Every other design tests a smaller, meaningful
+	 * component instead — see journal_article_designs()'s docblock for what
+	 * each one tests and why. There is no place/publisher to bake into the
+	 * fixed template for any design — this category has none.
 	 */
 	private static function journal_article_dragdrop_shape( array $fields, $design = null ) {
-		$design = $design ?: 'full_reference';
-		if ( 'author_format' === $design ) {
+		$design  = $design ?: 'full_reference';
+		$authors = $fields['authors'];
+		$author_chips = array_map( array( __CLASS__, 'journal_article_author_chip' ), $authors );
+		$author_fixed = self::journal_article_author_parts_fixed_text( count( $authors ) );
+
+		if ( 'author_only' === $design ) {
 			// No trailing literal "." in fixedText — the initials value
 			// itself already ends with one (e.g. "A."), so appending
 			// another would double it.
-			$author = $fields['authors'][0];
 			return array(
-				'parts'     => array( $author['surname'], $author['initials'] ),
-				'fixedText' => '|, ||',
+				'parts'     => array( $author_chips[0] ),
+				'fixedText' => '|',
 			);
 		}
-		if ( 'author_joining_pair' === $design ) {
-			// Same reasoning: join_people() for two people already ends
-			// with the second person's initials (e.g. "...and Jones, D."),
-			// which itself ends in ".".
+		if ( 'author_context' === $design ) {
 			return array(
-				'parts'     => array( self::join_people( $fields['authors'] ) ),
-				'fixedText' => '|',
+				'parts'     => array_merge( $author_chips, array( $fields['year'], $fields['articleTitle'] ) ),
+				'fixedText' => $author_fixed . ' (||) ||.',
+			);
+		}
+		if ( 'author_list_year' === $design ) {
+			return array(
+				'parts'     => array_merge( $author_chips, array( $fields['year'] ) ),
+				'fixedText' => $author_fixed . ' (||)',
 			);
 		}
 		if ( 'volume_issue_pages' === $design ) {
@@ -382,39 +474,37 @@ class Citex_Reference_Rules {
 				'fixedText' => '|(||), pp.||.',
 			);
 		}
-		if ( 'title_journal_punctuation' === $design ) {
+		if ( 'journal_volume_issue' === $design ) {
 			return array(
-				'parts'     => array( $fields['articleTitle'], $fields['journalTitle'] ),
-				'fixedText' => '|. ||,',
+				'parts'     => array( $fields['journalTitle'], $fields['volume'], $fields['issue'] ),
+				'fixedText' => '||, ||(||)',
 			);
 		}
-		if ( 'punctuation_final_stop' === $design ) {
-			$body = sprintf(
-				'%s (%s) %s. %s, %s(%s), pp.%s',
-				self::join_people( $fields['authors'] ),
-				$fields['year'],
-				$fields['articleTitle'],
-				$fields['journalTitle'],
-				$fields['volume'],
-				$fields['issue'],
-				$fields['pages']
-			);
+		if ( 'title_journal_volume' === $design ) {
 			return array(
-				'parts'     => array( '.' ),
-				'fixedText' => $body . '|',
+				'parts'     => array( $fields['articleTitle'], $fields['journalTitle'], $fields['volume'] ),
+				'fixedText' => '||. ||, ||',
+			);
+		}
+		if ( 'reference_body' === $design ) {
+			return array(
+				'parts'     => array( $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $fields['pages'] ),
+				'fixedText' => '||. ||, ||(||), pp.||.',
 			);
 		}
 		return array(
-			'parts'     => array(
-				self::join_people( $fields['authors'] ),
-				$fields['year'],
-				$fields['articleTitle'],
-				$fields['journalTitle'],
-				$fields['volume'],
-				$fields['issue'],
-				$fields['pages'],
+			'parts'     => array_merge(
+				$author_chips,
+				array(
+					$fields['year'],
+					$fields['articleTitle'],
+					$fields['journalTitle'],
+					$fields['volume'],
+					$fields['issue'],
+					$fields['pages'],
+				)
 			),
-			'fixedText' => '| (||) ||. ||, ||(||), pp.||.',
+			'fixedText' => $author_fixed . ' (||) ||. ||, ||(||), pp.||.',
 		);
 	}
 
@@ -482,7 +572,17 @@ class Citex_Reference_Rules {
 		$max_combined_total   = 220;
 		$total                = 0;
 		foreach ( $parts as $part ) {
-			$text   = (string) $part;
+			$text = (string) $part;
+			// Punctuation must never itself be the draggable answer being
+			// tested — a part that is nothing but punctuation/whitespace
+			// (e.g. a lone ".") means the learning objective has drifted
+			// onto punctuation, which requirement 1 explicitly forbids.
+			if ( '' !== trim( $text ) && 1 === preg_match( '/^[\p{P}\s]+$/u', $text ) ) {
+				return sprintf(
+					'A draggable component ("%s") consists only of punctuation — punctuation may be part of reference correctness, but it must never be the learning objective of a draggable answer part.',
+					$text
+				);
+			}
 			$length = mb_strlen( $text );
 			$total += $length;
 			if ( $length > $max_single_component ) {
@@ -543,14 +643,11 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			// A design other than 'full_reference' (or none) reconstructs a
 			// short PARTIAL segment, not a complete reference — e.g.
-			// author_format's "Mitchell, S." or volume_issue_pages's
+			// author_only's "Mitchell, S." or volume_issue_pages's
 			// "12(2), pp.27-35." — so it needs its own, much narrower shape
 			// regex rather than the full-reference one below, which such a
 			// segment could never satisfy (and must not be judged against).
-			// 'punctuation_final_stop' is the one exception: it reconstructs
-			// a COMPLETE reference (only the final full stop is draggable),
-			// so it uses the same full-reference regex unchanged.
-			if ( null !== $design && 'full_reference' !== $design && 'punctuation_final_stop' !== $design ) {
+			if ( null !== $design && 'full_reference' !== $design ) {
 				return self::journal_article_partial_format_regex( $design );
 			}
 			// One or more "Surname, Initials" author groups (same join_people()
@@ -602,27 +699,47 @@ class Citex_Reference_Rules {
 	 * Citex_Generated_Validator::validate_journal_article_consistency()).
 	 */
 	private static function journal_article_partial_format_regex( $design ) {
-		if ( 'author_format' === $design ) {
-			// "Surname, I." — one person, no year/title/etc at all.
-			return '/^[^,]+,\s+(?:[A-Z]\.\s*)+$/u';
+		// The same "one or more Surname, Initials groups, comma-separated
+		// with a final 'and'" author-list grammar the full-reference regex
+		// uses — reused here so every author-count design (author_only,
+		// author_context, author_list_year) enforces the identical joining
+		// rule, never a looser one.
+		$author_group = '[^,]+,\s+(?:[A-Z]\.\s*)+(?:(?:,\s+[^,]+,\s+(?:[A-Z]\.\s*)+)*\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+)?';
+		if ( 'author_only' === $design ) {
+			// "Surname, I." (or a joined multi-author list) — no year/title/etc.
+			return '/^' . $author_group . '$/u';
 		}
-		if ( 'author_joining_pair' === $design ) {
-			// "Surname, I. and Surname, I." — exactly two people, joined
-			// with "and" (never a comma-only join or "&"). The trailing
-			// full stop comes from the second person's own initials group
-			// (which always ends in "."), not from any extra fixed text.
-			return '/^[^,]+,\s+(?:[A-Z]\.\s*)+\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+$/u';
+		if ( 'author_context' === $design ) {
+			// "Author(s) (Year) Article title." — a genuine complete
+			// sentence: the real Harvard reference really does have a full
+			// stop immediately after the article title.
+			return '/^' . $author_group . '\s+\(\d{4}\)\s+.+\.$/u';
+		}
+		if ( 'author_list_year' === $design ) {
+			// "Author(s) (Year)" — deliberately NO trailing full stop: the
+			// real reference has none between the year's closing
+			// parenthesis and the article title that follows it.
+			return '/^' . $author_group . '\s+\(\d{4}\)$/u';
 		}
 		if ( 'volume_issue_pages' === $design ) {
 			// "Volume(Issue), pp.Start-End." — no author/year/title at all.
 			return '/^\d+\(\d+\),\s+pp\.\d+-\d+\.$/u';
 		}
-		if ( 'title_journal_punctuation' === $design ) {
-			// "Article title. Journal title," — the title/journal
-			// punctuation transition only; deliberately ends in a comma
-			// (there is more of the reference after this fragment in the
-			// real Harvard structure), not a full stop.
-			return '/^.+\.\s+.+,$/u';
+		if ( 'journal_volume_issue' === $design ) {
+			// "Journal title, Volume(Issue)" — no trailing full stop: the
+			// real reference continues straight into ", pp.Start-End."
+			return '/^.+,\s+\d+\(\d+\)$/u';
+		}
+		if ( 'title_journal_volume' === $design ) {
+			// "Article title. Journal title, Volume" — no trailing full
+			// stop: the real reference continues into "(Issue), pp...".
+			return '/^.+\.\s+.+,\s+\d+$/u';
+		}
+		if ( 'reference_body' === $design ) {
+			// "Article title. Journal title, Volume(Issue), pp.Start-End."
+			// — the "second half" of the reference; a genuine complete
+			// sentence, ending in a real full stop.
+			return '/^.+\.\s+.+,\s+\d+\(\d+\),\s+pp\.\d+-\d+\.$/u';
 		}
 		// An unrecognised design id must never accidentally match
 		// everything — fail closed, not open.
@@ -671,6 +788,7 @@ class Citex_Reference_Rules {
 				'For two or more authors, omitting "and" before the final author and using a comma instead.',
 				'For three or more authors, joining every pair with "and" instead of separating all but the last with commas.',
 				'Using "et al." after the first author\'s name in the reference list for four or more authors, instead of listing every author in full — "et al." is only Liverpool Hope\'s in-text-citation convention, never used in a reference-list entry.',
+				'Listing the authors in a different order than their real published order (e.g. alphabetically by surname) instead of the order they actually appear on the article.',
 			);
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
@@ -739,10 +857,13 @@ class Citex_Reference_Rules {
 	 */
 	private static function journal_article_partial_mcq_stem( $design ) {
 		$stems = array(
-			'author_format'             => 'Which of the following correctly formats this author for the Harvard reference list?',
-			'author_joining_pair'       => 'Which of the following correctly joins these two authors for the Harvard reference list?',
-			'volume_issue_pages'        => 'Which of the following correctly formats the volume, issue and page range for the Harvard reference list?',
-			'title_journal_punctuation' => 'Which of the following correctly punctuates the article title and journal title for the Harvard reference list?',
+			'author_only'          => 'Which of the following correctly formats this author\'s name for the Harvard reference list?',
+			'author_context'       => 'Which of the following correctly formats the author(s), year and article title for the Harvard reference list?',
+			'author_list_year'     => 'Which of the following correctly lists the author(s) and year for the Harvard reference list?',
+			'volume_issue_pages'   => 'Which of the following correctly formats the volume, issue and page range for the Harvard reference list?',
+			'journal_volume_issue' => 'Which of the following correctly formats the journal title, volume and issue for the Harvard reference list?',
+			'title_journal_volume' => 'Which of the following correctly formats the article title, journal title and volume for the Harvard reference list?',
+			'reference_body'       => 'Which of the following correctly formats the article title, journal title, volume, issue and page range for the Harvard reference list?',
 		);
 		return $stems[ $design ] ?? null;
 	}
