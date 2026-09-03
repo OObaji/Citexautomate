@@ -380,7 +380,7 @@ check( '[10] Book validation is completely unaffected by Edited Book support', $
 // 11. An unrecognised category still fails UNSUPPORTED_GENERATED_FORMAT —
 // adding Edited Book does not loosen this gate for anything else.
 // ---------------------------------------------------------------------
-$unknown_category = Citex_Generated_Validator::validate( edited_book_dragdrop_question( array( 'category' => 'Website' ) ) );
+$unknown_category = Citex_Generated_Validator::validate( edited_book_dragdrop_question( array( 'category' => 'Not A Real Category' ) ) );
 check( '[11] an unrecognised category still fails UNSUPPORTED_GENERATED_FORMAT', $unknown_category['status'], 'failed' );
 check( '[11] reports UNSUPPORTED_GENERATED_FORMAT', has_error_code( $unknown_category, 'unsupported_generated_format' ), true );
 

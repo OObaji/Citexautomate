@@ -338,8 +338,8 @@ check( '[8b] reports BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', has_error_co
 // unrecognised type) still fail with UNSUPPORTED_GENERATED_FORMAT — MCQ
 // support does not loosen this gate for anything else.
 // ---------------------------------------------------------------------
-$wrong_category = Citex_Generated_Validator::validate( mcq_question( array( 'category' => 'Website' ) ) );
-check( '[10] category Website (not Book) still fails UNSUPPORTED_GENERATED_FORMAT', $wrong_category['status'], 'failed' );
+$wrong_category = Citex_Generated_Validator::validate( mcq_question( array( 'category' => 'Not A Real Category' ) ) );
+check( '[10] an unrecognised category (not Book) still fails UNSUPPORTED_GENERATED_FORMAT', $wrong_category['status'], 'failed' );
 check( '[10] reports UNSUPPORTED_GENERATED_FORMAT', has_error_code( $wrong_category, 'unsupported_generated_format' ), true );
 
 $unknown_type = Citex_Generated_Validator::validate( mcq_question( array( 'type' => 'ShortAnswer' ) ) );

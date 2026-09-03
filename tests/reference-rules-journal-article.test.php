@@ -182,7 +182,7 @@ check( '[18] the catalogue mentions page range', false !== stripos( $joined, 'pa
 check( '[categories] Journal Article is a known category', Citex_Reference_Rules::is_known_category( 'Journal Article' ), true );
 check( '[categories] Book is still known', Citex_Reference_Rules::is_known_category( 'Book' ), true );
 check( '[categories] Edited Book is still known', Citex_Reference_Rules::is_known_category( 'Edited Book' ), true );
-check( '[categories] categories() lists exactly 3 categories', count( Citex_Reference_Rules::categories() ), 3 );
+check( '[categories] categories() lists exactly 4 categories', count( Citex_Reference_Rules::categories() ), 4 );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

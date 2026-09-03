@@ -30,7 +30,7 @@ class Citex_Generated_Validator {
 			return self::result(
 				'failed',
 				array(
-					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book, Edited Book or Journal Article, DragDrop or MCQ.' ),
+					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book, Edited Book, Journal Article or Website, DragDrop or MCQ.' ),
 				),
 				null
 			);
@@ -163,6 +163,9 @@ class Citex_Generated_Validator {
 		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return self::validate_journal_article_consistency( $question, $question_parts, $reference, $check_scenario );
 		}
+		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+			return self::validate_website_consistency( $question, $question_parts, $reference, $check_scenario );
+		}
 		return self::validate_bibliographic_consistency( $question, $question_parts, $reference, $check_scenario );
 	}
 
@@ -282,6 +285,31 @@ class Citex_Generated_Validator {
 					'volume'       => (string) ( $question['volume'] ?? '' ),
 					'issue'        => (string) ( $question['issue'] ?? '' ),
 					'pages'        => (string) ( $question['pages'] ?? '' ),
+				)
+			)['parts'];
+		} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+			// Website's dragdrop_shape() expects a single {type, surname,
+			// initials, name} author struct, not an array of people — built
+			// defensively from the record's own authorType/authors/
+			// organisationName fields so a malformed or mis-categorised
+			// record fails validation cleanly instead of crashing.
+			$author_type = (string) ( $question['authorType'] ?? '' );
+			$author      = array( 'type' => $author_type );
+			if ( 'individual' === $author_type ) {
+				$author['surname']  = trim( (string) ( $authors_for_parts[0]['surname'] ?? '' ) );
+				$author['initials'] = trim( (string) ( $authors_for_parts[0]['initials'] ?? '' ) );
+			} else {
+				$author['name'] = trim( (string) ( $question['organisationName'] ?? '' ) );
+			}
+			$question_parts = Citex_Reference_Rules::dragdrop_shape(
+				$category,
+				array(
+					'author'       => $author,
+					'year'         => (string) ( $question['year'] ?? '' ),
+					'title'        => (string) ( $question['title'] ?? '' ),
+					'publisher'    => (string) ( $question['publisher'] ?? '' ),
+					'url'          => (string) ( $question['url'] ?? '' ),
+					'accessedDate' => (string) ( $question['accessedDate'] ?? '' ),
 				)
 			)['parts'];
 		} else {
@@ -638,7 +666,12 @@ class Citex_Generated_Validator {
 		if ( preg_match( '/\s+[,.;:]/', $reference ) ) {
 			$errors[] = self::error( 'SPACE_BEFORE_PUNCTUATION', 'Remove extra spaces before punctuation marks in the completed reference.' );
 		}
-		if ( preg_match( '/:\S/', $reference ) ) {
+		// Excludes a colon that is part of a URL scheme ("http://",
+		// "https://") — Website references legitimately contain one inside
+		// the <URL> segment (e.g. "Available from: <https://example.com>"),
+		// and that colon is never the "Place: Publisher" one this check
+		// exists to catch.
+		if ( preg_match( '/:(?!\/\/)\S/', $reference ) ) {
 			$errors[] = self::error( 'MISSING_SPACE_AFTER_COLON', 'A space is required after the colon between place of publication and publisher.' );
 		}
 		if ( ! preg_match( '/\.\s*$/', $reference ) ) {
@@ -655,6 +688,9 @@ class Citex_Generated_Validator {
 			} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
 				$code    = 'JOURNAL_ARTICLE_FORMAT_MISMATCH';
 				$message = 'Citation does not match the Liverpool Hope Journal Article format.';
+			} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+				$code    = 'WEBSITE_FORMAT_MISMATCH';
+				$message = 'Citation does not match the Liverpool Hope Website/Web Resource format.';
 			} else {
 				$code    = 'BOOK_FORMAT_MISMATCH';
 				$message = 'Citation does not match the Liverpool Hope Book format.';
@@ -1205,6 +1241,169 @@ class Citex_Generated_Validator {
 				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
 					$errors[] = self::error( 'JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
 				}
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Website's OWN dedicated consistency check — deliberately not a call
+	 * into any other category's consistency method: this category has no
+	 * multi-person joining concept (only ONE author-or-organisation), a
+	 * year-or-"n.d." field instead of a plain year, no place at all, and a
+	 * URL/accessed-date pair no other category has. Item 18's italics
+	 * requirement is a plain-text-field concern: this build's stored
+	 * representation for `title` (like every other category's title/name
+	 * fields) is plain text with no inline markup at all — Citex applies
+	 * italics only in whatever rendering layer displays the completed
+	 * reference to a human, exactly as it always has for the site's other
+	 * title fields (see class-citex-populator.php's field-writing, which
+	 * never carries HTML) — so this validator correctly treats `title` as
+	 * a plain string and must never fail merely because it contains no
+	 * markup.
+	 *
+	 * Per the requirement that this validator "reconstruct the expected
+	 * answer from canonical source data rather than merely perform loose
+	 * string matching": this independently rebuilds the correct reference
+	 * from the canonical author/year/title/publisher/url/accessedDate via
+	 * Citex_Reference_Rules::build_reference() — the exact same
+	 * construction Citex_AI_V2's normaliser used — and requires an EXACT
+	 * match against the reference under test (WEBSITE_RECONSTRUCTION_MISMATCH).
+	 */
+	private static function validate_website_consistency( $question, $question_parts, $reference, $check_scenario = true ) {
+		$errors      = array();
+		$author_type = trim( (string) ( $question['authorType'] ?? '' ) );
+
+		$author_surname    = '';
+		$author_initials   = '';
+		$organisation_name = '';
+		if ( 'individual' === $author_type ) {
+			$authors = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+			if ( ! empty( $authors ) ) {
+				$author_surname  = trim( (string) ( $authors[0]['surname'] ?? '' ) );
+				$author_initials = trim( (string) ( $authors[0]['initials'] ?? '' ) );
+			}
+		} elseif ( 'organisation' === $author_type ) {
+			$organisation_name = trim( (string) ( $question['organisationName'] ?? '' ) );
+		}
+		$title = trim( (string) ( $question['title'] ?? '' ) );
+
+		if ( '' === $author_type && '' === $title ) {
+			return $errors;
+		}
+		if ( 'individual' !== $author_type && 'organisation' !== $author_type ) {
+			$errors[] = self::error( 'WEBSITE_AUTHOR_TYPE_INVALID', 'authorType must be exactly "individual" or "organisation".' );
+			return $errors;
+		}
+		if ( 'individual' === $author_type && ( '' === $author_surname || '' === $author_initials ) ) {
+			$errors[] = self::error( 'WEBSITE_AUTHOR_MISSING', 'No individual author surname/initials were provided for this Website question.' );
+			return $errors;
+		}
+		if ( 'organisation' === $author_type && '' === $organisation_name ) {
+			$errors[] = self::error( 'WEBSITE_AUTHOR_MISSING', 'No organisation name was provided for this Website question.' );
+			return $errors;
+		}
+
+		$year          = trim( (string) ( $question['year'] ?? '' ) );
+		$publisher     = trim( (string) ( $question['publisher'] ?? '' ) );
+		$url           = trim( (string) ( $question['url'] ?? '' ) );
+		$accessed_date = trim( (string) ( $question['accessedDate'] ?? '' ) );
+
+		// Year must be exactly a 4-digit year or the literal "n.d." — never
+		// a guessed year, and never any other placeholder text (see
+		// Citex_Reference_Rules::build_website_reference()'s docblock).
+		if ( '' === $year || ! preg_match( '/^(?:\d{4}|n\.d\.)$/', $year ) ) {
+			$errors[] = self::error( 'WEBSITE_YEAR_INVALID', 'The year must be exactly a 4-digit publication/creation year, or the literal "n.d." when no date can be identified.' );
+		}
+		if ( '' === $url || ! preg_match( '#^https?://\S+$#', $url ) ) {
+			$errors[] = self::error( 'WEBSITE_URL_MALFORMED', 'The URL must be a well-formed http(s) address with no spaces.' );
+		}
+		if ( '' === $accessed_date ) {
+			$errors[] = self::error( 'WEBSITE_ACCESSED_DATE_MISSING', 'The accessed date is missing.' );
+		}
+
+		$author = array( 'type' => $author_type );
+		if ( 'individual' === $author_type ) {
+			$author['surname']  = $author_surname;
+			$author['initials'] = $author_initials;
+		} else {
+			$author['name'] = $organisation_name;
+		}
+		$fields = array(
+			'author'       => $author,
+			'year'         => $year,
+			'title'        => $title,
+			'publisher'    => $publisher,
+			'url'          => $url,
+			'accessedDate' => $accessed_date,
+		);
+
+		// Question Parts must be EXACTLY the shape website_dragdrop_shape()
+		// would build for this canonical author-or-organisation.
+		$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields );
+		$expected_parts = array_map( 'trim', $expected_shape['parts'] );
+		$actual_parts   = array_map( 'trim', (array) $question_parts );
+		if ( $expected_parts !== array_values( $actual_parts ) ) {
+			$errors[] = self::error(
+				'WEBSITE_PARTS_MISMATCH',
+				'Question Parts do not exactly match the canonical bibliographic record (author/organisation, year/n.d., title, publisher, URL, accessed date).'
+			);
+		}
+
+		// Independently reconstruct the expected reference from canonical
+		// data (see this method's docblock) and require an exact match.
+		$expected_reference = trim( Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields ) );
+		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
+			$errors[] = self::error(
+				'WEBSITE_RECONSTRUCTION_MISMATCH',
+				sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
+			);
+		}
+
+		// Canonical facts must appear in the reference itself.
+		$author_display = Citex_Reference_Rules::format_website_author( $author );
+		foreach (
+			array(
+				'author'    => array( $author_display, 'author/organisation' ),
+				'title'     => array( $title, 'page/document title' ),
+				'publisher' => array( $publisher, 'publisher' ),
+				'url'       => array( $url, 'URL' ),
+			) as $pair
+		) {
+			list( $value, $label ) = $pair;
+			if ( '' !== $value && ! self::text_contains( $reference, $value ) ) {
+				$errors[] = self::error( 'WEBSITE_REFERENCE_MISMATCH', sprintf( 'The reference does not contain the canonical %1$s: "%2$s".', $label, $value ) );
+			}
+		}
+
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach (
+				array(
+					'title'     => array( $title, 'page/document title' ),
+					'publisher' => array( $publisher, 'publisher' ),
+					'url'       => array( $url, 'URL' ),
+				) as $pair
+			) {
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'WEBSITE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+				}
+			}
+			if ( 'organisation' === $author_type && '' !== $organisation_name && ! self::text_contains( $scenario, $organisation_name ) ) {
+				$errors[] = self::error( 'WEBSITE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical organisation: "%s".', $organisation_name ) );
+			}
+			if ( 'individual' === $author_type && '' !== $author_surname && ! self::text_contains( $scenario, $author_surname ) ) {
+				$errors[] = self::error( 'WEBSITE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the author\'s surname: "%s".', $author_surname ) );
+			}
+
+			// Answer leakage specific to this category: the scenario must
+			// never explicitly instruct "(n.d.)"/"no date"/"undated" — the
+			// student must recognise the missing date and derive "(n.d.)"
+			// themselves (see the user's own worked leakage example).
+			if ( preg_match( '/\bn\.d\.\b/i', $scenario ) || preg_match( '/\bno\s+date\b/i', $scenario ) || preg_match( '/\bundated\b/i', $scenario ) ) {
+				$errors[] = self::error( 'WEBSITE_ANSWER_LEAKAGE_ND', 'The scenario states "(n.d.)"/"no date"/"undated" directly — the student must recognise the missing date and derive "(n.d.)" themselves.' );
 			}
 		}
 

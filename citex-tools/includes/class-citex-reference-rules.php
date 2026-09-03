@@ -23,9 +23,22 @@ class Citex_Reference_Rules {
 	const CATEGORY_BOOK            = 'Book';
 	const CATEGORY_EDITED_BOOK     = 'Edited Book';
 	const CATEGORY_JOURNAL_ARTICLE = 'Journal Article';
+	/**
+	 * The Liverpool Hope "referencing a website/webpage" category. No live
+	 * WordPress site is accessible to this build (see README/prior session
+	 * notes), so the exact real taxonomy term name could not be inspected
+	 * directly — 'Website' is used because it is the one name this codebase's
+	 * own pre-existing conventions already anticipate (see the old
+	 * Citex_Validator subsystem's docblock and
+	 * tests/populator-category-exercise-assignment.test.php's long-standing
+	 * "Website" fixture). If the live site actually uses "Web Resource" (or
+	 * another exact term), this is a one-line rename here — no architecture
+	 * change — since every taxonomy lookup elsewhere is purely name-driven.
+	 */
+	const CATEGORY_WEBSITE = 'Website';
 
 	public static function categories() {
-		return array( self::CATEGORY_BOOK, self::CATEGORY_EDITED_BOOK, self::CATEGORY_JOURNAL_ARTICLE );
+		return array( self::CATEGORY_BOOK, self::CATEGORY_EDITED_BOOK, self::CATEGORY_JOURNAL_ARTICLE, self::CATEGORY_WEBSITE );
 	}
 
 	public static function is_known_category( $category ) {
@@ -52,6 +65,9 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return 'JA';
 		}
+		if ( self::CATEGORY_WEBSITE === $category ) {
+			return 'WR';
+		}
 		return 'BK';
 	}
 
@@ -65,6 +81,8 @@ class Citex_Reference_Rules {
 	 *               Edited Book: {editors: array<{surname, initials}>, year, title, place, publisher}.
 	 *               Journal Article: {authors: array<{surname, initials}>, year, articleTitle,
 	 *               journalTitle, volume, issue, pages}.
+	 *               Website: {author: {type: 'individual'|'organisation', surname, initials, name},
+	 *               year (4-digit string or literal 'n.d.'), title, publisher, url, accessedDate}.
 	 */
 	public static function build_reference( $category, array $fields ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
@@ -72,6 +90,9 @@ class Citex_Reference_Rules {
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return self::build_journal_article_reference( $fields );
+		}
+		if ( self::CATEGORY_WEBSITE === $category ) {
+			return self::build_website_reference( $fields );
 		}
 		return self::build_book_reference( $fields );
 	}
@@ -134,6 +155,47 @@ class Citex_Reference_Rules {
 			$fields['issue'],
 			$fields['pages']
 		);
+	}
+
+	/**
+	 * Liverpool Hope Harvard — Websites/webpages (the "Web Resource"
+	 * category): Author/Organisation (Year|n.d.) Title [online]. Publisher.
+	 * Available from: <URL> [accessed date]. Unlike Book/Edited Book/Journal
+	 * Article there is only ever ONE author-or-organisation (no multi-person
+	 * joining rule applies to this category at all — see
+	 * format_website_author()), and there is no place/publisher-as-baked-in-
+	 * fixed-text convention: publisher, URL and accessed date are all
+	 * genuinely variable per source, so all six pieces are draggable (see
+	 * website_dragdrop_shape()). "(n.d.)" replaces the year verbatim — never
+	 * a guessed year — when no publication/creation date can be identified.
+	 */
+	private static function build_website_reference( array $fields ) {
+		return sprintf(
+			'%s (%s) %s [online]. %s. Available from: <%s> [accessed %s].',
+			self::format_website_author( $fields['author'] ),
+			$fields['year'],
+			$fields['title'],
+			$fields['publisher'],
+			$fields['url'],
+			$fields['accessedDate']
+		);
+	}
+
+	/**
+	 * A Website reference's single author is EITHER a named individual
+	 * (rendered "Surname, I." — the same join_people() single-person shape,
+	 * never a joined list, since Liverpool Hope's website rule has no
+	 * multi-author convention) OR the organisation responsible for the page,
+	 * rendered exactly as given (never comma-inverted or abbreviated to
+	 * initials — an organisation name is not a person's name).
+	 *
+	 * @param array $author {type: 'individual'|'organisation', surname?, initials?, name?}.
+	 */
+	public static function format_website_author( array $author ) {
+		if ( 'organisation' === ( $author['type'] ?? '' ) ) {
+			return (string) ( $author['name'] ?? '' );
+		}
+		return sprintf( '%s, %s', $author['surname'] ?? '', $author['initials'] ?? '' );
 	}
 
 	/**
@@ -209,6 +271,9 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return self::journal_article_dragdrop_shape( $fields );
 		}
+		if ( self::CATEGORY_WEBSITE === $category ) {
+			return self::website_dragdrop_shape( $fields );
+		}
 		$authors = $fields['authors'];
 		if ( 1 === count( $authors ) ) {
 			return array(
@@ -247,6 +312,31 @@ class Citex_Reference_Rules {
 	}
 
 	/**
+	 * Website's DragDrop shape: 6 draggable parts in the Liverpool Hope
+	 * order — author/organisation, year (or "n.d."), title, publisher, URL,
+	 * accessed date. "[online]" and "Available from:" are constant literal
+	 * markers present in EVERY correct Website reference — they never vary
+	 * per source, so (exactly like Book's "Place: " / ": " colon and Journal
+	 * Article's "pp." prefix) they are baked into the fixed template rather
+	 * than made draggable. There is no author-count branching at all for
+	 * this category — Liverpool Hope's website rule only ever has ONE
+	 * author-or-organisation.
+	 */
+	private static function website_dragdrop_shape( array $fields ) {
+		return array(
+			'parts'     => array(
+				self::format_website_author( $fields['author'] ),
+				$fields['year'],
+				$fields['title'],
+				$fields['publisher'],
+				$fields['url'],
+				$fields['accessedDate'],
+			),
+			'fixedText' => '| (||) || [online]. ||. Available from: <||> [accessed ||].',
+		);
+	}
+
+	/**
 	 * The overall-shape regex used to confirm a completed reference string
 	 * (DragDrop's reconstruction, or MCQ's correct option) actually looks
 	 * like this category's Harvard format — the category-specific
@@ -266,6 +356,24 @@ class Citex_Reference_Rules {
 			// followed by (Year) Article title. Journal title, Volume(Issue),
 			// pp.Start-End.
 			return '/^[^,]+,\s+(?:[A-Z]\.\s*)+(?:(?:,\s+[^,]+,\s+(?:[A-Z]\.\s*)+)*\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+)?\(\d{4}\)\s+.+\.\s+.+,\s+\d+\(\d+\),\s+pp\.\d+-\d+\.\s*$/u';
+		}
+		if ( self::CATEGORY_WEBSITE === $category ) {
+			// Author/Organisation (Year|n.d.) Title [online]. Publisher.
+			// Available from: <URL> [accessed date]. The author segment is
+			// deliberately `.+` (NOT the Book-style "Surname, Initials"
+			// repeating group) because it may be a raw organisation name with
+			// no comma/initials structure at all — the individual-vs-
+			// organisation distinction is checked separately, by
+			// Citex_Generated_Validator's dedicated Website consistency
+			// check, not by this shape regex. The year group requires either
+			// exactly 4 digits or the literal "n.d." — no other placeholder
+			// text is accepted. The URL must be wrapped in literal angle
+			// brackets with no whitespace inside them, and "[online]",
+			// "Available from:" (with its colon) and "[accessed ...]" must
+			// all be present literally — this is what makes a distractor
+			// that drops any one of them, or that omits the colon after
+			// "Available from", fail to match.
+			return '/^.+\s+\((?:\d{4}|n\.d\.)\)\s+.+\s+\[online\]\.\s+.+\.\s+Available from:\s+<[^<>\s]+>\s+\[accessed\s+[^\]]+\]\.\s*$/u';
 		}
 		// One or more "Surname, Initials" groups (join_people()'s exact
 		// joining grammar: every pair before the last is comma-separated,
@@ -325,6 +433,22 @@ class Citex_Reference_Rules {
 				'Using "et al." after the first author\'s name in the reference list for four or more authors, instead of listing every author in full — "et al." is only Liverpool Hope\'s in-text-citation convention, never used in a reference-list entry.',
 			);
 		}
+		if ( self::CATEGORY_WEBSITE === $category ) {
+			return array(
+				'Missing "[online]" from the reference entirely.',
+				'Missing "Available from:" or omitting the colon after it — e.g. "Available from <URL>" instead of "Available from: <URL>".',
+				'The URL not enclosed in angled brackets — e.g. "Available from: http://example.com" instead of "Available from: <http://example.com>".',
+				'Missing the "[accessed date]" element entirely.',
+				'Using a guessed or invented year instead of "(n.d.)" when no publication/creation date can be identified for the real source.',
+				'Using "(n.d.)" for a real source that actually has a clearly identifiable publication/creation year.',
+				'Writing an individual author\'s full name unformatted (e.g. "Sarah Mitchell") instead of the required "Surname, I." form.',
+				'Missing the publisher entirely.',
+				'Placing the publisher after "Available from:" instead of immediately after "[online].".',
+				'Placing the URL before "Available from:" instead of after it.',
+				'Missing the full stop after the page/document title, immediately before "[online]".',
+				'Missing the final full stop at the end of the reference.',
+			);
+		}
 		return array(
 			'Using the author\'s full first name instead of initials — e.g. "John Smith" instead of "Smith, J.".',
 			'Placing the initials before the surname — e.g. "J. Smith" instead of "Smith, J.".',
@@ -360,6 +484,9 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return 'Which of the following is the correct Harvard reference for a journal article?';
 		}
+		if ( self::CATEGORY_WEBSITE === $category ) {
+			return 'Which of the following is the correct Harvard reference for a website/web resource?';
+		}
 		return 'Which of the following is the correct Harvard reference for a book?';
 	}
 
@@ -380,6 +507,9 @@ class Citex_Reference_Rules {
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the article title, journal title, volume, issue and page range.';
+		}
+		if ( self::CATEGORY_WEBSITE === $category ) {
+			return 'Check whether an individual author or an organisation is used, whether a real year or "(n.d.)" is correct, and the order of the title, "[online]", the publisher, "Available from:", the URL and the accessed date.';
 		}
 		return 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the title, place and publisher.';
 	}

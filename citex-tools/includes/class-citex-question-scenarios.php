@@ -45,6 +45,8 @@ class Citex_Question_Scenarios {
 			$buckets = self::edited_book_buckets();
 		} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			$buckets = self::journal_article_buckets();
+		} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+			$buckets = self::website_buckets();
 		} else {
 			$buckets = self::book_buckets();
 		}
@@ -97,7 +99,11 @@ class Citex_Question_Scenarios {
 		// in Citex_AI_V2 yet, so it must never be offered these MCQ-only
 		// scenarios (offering one here without AI-v2/Reference_Rules support
 		// for it would silently mis-route the request as a Book question).
-		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+		// Website implements only the required select_correct (MCQ) and
+		// construct_reference (DragDrop) mechanics in this task too — same
+		// reasoning as Journal Article above: no identify_error/choose_treatment
+		// prompt/schema/normaliser support exists for it yet.
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category || Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			return array();
 		}
 		$scenarios = array(
@@ -166,6 +172,31 @@ class Citex_Question_Scenarios {
 			array( 'id' => 'three_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 3 ), 'label' => 'Three authors' ),
 			array( 'id' => 'four_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4 ), 'label' => 'Four authors' ),
 			array( 'id' => 'five_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 5, 6, 7 ), 'label' => 'Five or more authors' ),
+		);
+	}
+
+	/**
+	 * Website scenario buckets — NOT an author-count dimension at all (this
+	 * category's Liverpool Hope rule only ever has ONE author-or-
+	 * organisation, never a joined list — see
+	 * Citex_Reference_Rules::format_website_author()). Instead the two
+	 * genuinely rule-changing dimensions this category tests are: (a)
+	 * individual named author vs. organisation-as-author (affects whether
+	 * "Surname, I." derivation applies at all), and (b) a dated vs. an
+	 * undated ("n.d.") source (affects whether a real year or the literal
+	 * "n.d." is correct) — combined into four buckets so generation and
+	 * validation can require and check both dimensions explicitly per
+	 * batch. `targetCounts => [1]` is a harmless placeholder satisfying the
+	 * shared scaffold (this category has no count concept to vary) —
+	 * Citex_AI_V2 parses the bucket id string directly for the
+	 * author-type/dated-ness constraints instead of using target_count_for().
+	 */
+	private static function website_buckets() {
+		return array(
+			array( 'id' => 'individual_author_dated', 'ruleTested' => 'date_handling', 'targetCounts' => array( 1 ), 'label' => 'Individual author, dated' ),
+			array( 'id' => 'individual_author_undated', 'ruleTested' => 'date_handling', 'targetCounts' => array( 1 ), 'label' => 'Individual author, undated (n.d.)' ),
+			array( 'id' => 'organisation_author_dated', 'ruleTested' => 'author_type', 'targetCounts' => array( 1 ), 'label' => 'Organisation author, dated' ),
+			array( 'id' => 'organisation_author_undated', 'ruleTested' => 'author_type', 'targetCounts' => array( 1 ), 'label' => 'Organisation author, undated (n.d.)' ),
 		);
 	}
 
