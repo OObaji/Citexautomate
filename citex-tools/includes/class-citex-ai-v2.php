@@ -83,6 +83,12 @@ class Citex_AI_V2 {
 		$rule_tested    = $scenario_entry['ruleTested'] ?? '';
 		$target_count   = $scenario_entry ? Citex_Question_Scenarios::target_count_for( $scenario_entry, $args['starting_id'] ?? $scenario_id ) : null;
 		$scenario_instruction = self::scenario_count_instruction( $category, $target_count, $scenario_id );
+		// The Journal Article "exercise design" this batch tests — see
+		// Citex_Reference_Rules::journal_article_dragdrop_shape()'s
+		// docblock. 'full_reference' (the original, unchanged 7-part shape)
+		// whenever the assigned scenario carries no 'exerciseDesign' key, or
+		// for every other category, which never reads this value at all.
+		$exercise_design = $scenario_entry['exerciseDesign'] ?? 'full_reference';
 
 		// Existing reconstructed references (same category) this batch must
 		// not duplicate — the one concrete "too similar to recent history"
@@ -95,7 +101,7 @@ class Citex_AI_V2 {
 		for ( $attempt = 1; $attempt <= self::MAX_QUALITY_ATTEMPTS; $attempt++ ) {
 			$body = array(
 				'model' => self::get_model(),
-				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction, $scenario_id ),
+				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction, $scenario_id, $exercise_design ),
 				'system_instruction' => self::system_instruction_for( $type, $category, $scenario_id ),
 				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => self::schema_for( $type, $category, $scenario_id ) ) ),
 				'generation_config' => array( 'max_output_tokens' => max( 4000, min( 24000, $quantity * 650 ) ) ),
@@ -109,7 +115,7 @@ class Citex_AI_V2 {
 			if ( '' === $text || JSON_ERROR_NONE !== json_last_error() || ! is_array( $decoded ) ) { return new WP_Error( 'citex_ai_invalid_json', __( 'Gemini did not return valid structured question data.', 'citex-tools' ) ); }
 			$questions = isset( $decoded['questions'] ) && is_array( $decoded['questions'] ) ? $decoded['questions'] : array();
 			if ( count( $questions ) !== $quantity ) { $last_error = sprintf( 'The previous attempt returned %d questions instead of %d. Return exactly %d.', count( $questions ), $quantity, $quantity ); continue; }
-			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested );
+			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested, $exercise_design );
 			if ( is_wp_error( $result ) ) { $last_error = $result->get_error_message(); continue; }
 
 			$duplicate = self::find_duplicate_reference( $result, $existing_references );
@@ -156,7 +162,7 @@ class Citex_AI_V2 {
 	 * methods) — the request/response handling in generate_questions() above
 	 * never changes.
 	 */
-	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction = '', $scenario_id = '' ) {
+	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction = '', $scenario_id = '', $exercise_design = 'full_reference' ) {
 		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
 			return self::build_prompt_identify_error( $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 		}
@@ -174,8 +180,8 @@ class Citex_AI_V2 {
 		}
 		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return 'MCQ' === $type
-				? self::build_prompt_journal_article_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
-				: self::build_prompt_journal_article( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+				? self::build_prompt_journal_article_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction, $exercise_design )
+				: self::build_prompt_journal_article( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction, $exercise_design );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			return 'MCQ' === $type
@@ -381,12 +387,37 @@ class Citex_AI_V2 {
 	 * Citex_Reference_Rules::journal_article_dragdrop_shape()) rather than
 	 * Book's shape-varies-by-count design.
 	 */
-	private static function build_prompt_journal_article( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
-		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Journal Article / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify every bibliographic record.' : 'Do not invent bibliographic records.' ) . "\n\nONE QUESTION = ONE CANONICAL JOURNAL ARTICLE RECORD — CRITICAL:\n- authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe the exact same real, published journal article. Do not mix facts from a different article, a different issue, or a similarly-titled article.\n- authorFullNames is an array of ONE OR MORE real author full names (given name(s) + surname each), e.g. [\"Jane Smith\"] or [\"John Smith\", \"Amy Jones\"], in the article's real, actual author order. Use the article's true author count — do not invent extra authors, and do not drop real ones. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- volume and issue must be the real numeric volume and issue number the article was published in; pages must be the real page range (e.g. \"27-35\") with no \"p.\"/\"pp.\" prefix — Citex adds that itself.\n- There is no place or publisher for a journal article — do not provide either.\n- The scenario MUST explicitly state that same articleTitle, journalTitle, EVERY author's full name, the same year, volume, issue and page range. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nMULTIPLE AUTHORS — LIVERPOOL HOPE'S REFERENCE-LIST RULE:\n- For the reference list (which is the only thing this question generates), EVERY author is always listed in full — 2 authors are joined with \"and\"; 3 or more are comma-separated with \"and\" before the final author; this never changes at 4 or more authors.\n- \"et al.\" must NEVER appear in the reference-list entry, for any author count. (\"et al.\" is Liverpool Hope's separate IN-TEXT-CITATION convention — this question never generates an in-text citation, only a reference-list entry.)\n- Citex constructs the joined author list itself from authorFullNames — you never write the joined form yourself.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, roughly 15-30 words, preferably under 220 characters.\n- Use natural wording such as 'You are referencing a journal article titled...' or 'You are creating a reference for an article titled...'.\n- State the real article title, journal title, EVERY author's FULL NAME, publication year, volume, issue and page range.\n- The scenario MUST NOT state, label, or abbreviate any author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, MUST NOT show any completed or abbreviated Harvard reference, MUST NOT say \"use et al.\", and MUST NOT state the answer's punctuation or ordering.\n- GOOD (one author): \"You are referencing a journal article titled A brief guide to Harvard referencing by Jane Smith, published in 2010 in The British Journal of Referencing, volume 12, issue 2, pages 27 to 35.\"\n- GOOD (two authors): \"You are creating a reference for an article titled Digital culture and learning by Vincent Miller and Jo Martin, published in 2020 in the Journal of Media Studies, volume 8, issue 3, pages 145 to 160.\"\n- BAD: \"...by Jane Smith (initials J.), published in 2010...\" — reveals the initials directly.\n- BAD: \"...by Smith, J., published in 2010...\" — states the abbreviated citation form directly.\n- BAD: \"...by Smith et al., published in 2020...\" — states the in-text-citation abbreviation directly, and is also not how the reference-list entry is written.\n- A full author name naturally containing the surname (e.g. \"Jane Smith\") is correct and required — the failure is explicitly labelling or abbreviating an answer value, not the surname appearing as part of the full name.\n- The student must transform the full bibliographic information you give into the Harvard reference themselves; do not do that transformation for them anywhere in the scenario.\n\nDRAGDROP:\n- Citex derives each author's surname/initials from authorFullNames and constructs Question Parts and Fixed Text itself from surname(s)/initials/year/articleTitle/journalTitle/volume/issue/pages — your questionParts and fixedText fields are used only for your own self-check and are not read as authoritative, so make sure they exactly match those fields too (surname = each full name's last word; initials = the first letter of every other word in that name, each followed by a full stop, no spaces).\n- questionParts must ALWAYS contain exactly 7 items, for ANY author count: the joined author list (e.g. \"Smith, J. and Jones, A.\"), year, article title, journal title, volume, issue, page range — the whole author list is a SINGLE draggable part, never one part per author, even for a single author.\n- fixedText must contain exactly 7 draggable placeholder tokens.\n- A single | token is allowed only at the beginning or end. Every internal placeholder token MUST be ||.\n- Canonical fixedText (every author count): | (||) ||. ||, ||(||), pp.||.\n- Do not use a single internal |.\n- Reconstructed answer: Surname, I. (YYYY) Article title. Journal title, Volume(Issue), pp.Start-End. (extending the author list with commas and a final \"and\" for 2+, never \"et al.\").\n- No full stop after the year parentheses; no spaces before punctuation; final full stop required.\n\nDISTRACTORS — CRITICAL:\n- Medium exactly 3; Easy exactly 2; Hard exactly 4.\n- Every distractor must be different from ALL correct Question Parts after trimming and case-insensitive comparison.\n- Distractors must also be unique from one another.\n- Do not use the correct article title, journal title, surname(s), initials, year, volume, issue or page range as a distractor.\n- Before returning each question, compare every confusingWords value against every Question Part and replace any match.\n- Prefer plausible alternatives such as another year, volume, issue, page range, author surname, or article/journal title; for a multi-author question, an author-joining mistake (\"&\" instead of \"and\", or \"et al.\") is also a good confusing word.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, articleTitle, journalTitle, volume, issue and pages all describe the exact same article — no contradictions, and the real author count.\n2. The scenario states every author's full name naturally and never the words \"initial\"/\"initials\"/\"surname\", and never a completed, abbreviated, or \"et al.\" reference.\n3. Question Parts always contain exactly 7 items (joined author list, year, article title, journal title, volume, issue, pages), correctly derived from authorFullNames.\n4. Fixed Text has exactly 7 placeholder positions and reconstructs the required reference, with every author listed in full and \"et al.\" never used.\n5. No unwanted punctuation or spacing errors.\n6. Correct number of distractors for the difficulty.\n7. Zero distractors match any correct Question Part.\n8. Zero duplicate distractors.\n9. Only return questions that pass all nine checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+	private static function build_prompt_journal_article( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '', $exercise_design = 'full_reference' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Journal Article / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify every bibliographic record.' : 'Do not invent bibliographic records.' ) . "\n\nONE QUESTION = ONE CANONICAL JOURNAL ARTICLE RECORD — CRITICAL:\n- authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe the exact same real, published journal article. Do not mix facts from a different article, a different issue, or a similarly-titled article.\n- authorFullNames is an array of ONE OR MORE real author full names (given name(s) + surname each), e.g. [\"Jane Smith\"] or [\"John Smith\", \"Amy Jones\"], in the article's real, actual author order. Use the article's true author count — do not invent extra authors, and do not drop real ones. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- volume and issue must be the real numeric volume and issue number the article was published in; pages must be the real page range (e.g. \"27-35\") with no \"p.\"/\"pp.\" prefix — Citex adds that itself.\n- There is no place or publisher for a journal article — do not provide either.\n- Provide this FULL canonical record regardless of which specific part the question below actually tests — Citex always keeps the complete real source data, even when only a small part of it is shown to the student.\n- The scenario MUST explicitly state that same articleTitle, journalTitle, EVERY author's full name, the same year, volume, issue and page range. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nMULTIPLE AUTHORS — LIVERPOOL HOPE'S REFERENCE-LIST RULE:\n- For the reference list (which is the only thing this question generates), EVERY author is always listed in full — 2 authors are joined with \"and\"; 3 or more are comma-separated with \"and\" before the final author; this never changes at 4 or more authors.\n- \"et al.\" must NEVER appear in the reference-list entry, for any author count. (\"et al.\" is Liverpool Hope's separate IN-TEXT-CITATION convention — this question never generates an in-text citation, only a reference-list entry.)\n- Citex constructs the joined author list itself from authorFullNames — you never write the joined form yourself.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, roughly 15-30 words, preferably under 220 characters.\n- Use natural wording such as 'You are referencing a journal article titled...' or 'You are creating a reference for an article titled...'.\n- State the real article title, journal title, EVERY author's FULL NAME, publication year, volume, issue and page range.\n- The scenario MUST NOT state, label, or abbreviate any author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, MUST NOT show any completed or abbreviated Harvard reference, MUST NOT say \"use et al.\", and MUST NOT state the answer's punctuation or ordering.\n- GOOD (one author): \"You are referencing a journal article titled A brief guide to Harvard referencing by Jane Smith, published in 2010 in The British Journal of Referencing, volume 12, issue 2, pages 27 to 35.\"\n- GOOD (two authors): \"You are creating a reference for an article titled Digital culture and learning by Vincent Miller and Jo Martin, published in 2020 in the Journal of Media Studies, volume 8, issue 3, pages 145 to 160.\"\n- BAD: \"...by Jane Smith (initials J.), published in 2010...\" — reveals the initials directly.\n- BAD: \"...by Smith, J., published in 2010...\" — states the abbreviated citation form directly.\n- BAD: \"...by Smith et al., published in 2020...\" — states the in-text-citation abbreviation directly, and is also not how the reference-list entry is written.\n- A full author name naturally containing the surname (e.g. \"Jane Smith\") is correct and required — the failure is explicitly labelling or abbreviating an answer value, not the surname appearing as part of the full name.\n- The student must transform the full bibliographic information you give into the Harvard reference themselves; do not do that transformation for them anywhere in the scenario.\n\nDRAGDROP:\n- Citex derives each author's surname/initials from authorFullNames and constructs Question Parts and Fixed Text itself from surname(s)/initials/year/articleTitle/journalTitle/volume/issue/pages — your questionParts and fixedText fields are used only for your own self-check and are not read as authoritative, so make sure they exactly match those fields too (surname = each full name's last word; initials = the first letter of every other word in that name, each followed by a full stop, no spaces).\n- questionParts must ALWAYS contain exactly 7 items, for ANY author count: the joined author list (e.g. \"Smith, J. and Jones, A.\"), year, article title, journal title, volume, issue, page range — the whole author list is a SINGLE draggable part, never one part per author, even for a single author.\n- fixedText must contain exactly 7 draggable placeholder tokens.\n- A single | token is allowed only at the beginning or end. Every internal placeholder token MUST be ||.\n- Canonical fixedText (every author count): | (||) ||. ||, ||(||), pp.||.\n- Do not use a single internal |.\n- Reconstructed answer: Surname, I. (YYYY) Article title. Journal title, Volume(Issue), pp.Start-End. (extending the author list with commas and a final \"and\" for 2+, never \"et al.\").\n- No full stop after the year parentheses; no spaces before punctuation; final full stop required.\n\nDISTRACTORS — CRITICAL:\n- Medium exactly 3; Easy exactly 2; Hard exactly 4.\n- Every distractor must be different from ALL correct Question Parts after trimming and case-insensitive comparison.\n- Distractors must also be unique from one another.\n- Do not use the correct article title, journal title, surname(s), initials, year, volume, issue or page range as a distractor.\n- Before returning each question, compare every confusingWords value against every Question Part and replace any match.\n- Prefer plausible alternatives such as another year, volume, issue, page range, author surname, or article/journal title; for a multi-author question, an author-joining mistake (\"&\" instead of \"and\", or \"et al.\") is also a good confusing word.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, articleTitle, journalTitle, volume, issue and pages all describe the exact same article — no contradictions, and the real author count.\n2. The scenario states every author's full name naturally and never the words \"initial\"/\"initials\"/\"surname\", and never a completed, abbreviated, or \"et al.\" reference.\n3. Question Parts always contain exactly 7 items (joined author list, year, article title, journal title, volume, issue, pages), correctly derived from authorFullNames.\n4. Fixed Text has exactly 7 placeholder positions and reconstructs the required reference, with every author listed in full and \"et al.\" never used.\n5. No unwanted punctuation or spacing errors.\n6. Correct number of distractors for the difficulty.\n7. Zero distractors match any correct Question Part.\n8. Zero duplicate distractors.\n9. Only return questions that pass all nine checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		$prompt .= "\n\n" . self::conciseness_guidance();
+		$design_note = self::journal_article_design_prompt_note( $exercise_design );
+		if ( '' !== $design_note ) { $prompt .= "\n\n" . $design_note; }
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
+	}
+
+	/**
+	 * MOBILE SUITABILITY — explains to Gemini which small component of the
+	 * full record this particular question will actually show/test on the
+	 * real mobile DragDrop interface, so it can prefer a real source whose
+	 * relevant piece is naturally short (per conciseness_guidance() applied
+	 * to the whole record) even though the FULL record is still always
+	 * required above. Citex still builds Question Parts/Fixed Text/the
+	 * correct MCQ answer itself from the full record — this note only helps
+	 * Gemini pick a well-suited real source; it changes nothing about what
+	 * is actually asked for. Empty string for 'full_reference' (no
+	 * additional note needed) or an unrecognised design.
+	 */
+	private static function journal_article_design_prompt_note( $exercise_design ) {
+		$notes = array(
+			'author_format'             => "MOBILE SUITABILITY — EXERCISE DESIGN:\n- This particular question will only show and test ONE author's Harvard-format name (surname + initials) on the mobile interface — not the rest of the reference. Still provide the complete real record above, but prefer a source whose first author's name is not unusually long.",
+			'author_joining_pair'       => "MOBILE SUITABILITY — EXERCISE DESIGN:\n- This particular question will only show and test how the two authors are joined (\"Surname, I. and Surname, I.\") on the mobile interface — not the rest of the reference. Still provide the complete real record above (this design requires exactly 2 real authors), but prefer two authors whose names are not unusually long.",
+			'volume_issue_pages'        => "MOBILE SUITABILITY — EXERCISE DESIGN:\n- This particular question will only show and test the volume(issue), page-range structure (\"14(2), pp.45-52.\") on the mobile interface — not the rest of the reference. Still provide the complete real record above.",
+			'title_journal_punctuation' => "MOBILE SUITABILITY — EXERCISE DESIGN:\n- This particular question will only show and test the punctuation between the article title and the journal title on the mobile interface — not the rest of the reference. Still provide the complete real record above, but prefer a real article/journal title pair that is not unusually long.",
+			'punctuation_final_stop'    => "MOBILE SUITABILITY — EXERCISE DESIGN:\n- This particular question shows the ENTIRE reference as given, read-only content, with only the final full stop left for the student to drag into place — it specifically tests terminal punctuation. Still provide the complete real record above, and prefer a real source that is not unusually long overall, since all of it will be shown (even though only the final full stop is draggable).",
+		);
+		return $notes[ $exercise_design ] ?? '';
 	}
 
 	/**
@@ -394,16 +425,18 @@ class Citex_AI_V2 {
 	 * (Book MCQ), reusing distractor_prompt_section() with this category's
 	 * own mcq_distractor_patterns() catalogue and correct-format description.
 	 */
-	private static function build_prompt_journal_article_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+	private static function build_prompt_journal_article_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '', $exercise_design = 'full_reference' ) {
 		$difficulty_guidance = array(
 			'easy'   => "Easy: the 3 distractors should each contain one obvious, easy-to-spot mistake (e.g. missing punctuation, no parentheses around the year) — testing basic recognition of the Harvard Journal Article structure.",
 			'medium' => "Medium: the 3 distractors should each contain one specific, realistic mistake a student could plausibly make (e.g. author's full first name instead of initials, or missing the \"pp.\" prefix before the page range) — testing the ability to spot ONE particular error type per option.",
 			'hard'   => "Hard: the 3 distractors should be very close to correctly formatted, differing from the correct one by only a small, easy-to-miss detail (e.g. a single misplaced space, comma, or full stop) — testing careful side-by-side comparison of near-identical references.",
 		);
-		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Journal Article multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n" . ( $verify ? 'Use Google Search to verify every bibliographic record.' : 'Do not invent bibliographic records.' ) . "\n\nONE QUESTION = ONE CANONICAL JOURNAL ARTICLE RECORD — CRITICAL:\n- authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe the exact same real, published journal article. Do not mix facts from a different article or a different issue.\n- authorFullNames is an array of ONE OR MORE real author full names (given name(s) + surname each), e.g. [\"Jane Smith\"] or [\"John Smith\", \"Amy Jones\"], in the article's real, actual author order. Use the article's true author count. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name and constructs the one correct Harvard reference from them (joining multiple authors per Liverpool Hope's reference-list rule: every author listed in full, comma-separated with a final \"and\", for any count — never \"et al.\"); you never provide the correct reference yourself.\n- There is no place or publisher for a journal article — do not provide either.\n- You are NOT asked for a scenario or question text — Citex supplies the entire student-facing question itself (a fixed \"Which of the following is the correct Harvard reference for a journal article?\" stem), so there is nothing for you to write and nothing for you to leak the answer through."
-			. self::distractor_prompt_section( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, 'Surname, I. (YYYY) Article title. Journal title, Volume(Issue), pp.Start-End. — or, for two or more authors, Surname, I. and Surname, I. (YYYY) Article title. Journal title, Volume(Issue), pp.Start-End., extending with commas and a final "and" for 3+, never "et al."' )
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Liverpool Hope University Harvard / ReferenceList / Journal Article multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n" . ( $verify ? 'Use Google Search to verify every bibliographic record.' : 'Do not invent bibliographic records.' ) . "\n\nONE QUESTION = ONE CANONICAL JOURNAL ARTICLE RECORD — CRITICAL:\n- authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe the exact same real, published journal article. Do not mix facts from a different article or a different issue.\n- authorFullNames is an array of ONE OR MORE real author full names (given name(s) + surname each), e.g. [\"Jane Smith\"] or [\"John Smith\", \"Amy Jones\"], in the article's real, actual author order. Use the article's true author count. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name and constructs the one correct Harvard reference from them (joining multiple authors per Liverpool Hope's reference-list rule: every author listed in full, comma-separated with a final \"and\", for any count — never \"et al.\"); you never provide the correct reference yourself.\n- There is no place or publisher for a journal article — do not provide either.\n- Provide this FULL canonical record regardless of which specific part the options below actually compare — Citex always keeps the complete real source data, even when the options only show a short segment of it.\n- You are NOT asked for a scenario or question text — Citex supplies the entire student-facing question itself (a fixed, design-appropriate stem), so there is nothing for you to write and nothing for you to leak the answer through."
+			. self::distractor_prompt_section( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, 'Surname, I. (YYYY) Article title. Journal title, Volume(Issue), pp.Start-End. — or, for two or more authors, Surname, I. and Surname, I. (YYYY) Article title. Journal title, Volume(Issue), pp.Start-End., extending with commas and a final "and" for 3+, never "et al." — NOTE: for this batch, the options actually being compared may be a SHORT SEGMENT of this format (e.g. only the author, or only the volume/issue/pages) rather than the full reference — build each distractor as a wrong variant of that same segment, still by deliberately applying one of the numbered error patterns below.' )
 			. "\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, articleTitle, journalTitle, volume, issue and pages all describe the exact same article — no contradictions, and the real author count.\n2. Exactly 3 distractors are provided, each with a non-empty, specific errorReason naming the Harvard rule it breaks.\n3. Every distractor, re-read end-to-end against the full correct format, genuinely still breaks the rule named in its errorReason — none of them accidentally also satisfies every Harvard rule.\n4. All 3 distractors are mutually distinct from each other and from the correct reference, and exactly one reference overall (the one Citex will construct) is fully correct.\n5. None of the distractors uses \"et al.\" as if it were valid in the reference list — that abbreviation is never correct here.\n6. Only return questions that pass all six checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		$prompt .= "\n\n" . self::conciseness_guidance();
+		$design_note = self::journal_article_design_prompt_note( $exercise_design );
+		if ( '' !== $design_note ) { $prompt .= "\n\n" . $design_note; }
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -862,7 +895,7 @@ class Citex_AI_V2 {
 			default: return 3;
 		}
 	}
-	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null, $target_count = null, $scenario_id = '', $rule_tested = '' ) {
+	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null, $target_count = null, $scenario_id = '', $rule_tested = '', $exercise_design = 'full_reference' ) {
 		$category = $category ?: Citex_Reference_Rules::CATEGORY_BOOK;
 		$out = array();
 		$expected_distractors = self::expected_distractor_count( $difficulty );
@@ -876,8 +909,11 @@ class Citex_AI_V2 {
 			// referencing problem). DragDrop is unaffected: its scenario
 			// still describes the specific book, exactly as before, since a
 			// DragDrop student needs those facts to construct the reference.
+			// $exercise_design only affects Journal Article's own stem
+			// lookup (see mcq_question_stem()'s docblock); every other
+			// category ignores the second argument entirely.
 			$scenario = 'MCQ' === $type
-				? Citex_Reference_Rules::mcq_question_stem( $category )
+				? Citex_Reference_Rules::mcq_question_stem( $category, $exercise_design )
 				: trim( (string) ( $item['scenario'] ?? '' ) );
 
 			// Exercise is Citex-assigned only — resolved by slot index from the
@@ -939,6 +975,19 @@ class Citex_AI_V2 {
 				$author_names = array_values( array_filter( array_map( 'trim', (array) ( $item['authorFullNames'] ?? array() ) ), 'strlen' ) );
 				if ( empty( $author_names ) || count( $author_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_author_count', sprintf( __( 'Question %s must have 1 or more authors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $author_names ) ) ); }
 				if ( null !== $target_count && count( $author_names ) !== $target_count ) { return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d authors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $author_names ) ) ); }
+				// Two of the smaller exercise designs need an exact real
+				// author count regardless of what target_count enforcement
+				// above already checked (defence in depth — target_count is
+				// only set when a scenario was actually assigned; a direct
+				// caller outside Citex_Generator's loop could otherwise slip
+				// past it): author_format tests exactly ONE author's name;
+				// author_joining_pair tests exactly TWO authors joined.
+				if ( 'author_format' === $exercise_design && 1 !== count( $author_names ) ) {
+					return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %s: the "author format" exercise design requires exactly 1 author; %d were provided.', 'citex-tools' ), $id, count( $author_names ) ) );
+				}
+				if ( 'author_joining_pair' === $exercise_design && 2 !== count( $author_names ) ) {
+					return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %s: the "author joining" exercise design requires exactly 2 authors; %d were provided.', 'citex-tools' ), $id, count( $author_names ) ) );
+				}
 				$authors = array();
 				foreach ( $author_names as $author_full_name ) {
 					$author_parts = self::derive_author_parts( $author_full_name );
@@ -946,8 +995,8 @@ class Citex_AI_V2 {
 					$authors[] = array( 'fullName' => $author_full_name, 'surname' => $author_parts['surname'], 'initials' => $author_parts['initials'] );
 				}
 				$candidate = 'MCQ' === $type
-					? self::normalise_journal_article_mcq_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty )
-					: self::normalise_journal_article_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty, $expected_distractors );
+					? self::normalise_journal_article_mcq_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty, $exercise_design )
+					: self::normalise_journal_article_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design );
 			} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 				$author_type = sanitize_key( trim( (string) ( $item['authorType'] ?? '' ) ) );
 				if ( ! in_array( $author_type, array( 'individual', 'organisation' ), true ) ) {
@@ -1518,13 +1567,14 @@ class Citex_AI_V2 {
 	 * @param array $authors array<{fullName, surname, initials}>, 1 or more.
 	 * @return array|WP_Error
 	 */
-	private static function normalise_journal_article_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty, $expected_distractors ) {
+	private static function normalise_journal_article_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design = 'full_reference' ) {
 		$distractors = array_values( array_filter( array_map( 'trim', (array) ( $item['confusingWords'] ?? array() ) ), 'strlen' ) );
 		$fields = array( 'authors' => $authors, 'year' => $year, 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'pages' => $pages );
-		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields );
+		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields, $exercise_design );
 		$parts = $shape['parts'];
 		$fixed = $shape['fixedText'];
-		$count = self::placeholder_count( $fixed ); if ( is_wp_error( $count ) ) { return $count; } if ( 7 !== $count ) { return new WP_Error( 'citex_ai_bad_placeholders', sprintf( __( 'Question %1$s has %2$d draggable placeholder tokens; exactly 7 are required.', 'citex-tools' ), $id, $count ) ); }
+		$expected_part_count = count( $parts );
+		$count = self::placeholder_count( $fixed ); if ( is_wp_error( $count ) ) { return $count; } if ( $expected_part_count !== $count ) { return new WP_Error( 'citex_ai_bad_placeholders', sprintf( __( 'Question %1$s has %2$d draggable placeholder tokens; exactly %3$d are required for this exercise design.', 'citex-tools' ), $id, $count, $expected_part_count ) ); }
 		if ( count( $distractors ) !== $expected_distractors ) { return new WP_Error( 'citex_ai_bad_distractors', sprintf( __( 'Question %s has %d distractors; %d are required for %s difficulty.', 'citex-tools' ), $id, count( $distractors ), $expected_distractors, ucfirst( $difficulty ) ) ); }
 		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
 		foreach ( $distractors as $distractor ) {
@@ -1533,9 +1583,29 @@ class Citex_AI_V2 {
 			if ( isset( $seen[ $normal ] ) ) { return new WP_Error( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); }
 			$seen[ $normal ] = true;
 		}
-		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields );
+		// MOBILE SUITABILITY — a UX quality-gate check, entirely separate
+		// from correctness validation (see Citex_Reference_Rules::
+		// journal_article_mobile_suitability()'s docblock): fed into the
+		// existing regenerate-with-feedback retry loop exactly like every
+		// other check here, never stored as a "known-bad" candidate.
+		$mobile_reason = Citex_Reference_Rules::journal_article_mobile_suitability( $parts );
+		if ( null !== $mobile_reason ) {
+			return new WP_Error( 'citex_ai_journal_article_mobile_unsuitable', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $mobile_reason ) );
+		}
+		// The reference this SPECIFIC exercise reconstructs (a full
+		// reference for the 'full_reference'/'punctuation_final_stop'
+		// designs, or a short segment for every other design) — computed by
+		// the exact same |/|| algorithm DragDrop itself uses, so the two
+		// can never disagree (see Citex_Reference_Rules::reconstruct_reference()).
+		$reference = Citex_Reference_Rules::reconstruct_reference( $shape );
+		// The COMPLETE canonical reference built from ALL the real source
+		// data, regardless of which part this exercise actually tests —
+		// always retained (never just implied) per the requirement that the
+		// system must keep the full canonical record even when the exercise
+		// tests only a subset of it.
+		$canonical_reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields );
 		$author_full_names = array_column( $authors, 'fullName' );
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Journal Article | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Journal Article | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'exerciseDesign' => sanitize_key( $exercise_design ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'canonicalReference' => sanitize_text_field( $canonical_reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**
@@ -1546,7 +1616,7 @@ class Citex_AI_V2 {
 	 *
 	 * @return array|WP_Error
 	 */
-	private static function normalise_journal_article_mcq_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty ) {
+	private static function normalise_journal_article_mcq_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty, $exercise_design = 'full_reference' ) {
 		$distractors = self::extract_mcq_distractors( $item, $id );
 		if ( is_wp_error( $distractors ) ) {
 			return $distractors;
@@ -1554,7 +1624,31 @@ class Citex_AI_V2 {
 		$incorrect = array_column( $distractors, 'reference' );
 
 		$fields = array( 'authors' => $authors, 'year' => $year, 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'pages' => $pages );
-		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields );
+		// The correct answer for THIS design (a short segment for every
+		// design except 'full_reference'/'punctuation_final_stop') — built
+		// via the identical shape+reconstruct algorithm DragDrop uses, so
+		// the two mechanics can never silently disagree for any design (see
+		// Citex_Reference_Rules::reconstruct_reference()'s docblock). This
+		// is a pure refactor for 'full_reference' itself: the string
+		// produced is unchanged from calling build_reference() directly.
+		$shape     = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields, $exercise_design );
+		$reference = Citex_Reference_Rules::reconstruct_reference( $shape );
+		$canonical_reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields );
+		// MOBILE SUITABILITY for MCQ — only meaningful for the four
+		// short-segment designs, whose options are individual components
+		// exactly like DragDrop's draggable parts. 'full_reference' and
+		// 'punctuation_final_stop' options are, structurally and
+		// unavoidably, complete reference strings — comparing THOSE against
+		// the same per-component threshold used for a single short segment
+		// would reject every one of them; their conciseness is instead
+		// steered at the source-selection stage by conciseness_guidance().
+		$mobile_checked_designs = array( 'author_format', 'author_joining_pair', 'volume_issue_pages', 'title_journal_punctuation' );
+		if ( in_array( $exercise_design, $mobile_checked_designs, true ) ) {
+			$mobile_reason = Citex_Reference_Rules::journal_article_mobile_suitability( array_merge( array( $reference ), $incorrect ) );
+			if ( null !== $mobile_reason ) {
+				return new WP_Error( 'citex_ai_journal_article_mobile_unsuitable', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $mobile_reason ) );
+			}
+		}
 		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $reference ) ) );
 		$seen = array( $correct_normal => true );
 		foreach ( $incorrect as $option ) {
@@ -1578,10 +1672,12 @@ class Citex_AI_V2 {
 		$option_reasons[] = null;
 
 		$hint = Citex_Reference_Rules::mcq_hint( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE );
-		$answer_explanation = 'The correct reference follows the required Harvard reference structure: Surname, Initials. (Year) Article title. Journal title, Volume(Issue), pp.Start-End. — with every author listed in full and joined with "and"/commas when there is more than one.';
+		$answer_explanation = 'full_reference' === $exercise_design || 'punctuation_final_stop' === $exercise_design
+			? 'The correct reference follows the required Harvard reference structure: Surname, Initials. (Year) Article title. Journal title, Volume(Issue), pp.Start-End. — with every author listed in full and joined with "and"/commas when there is more than one.'
+			: sprintf( 'The correct answer is the correctly Harvard-formatted "%s" component of this reference, derived from the real source data.', str_replace( '_', ' ', $exercise_design ) );
 
 		$author_full_names = array_column( $authors, 'fullName' );
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Journal Article | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'optionErrorReasons' => $option_reasons, 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Journal Article | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Liverpool Hope University', 'difficulty' => ucfirst( $difficulty ), 'exerciseDesign' => sanitize_key( $exercise_design ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'optionErrorReasons' => $option_reasons, 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $reference ), 'canonicalReference' => sanitize_text_field( $canonical_reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**

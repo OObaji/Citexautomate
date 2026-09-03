@@ -259,7 +259,7 @@ class Citex_Reference_Rules {
 	 *
 	 * @return array{parts: string[], fixedText: string}
 	 */
-	public static function dragdrop_shape( $category, array $fields ) {
+	public static function dragdrop_shape( $category, array $fields, $design = null ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			$editors     = $fields['editors'];
 			$designation = self::designation_for_editor_count( count( $editors ) );
@@ -269,7 +269,7 @@ class Citex_Reference_Rules {
 			);
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
-			return self::journal_article_dragdrop_shape( $fields );
+			return self::journal_article_dragdrop_shape( $fields, $design );
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
 			return self::website_dragdrop_shape( $fields );
@@ -288,15 +288,122 @@ class Citex_Reference_Rules {
 	}
 
 	/**
-	 * Journal Article's DragDrop shape is a CONSTANT 7-part shape for every
-	 * author count (1, 2, 3, 4, 5+) — unlike Book, the joined author list is
-	 * always ONE draggable part even for a single author, so the draggable-
-	 * part count never varies with author count for this category: author(s),
-	 * year, article title, journal title, volume, issue, page range. There is
-	 * no place/publisher to bake into the fixed template — volume, issue and
-	 * pages are the pieces the fixed grammar wraps instead.
+	 * Journal Article's catalogue of DragDrop/MCQ "exercise designs" —
+	 * mobile-suitability rework: rather than every question always
+	 * reconstructing the FULL 7-part reference (which forces every 3-4+
+	 * author question into a large draggable block), a question can instead
+	 * target a smaller, meaningful referencing-knowledge component while
+	 * the full canonical record is still always present and validated (see
+	 * Citex_Generated_Validator::validate_journal_article_consistency()).
+	 * 'full_reference' is the ORIGINAL, UNCHANGED design (default when no
+	 * design id is given, so every existing call site/behaviour is
+	 * untouched) — every other id here is new.
+	 *
+	 * @return string[] design ids.
 	 */
-	private static function journal_article_dragdrop_shape( array $fields ) {
+	public static function journal_article_designs() {
+		return array( 'full_reference', 'author_format', 'author_joining_pair', 'volume_issue_pages', 'title_journal_punctuation', 'punctuation_final_stop' );
+	}
+
+	/**
+	 * Which canonical fields a given design's reconstructed STRING actually
+	 * contains — used by the validator to gate its "reference/scenario must
+	 * mention canonical fact X" checks per design, since a short partial
+	 * design's correct answer legitimately does not contain every field
+	 * (e.g. author_format's "Mitchell, S." contains no article/journal
+	 * title at all), while punctuation_final_stop still shows the complete
+	 * content with only the trailing full stop blanked.
+	 *
+	 * @return string[]|null null for an unrecognised design id.
+	 */
+	public static function journal_article_design_fields( $design ) {
+		$map = array(
+			'full_reference'             => array( 'authors', 'year', 'articleTitle', 'journalTitle', 'volume', 'issue', 'pages' ),
+			'author_format'              => array( 'authors' ),
+			'author_joining_pair'        => array( 'authors' ),
+			'volume_issue_pages'         => array( 'volume', 'issue', 'pages' ),
+			'title_journal_punctuation'  => array( 'articleTitle', 'journalTitle' ),
+			'punctuation_final_stop'     => array( 'authors', 'year', 'articleTitle', 'journalTitle', 'volume', 'issue', 'pages' ),
+		);
+		return $map[ $design ] ?? null;
+	}
+
+	/**
+	 * Journal Article's DragDrop shape, per exercise design. $design of
+	 * null or 'full_reference' is the ORIGINAL, UNCHANGED constant 7-part
+	 * shape for every author count (1, 2, 3, 4, 5+) — the joined author
+	 * list is always ONE draggable part even for a single author, so the
+	 * draggable-part count never varies with author count. Every other
+	 * design tests a smaller, meaningful component instead:
+	 *
+	 * - author_format (1 author only): surname + initials as 2 short
+	 *   draggable parts — tests full-name-to-Harvard-initial derivation.
+	 * - author_joining_pair (2 authors only): the joined "Smith, A. and
+	 *   Jones, D." string as ONE draggable part — tests the "and" joining
+	 *   rule specifically, without the rest of the reference.
+	 * - volume_issue_pages: volume, issue, pages as 3 short draggable
+	 *   parts — tests the "Volume(Issue), pp.Start-End." structure.
+	 * - title_journal_punctuation: article title + journal title as 2
+	 *   draggable parts — tests the "Title. Journal," punctuation
+	 *   transition.
+	 * - punctuation_final_stop: the ENTIRE reference is shown as given,
+	 *   literal content, except the single final full stop, which is the
+	 *   one draggable part — tests terminal punctuation specifically (see
+	 *   Citex_Generated_Validator's "punctuation can be a valid Question
+	 *   Part" support).
+	 *
+	 * There is no place/publisher to bake into the fixed template for any
+	 * design — this category has none.
+	 */
+	private static function journal_article_dragdrop_shape( array $fields, $design = null ) {
+		$design = $design ?: 'full_reference';
+		if ( 'author_format' === $design ) {
+			// No trailing literal "." in fixedText — the initials value
+			// itself already ends with one (e.g. "A."), so appending
+			// another would double it.
+			$author = $fields['authors'][0];
+			return array(
+				'parts'     => array( $author['surname'], $author['initials'] ),
+				'fixedText' => '|, ||',
+			);
+		}
+		if ( 'author_joining_pair' === $design ) {
+			// Same reasoning: join_people() for two people already ends
+			// with the second person's initials (e.g. "...and Jones, D."),
+			// which itself ends in ".".
+			return array(
+				'parts'     => array( self::join_people( $fields['authors'] ) ),
+				'fixedText' => '|',
+			);
+		}
+		if ( 'volume_issue_pages' === $design ) {
+			return array(
+				'parts'     => array( $fields['volume'], $fields['issue'], $fields['pages'] ),
+				'fixedText' => '|(||), pp.||.',
+			);
+		}
+		if ( 'title_journal_punctuation' === $design ) {
+			return array(
+				'parts'     => array( $fields['articleTitle'], $fields['journalTitle'] ),
+				'fixedText' => '|. ||,',
+			);
+		}
+		if ( 'punctuation_final_stop' === $design ) {
+			$body = sprintf(
+				'%s (%s) %s. %s, %s(%s), pp.%s',
+				self::join_people( $fields['authors'] ),
+				$fields['year'],
+				$fields['articleTitle'],
+				$fields['journalTitle'],
+				$fields['volume'],
+				$fields['issue'],
+				$fields['pages']
+			);
+			return array(
+				'parts'     => array( '.' ),
+				'fixedText' => $body . '|',
+			);
+		}
 		return array(
 			'parts'     => array(
 				self::join_people( $fields['authors'] ),
@@ -309,6 +416,90 @@ class Citex_Reference_Rules {
 			),
 			'fixedText' => '| (||) ||. ||, ||(||), pp.||.',
 		);
+	}
+
+	/**
+	 * Reconstructs the reference string a DragDrop shape (parts + fixedText)
+	 * produces, using the exact same |/|| grammar
+	 * Citex_Generated_Validator::reconstruct() parses — but WITHOUT that
+	 * method's malformed-input error handling, since a shape built by
+	 * journal_article_dragdrop_shape() (or any other dragdrop_shape() call)
+	 * is always well-formed by construction. Used at CONSTRUCTION time
+	 * (Citex_AI_V2's normalisers) so a design's MCQ correct answer and its
+	 * DragDrop reconstruction are always computed by the identical
+	 * algorithm and can never silently disagree, for any design including
+	 * the original full_reference one (this is a pure refactor for that
+	 * design — the string produced is unchanged).
+	 */
+	public static function reconstruct_reference( array $shape ) {
+		$fixed  = (string) ( $shape['fixedText'] ?? '' );
+		$parts  = array_values( (array) ( $shape['parts'] ?? array() ) );
+		$result = '';
+		$index  = 0;
+		$length = strlen( $fixed );
+		for ( $i = 0; $i < $length; $i++ ) {
+			if ( '|' !== $fixed[ $i ] ) {
+				$result .= $fixed[ $i ];
+				continue;
+			}
+			if ( $i + 1 < $length && '|' === $fixed[ $i + 1 ] ) {
+				$result .= (string) ( $parts[ $index++ ] ?? '' );
+				$i++;
+				continue;
+			}
+			$result .= (string) ( $parts[ $index++ ] ?? '' );
+		}
+		return trim( $result );
+	}
+
+	/**
+	 * A generation-time UX heuristic (NOT a correctness rule — kept
+	 * entirely separate from Citex_Generated_Validator, which never judges
+	 * question size) assessing whether a set of draggable Question Parts
+	 * will comfortably fit the real Citex mobile DragDrop interface.
+	 * Deliberately not a single crude character cap: it checks each
+	 * component's own size against a generous per-component threshold
+	 * (catching one excessively long part, e.g. an unusually long journal
+	 * title or a 4-author joined block) AND the combined size of every
+	 * component together (catching "individually fine, but too many
+	 * large pieces at once"). Called from Citex_AI_V2's quality gate for
+	 * Journal Article DragDrop/MCQ candidates; feeds the existing
+	 * regenerate-with-feedback retry loop exactly like every other
+	 * validation failure.
+	 *
+	 * @return string|null A human-readable rejection reason, or null when suitable.
+	 */
+	public static function journal_article_mobile_suitability( array $parts ) {
+		// Generous enough that a genuinely typical 4-5 real-author joined
+		// list, or a normally-worded real title, is never rejected (section
+		// 5's explicit "occasional 5+ author examples where mobile layout
+		// remains usable" and "FOUR-AUTHOR: test complete author
+		// construction" both require full_reference to keep working for
+		// realistic multi-author sources) — this is a backstop against
+		// genuinely excessive cases (an unusually long title, or 6+ authors
+		// with long names), not a filter on ordinary variation.
+		$max_single_component = 70;
+		$max_combined_total   = 220;
+		$total                = 0;
+		foreach ( $parts as $part ) {
+			$text   = (string) $part;
+			$length = mb_strlen( $text );
+			$total += $length;
+			if ( $length > $max_single_component ) {
+				return sprintf(
+					'A single draggable component is %1$d characters long ("%2$s…"), too large for a comfortable mobile DragDrop layout — prefer a shorter real source, or a smaller exercise design.',
+					$length,
+					mb_substr( $text, 0, 30 )
+				);
+			}
+		}
+		if ( $total > $max_combined_total ) {
+			return sprintf(
+				'The combined length of all draggable components (%d characters) is too large for a comfortable mobile DragDrop layout — prefer a shorter real source, or a smaller exercise design.',
+				$total
+			);
+		}
+		return null;
 	}
 
 	/**
@@ -344,12 +535,24 @@ class Citex_Reference_Rules {
 	 * Citex_Generated_Validator::validate_reference_format(), which apply
 	 * to every category identically.
 	 */
-	public static function format_regex( $category ) {
+	public static function format_regex( $category, $design = null ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			// Surname(s), Initials [and Surname, Initials ...] (ed.|eds) (Year) Title. Place: Publisher.
 			return '/^.+\s+\((?:ed\.|eds)\)\s+\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u';
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			// A design other than 'full_reference' (or none) reconstructs a
+			// short PARTIAL segment, not a complete reference — e.g.
+			// author_format's "Mitchell, S." or volume_issue_pages's
+			// "12(2), pp.27-35." — so it needs its own, much narrower shape
+			// regex rather than the full-reference one below, which such a
+			// segment could never satisfy (and must not be judged against).
+			// 'punctuation_final_stop' is the one exception: it reconstructs
+			// a COMPLETE reference (only the final full stop is draggable),
+			// so it uses the same full-reference regex unchanged.
+			if ( null !== $design && 'full_reference' !== $design && 'punctuation_final_stop' !== $design ) {
+				return self::journal_article_partial_format_regex( $design );
+			}
 			// One or more "Surname, Initials" author groups (same join_people()
 			// grammar as Book/Edited Book — a comma-joined-throughout list with
 			// no final "and", or an "et al." abbreviation, both fail to match),
@@ -387,6 +590,43 @@ class Citex_Reference_Rules {
 		// in that string, so it fails this regex the same way any other
 		// malformed author list would.
 		return '/^[^,]+,\s+(?:[A-Z]\.\s*)+(?:(?:,\s+[^,]+,\s+(?:[A-Z]\.\s*)+)*\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+)?\(\d{4}\)\s+.+\.\s+[^:]+:\s+.+\.\s*$/u';
+	}
+
+	/**
+	 * Shape regex for a Journal Article partial exercise design's own
+	 * short reconstructed segment — deliberately much narrower than the
+	 * full-reference regex above, since these strings are not, and are
+	 * never claimed to be, a complete Harvard reference on their own (the
+	 * validator separately, always, checks that the FULL canonical
+	 * reference built from all the source data is well-formed — see
+	 * Citex_Generated_Validator::validate_journal_article_consistency()).
+	 */
+	private static function journal_article_partial_format_regex( $design ) {
+		if ( 'author_format' === $design ) {
+			// "Surname, I." — one person, no year/title/etc at all.
+			return '/^[^,]+,\s+(?:[A-Z]\.\s*)+$/u';
+		}
+		if ( 'author_joining_pair' === $design ) {
+			// "Surname, I. and Surname, I." — exactly two people, joined
+			// with "and" (never a comma-only join or "&"). The trailing
+			// full stop comes from the second person's own initials group
+			// (which always ends in "."), not from any extra fixed text.
+			return '/^[^,]+,\s+(?:[A-Z]\.\s*)+\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+$/u';
+		}
+		if ( 'volume_issue_pages' === $design ) {
+			// "Volume(Issue), pp.Start-End." — no author/year/title at all.
+			return '/^\d+\(\d+\),\s+pp\.\d+-\d+\.$/u';
+		}
+		if ( 'title_journal_punctuation' === $design ) {
+			// "Article title. Journal title," — the title/journal
+			// punctuation transition only; deliberately ends in a comma
+			// (there is more of the reference after this fragment in the
+			// real Harvard structure), not a full stop.
+			return '/^.+\.\s+.+,$/u';
+		}
+		// An unrecognised design id must never accidentally match
+		// everything — fail closed, not open.
+		return '/(?!)/';
 	}
 
 	/**
@@ -477,17 +717,34 @@ class Citex_Reference_Rules {
 	 * student needs. This is the one piece of MCQ question text Citex
 	 * never delegates to Gemini at all.
 	 */
-	public static function mcq_question_stem( $category ) {
+	public static function mcq_question_stem( $category, $design = null ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			return 'Which of the following is the correct Harvard reference for an edited book?';
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
-			return 'Which of the following is the correct Harvard reference for a journal article?';
+			$partial_stem = self::journal_article_partial_mcq_stem( $design );
+			return $partial_stem ?? 'Which of the following is the correct Harvard reference for a journal article?';
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
 			return 'Which of the following is the correct Harvard reference for a website/web resource?';
 		}
 		return 'Which of the following is the correct Harvard reference for a book?';
+	}
+
+	/**
+	 * The fixed MCQ stem for a Journal Article partial exercise design —
+	 * null for 'full_reference'/'punctuation_final_stop' (both use the
+	 * standard full-reference stem above, since both test/show the
+	 * complete reference) or an unrecognised design.
+	 */
+	private static function journal_article_partial_mcq_stem( $design ) {
+		$stems = array(
+			'author_format'             => 'Which of the following correctly formats this author for the Harvard reference list?',
+			'author_joining_pair'       => 'Which of the following correctly joins these two authors for the Harvard reference list?',
+			'volume_issue_pages'        => 'Which of the following correctly formats the volume, issue and page range for the Harvard reference list?',
+			'title_journal_punctuation' => 'Which of the following correctly punctuates the article title and journal title for the Harvard reference list?',
+		);
+		return $stems[ $design ] ?? null;
 	}
 
 	/**

@@ -167,11 +167,35 @@ class Citex_Question_Scenarios {
 	 */
 	private static function journal_article_buckets() {
 		return array(
+			// The original 5 full-reference buckets — UNCHANGED, still the
+			// existing 7-part construct_reference/select_correct mechanic
+			// (every entry here implicitly carries no 'exerciseDesign' key,
+			// which Citex_AI_V2 reads as 'full_reference' — see
+			// Citex_Reference_Rules::journal_article_dragdrop_shape()'s
+			// docblock). Kept exactly as before so every existing test/
+			// behaviour for these 5 ids is untouched.
 			array( 'id' => 'one_author', 'ruleTested' => 'author_formatting', 'targetCounts' => array( 1 ), 'label' => 'One author' ),
 			array( 'id' => 'two_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Two authors' ),
 			array( 'id' => 'three_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 3 ), 'label' => 'Three authors' ),
 			array( 'id' => 'four_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4 ), 'label' => 'Four authors' ),
 			array( 'id' => 'five_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 5, 6, 7 ), 'label' => 'Five or more authors' ),
+			// Mobile-suitability rework: five ADDITIONAL, smaller "exercise
+			// design" buckets testing one meaningful component instead of
+			// the full 7-part reconstruction every time — the diversity
+			// engine's least-used-first selection now naturally rotates
+			// batches between complete- and partial-reference questions
+			// instead of always generating the largest possible draggable
+			// shape. Each entry's 'exerciseDesign' is read by
+			// Citex_AI_V2::normalise() to pick the matching
+			// Citex_Reference_Rules::journal_article_dragdrop_shape() case;
+			// the full canonical source record is still always required and
+			// validated regardless of which of these is assigned (see
+			// Citex_Generated_Validator::validate_journal_article_consistency()).
+			array( 'id' => 'author_format', 'ruleTested' => 'author_initial_derivation', 'targetCounts' => array( 1 ), 'label' => 'Author format (surname + initial)', 'exerciseDesign' => 'author_format' ),
+			array( 'id' => 'author_joining_pair', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Two-author joining (component only)', 'exerciseDesign' => 'author_joining_pair' ),
+			array( 'id' => 'volume_issue_pages', 'ruleTested' => 'volume_issue_pages_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Volume/issue/page range structure', 'exerciseDesign' => 'volume_issue_pages' ),
+			array( 'id' => 'title_journal_punctuation', 'ruleTested' => 'title_journal_punctuation', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Article/journal title punctuation', 'exerciseDesign' => 'title_journal_punctuation' ),
+			array( 'id' => 'punctuation_final_stop', 'ruleTested' => 'terminal_punctuation', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Terminal punctuation (full content shown)', 'exerciseDesign' => 'punctuation_final_stop' ),
 		);
 	}
 

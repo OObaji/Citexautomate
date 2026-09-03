@@ -94,8 +94,18 @@ class Citex_Generated_Validator {
 			return self::result( 'failed', $errors, null );
 		}
 
+		// Journal Article's own "exercise design" (see Citex_Reference_Rules::
+		// journal_article_dragdrop_shape()'s docblock) — null for every other
+		// category, which never reads it. Defaults to 'full_reference' for a
+		// Journal Article record with no exerciseDesign field at all (any
+		// record predating this feature), preserving its exact prior
+		// behaviour.
+		$exercise_design = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category
+			? (string) ( $question['exerciseDesign'] ?? 'full_reference' )
+			: null;
+
 		$reference = $reconstruction['reference'];
-		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category, $question['place'] ?? null, $question['publisher'] ?? null, self::expected_designation_for( $question, $category ), self::expected_editor_join_for( $question, $category ) ) );
+		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category, $question['place'] ?? null, $question['publisher'] ?? null, self::expected_designation_for( $question, $category ), self::expected_editor_join_for( $question, $category ), $exercise_design ) );
 
 		$correct_lower = array_map(
 			function ( $value ) {
@@ -224,12 +234,17 @@ class Citex_Generated_Validator {
 		$publisher    = $question['publisher'] ?? null;
 		$designation  = self::expected_designation_for( $question, $category );
 		$editor_join  = self::expected_editor_join_for( $question, $category );
+		// See validate_dragdrop()'s matching comment — null for every
+		// category except Journal Article.
+		$exercise_design = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category
+			? (string) ( $question['exerciseDesign'] ?? 'full_reference' )
+			: null;
 		$reference    = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
 		if ( '' === $reference ) {
 			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
 			return self::result( 'failed', $errors, null );
 		}
-		$errors = array_merge( $errors, self::validate_reference_format( $reference, $category, $place, $publisher, $designation, $editor_join ) );
+		$errors = array_merge( $errors, self::validate_reference_format( $reference, $category, $place, $publisher, $designation, $editor_join, $exercise_design ) );
 
 		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $reference ) ) );
 		foreach ( $options as $index => $option ) {
@@ -248,8 +263,22 @@ class Citex_Generated_Validator {
 			}
 			// No distractor may itself look like a fully valid Harvard
 			// reference — that would be a second plausible answer, exactly
-			// the ambiguity a real MCQ must never contain.
-			if ( empty( self::validate_reference_format( $option_text, $category, $place, $publisher, $designation, $editor_join ) ) ) {
+			// the ambiguity a real MCQ must never contain. SKIPPED for
+			// Journal Article's short "identify the correct VALUE" partial
+			// designs (author_format, author_joining_pair, volume_issue_pages,
+			// title_journal_punctuation): their whole point is comparing
+			// several equally well-FORMATTED candidates (e.g. "Brown, B."
+			// vs "Brown, S." — both genuinely valid "Surname, I." shapes)
+			// and asking which one is the real, correct VALUE — a
+			// same-shape distractor there is the intended, correct kind of
+			// distractor, not an ambiguity bug. This check keeps its full
+			// meaning for 'full_reference'/'punctuation_final_stop' (and
+			// every other category), where a real distractor is expected to
+			// contain a genuine Harvard RULE violation, not just a
+			// different value.
+			$skip_distractor_looks_correct = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category
+				&& in_array( $exercise_design, array( 'author_format', 'author_joining_pair', 'volume_issue_pages', 'title_journal_punctuation' ), true );
+			if ( ! $skip_distractor_looks_correct && empty( self::validate_reference_format( $option_text, $category, $place, $publisher, $designation, $editor_join, $exercise_design ) ) ) {
 				$errors[] = self::error(
 					'MCQ_DISTRACTOR_LOOKS_CORRECT',
 					sprintf( 'Option %d passes every Harvard format rule too — this creates a second plausible answer.', $index + 1 )
@@ -285,7 +314,8 @@ class Citex_Generated_Validator {
 					'volume'       => (string) ( $question['volume'] ?? '' ),
 					'issue'        => (string) ( $question['issue'] ?? '' ),
 					'pages'        => (string) ( $question['pages'] ?? '' ),
-				)
+				),
+				$exercise_design
 			)['parts'];
 		} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			// Website's dragdrop_shape() expects a single {type, surname,
@@ -339,7 +369,7 @@ class Citex_Generated_Validator {
 		// have supplied (Gemini is not even asked for a scenario anymore —
 		// see schema_mcq()/schema_edited_book_mcq() — so this also catches
 		// any stray value slipping through some other path).
-		$expected_stem = Citex_Reference_Rules::mcq_question_stem( $category );
+		$expected_stem = Citex_Reference_Rules::mcq_question_stem( $category, $exercise_design );
 		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected_stem ) {
 			$errors[] = self::error(
 				'MCQ_QUESTION_STEM_MISMATCH',
@@ -653,7 +683,7 @@ class Citex_Generated_Validator {
 	 * categories provide instead of this method growing a new branch each
 	 * time.
 	 */
-	private static function validate_reference_format( $reference, $category = null, $place = null, $publisher = null, $expected_designation = null, $expected_editor_join = null ) {
+	private static function validate_reference_format( $reference, $category = null, $place = null, $publisher = null, $expected_designation = null, $expected_editor_join = null, $exercise_design = null ) {
 		$category = $category ?? Citex_Reference_Rules::CATEGORY_BOOK;
 		$errors   = array();
 
@@ -674,14 +704,21 @@ class Citex_Generated_Validator {
 		if ( preg_match( '/:(?!\/\/)\S/', $reference ) ) {
 			$errors[] = self::error( 'MISSING_SPACE_AFTER_COLON', 'A space is required after the colon between place of publication and publisher.' );
 		}
-		if ( ! preg_match( '/\.\s*$/', $reference ) ) {
+		// Journal Article's 'title_journal_punctuation' partial design
+		// deliberately reconstructs a FRAGMENT that ends in a comma (e.g.
+		// "Learning Online. Research Studies,") — there is genuinely more
+		// of the real Harvard reference after this fragment, so it must
+		// never be flagged for lacking a final full stop.
+		$skip_final_period_check = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category && 'title_journal_punctuation' === $exercise_design;
+		if ( ! $skip_final_period_check && ! preg_match( '/\.\s*$/', $reference ) ) {
 			$errors[] = self::error( 'MISSING_FINAL_PERIOD', 'Missing final full stop.' );
 		}
 
 		// Liverpool Hope shape for this category — Surname, I. (Year) Title.
 		// Place: Publisher. for Book; Editor(s), I. (ed.|eds) (Year) Title.
-		// Place: Publisher. for Edited Book.
-		if ( ! preg_match( Citex_Reference_Rules::format_regex( $category ), $reference ) ) {
+		// Place: Publisher. for Edited Book. $exercise_design only ever
+		// affects Journal Article — every other category ignores it.
+		if ( ! preg_match( Citex_Reference_Rules::format_regex( $category, $exercise_design ), $reference ) ) {
 			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 				$code    = 'EDITED_BOOK_FORMAT_MISMATCH';
 				$message = 'Citation does not match the Liverpool Hope Edited Book format.';
@@ -1107,21 +1144,25 @@ class Citex_Generated_Validator {
 	 * Journal Article's OWN dedicated consistency check — deliberately not a
 	 * call into validate_bibliographic_consistency() (Book) or
 	 * validate_edited_book_consistency(): this category has no place/
-	 * publisher concept, always uses the constant 7-part DragDrop shape (see
-	 * Citex_Reference_Rules::journal_article_dragdrop_shape()) regardless of
-	 * author count, and has its own "et al. must never appear" rule that
-	 * applies to every author count starting at 1, not just 4+.
+	 * publisher concept, and has its own "et al. must never appear" rule
+	 * that applies to every author count starting at 1, not just 4+.
 	 *
-	 * Per the requirement that this validator "reconstruct the expected
-	 * reference from canonical data rather than merely checking whether a
-	 * generated string 'looks right'": this independently rebuilds the
-	 * correct reference from the canonical authors/year/articleTitle/
-	 * journalTitle/volume/issue/pages via
-	 * Citex_Reference_Rules::build_reference() — the exact same construction
-	 * Citex_AI_V2's normaliser used — and requires an EXACT match against
-	 * the reference under test (JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH),
-	 * rather than only checking that individual facts merely appear
-	 * somewhere in the string.
+	 * MOBILE SUITABILITY REWORK: a question can now test one of several
+	 * "exercise designs" (see Citex_Reference_Rules::
+	 * journal_article_dragdrop_shape()'s docblock) — a short, meaningful
+	 * component instead of always the full 7-part reference. This method
+	 * still ALWAYS requires and independently reconstructs the COMPLETE
+	 * canonical reference from the full source data (never weakened,
+	 * regardless of design — see $canonical_reference below), then
+	 * separately checks the ACTUAL question under test against its own
+	 * design-specific expected shape/reference (via
+	 * Citex_Reference_Rules::dragdrop_shape()/reconstruct_reference() with
+	 * the record's own `exerciseDesign`), and only requires the reference/
+	 * scenario "must mention canonical fact X" checks for the fields this
+	 * design's OWN reconstructed string actually contains (see
+	 * Citex_Reference_Rules::journal_article_design_fields()) — a short
+	 * segment like author_format's "Mitchell, S." legitimately does not,
+	 * and must never be judged as if it should, contain the article title.
 	 */
 	private static function validate_journal_article_consistency( $question, $question_parts, $reference, $check_scenario = true ) {
 		$errors  = array();
@@ -1159,23 +1200,55 @@ class Citex_Generated_Validator {
 			'pages'        => $pages,
 		);
 
-		// Question Parts must be EXACTLY the constant 7-part shape
-		// journal_article_dragdrop_shape() would build for these canonical
-		// authors, for ANY author count — unlike Book, there is no
-		// single-author special case for this category.
-		$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields );
+		$design = trim( (string) ( $question['exerciseDesign'] ?? 'full_reference' ) );
+		$design_fields = Citex_Reference_Rules::journal_article_design_fields( $design );
+		if ( null === $design_fields ) {
+			$errors[] = self::error( 'JOURNAL_ARTICLE_DESIGN_UNKNOWN', sprintf( 'Unrecognised exercise design "%s".', $design ) );
+			return $errors;
+		}
+
+		// ALWAYS: the COMPLETE canonical reference, built from the full
+		// real source data regardless of which part this exercise actually
+		// tests — required to genuinely be well-formed, so validation is
+		// never weakened just because a question only shows a fragment of
+		// it (item 12's "the system must retain the complete canonical
+		// reference internally... do NOT weaken validation").
+		$canonical_reference = trim( Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields ) );
+		if ( ! empty( self::validate_reference_format( $canonical_reference, Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, null, null, null, null, 'full_reference' ) ) ) {
+			$errors[] = self::error(
+				'JOURNAL_ARTICLE_CANONICAL_REFERENCE_INVALID',
+				sprintf( 'The complete canonical reference built from the full source data is not a well-formed Harvard Journal Article reference: "%s".', $canonical_reference )
+			);
+		}
+		// "et al." must NEVER appear in a Journal Article reference-list
+		// entry, for any author count — the one Liverpool Hope misconception
+		// this category exists to test (see Citex_Reference_Rules::
+		// build_reference()'s docblock). Checked against BOTH the complete
+		// canonical reference (defence in depth against a "clean-looking"
+		// author record that somehow still encodes it) AND the actual
+		// reference under test (the one the student is shown/submits,
+		// which for the authors-testing designs is where a corrupted
+		// Fixed Text/Question Parts pairing would actually surface it).
+		if ( preg_match( '/\bet\s*al\.?\b/i', $canonical_reference ) || preg_match( '/\bet\s*al\.?\b/i', (string) $reference ) ) {
+			$errors[] = self::error( 'JOURNAL_ARTICLE_ET_AL_USED', 'The reference list entry must never use "et al." — every author must be listed in full.' );
+		}
+
+		// THIS question's own design-specific expected shape/reference.
+		$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields, $design );
 		$expected_parts = array_map( 'trim', $expected_shape['parts'] );
 		$actual_parts   = array_map( 'trim', (array) $question_parts );
 		if ( $expected_parts !== array_values( $actual_parts ) ) {
 			$errors[] = self::error(
 				'JOURNAL_ARTICLE_PARTS_MISMATCH',
-				'Question Parts do not exactly match the canonical bibliographic record (author(s), year, article title, journal title, volume, issue, pages).'
+				'Question Parts do not exactly match the canonical bibliographic record for this exercise design.'
 			);
 		}
 
-		// Independently reconstruct the expected reference from canonical
-		// data (see this method's docblock) and require an exact match.
-		$expected_reference = trim( Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields ) );
+		// Independently reconstruct the expected reference for THIS
+		// design and require an exact match — the same "reconstruct from
+		// canonical data, never merely string-match" requirement, applied
+		// per design instead of always to the full reference.
+		$expected_reference = trim( Citex_Reference_Rules::reconstruct_reference( $expected_shape ) );
 		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
 			$errors[] = self::error(
 				'JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH',
@@ -1183,30 +1256,27 @@ class Citex_Generated_Validator {
 			);
 		}
 
+		// Author checks — surname/initials well-formedness is data
+		// integrity (always checked); WHETHER the reference/scenario must
+		// actually contain them depends on whether this design tests the
+		// authors field at all.
+		$design_tests_authors = in_array( 'authors', $design_fields, true );
 		foreach ( $authors as $index => $author ) {
 			$author_surname  = trim( (string) ( $author['surname'] ?? '' ) );
 			$author_initials = trim( (string) ( $author['initials'] ?? '' ) );
-			if ( '' !== $author_surname && ! self::text_contains( $reference, $author_surname ) ) {
+			if ( $design_tests_authors && '' !== $author_surname && ! self::text_contains( $reference, $author_surname ) ) {
 				$errors[] = self::error( 'JOURNAL_ARTICLE_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
 			}
-			if ( '' !== $author_initials && ! self::text_contains( $reference, $author_initials ) ) {
+			if ( $design_tests_authors && '' !== $author_initials && ! self::text_contains( $reference, $author_initials ) ) {
 				$errors[] = self::error( 'JOURNAL_ARTICLE_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s initials: "%2$s".', $index + 1, $author_initials ) );
 			}
 			// Scenario check excludes initials — a natural scenario names the
 			// author (e.g. "Sarah Mitchell"), not their initials. Skipped
-			// when $check_scenario is false (MCQ): its scenario is Citex's
-			// own fixed, category-generic stem.
-			if ( $check_scenario && '' !== $author_surname && ! self::text_contains( (string) ( $question['scenario'] ?? '' ), $author_surname ) ) {
+			// when $check_scenario is false (MCQ), or when this design
+			// does not test the authors field at all.
+			if ( $check_scenario && $design_tests_authors && '' !== $author_surname && ! self::text_contains( (string) ( $question['scenario'] ?? '' ), $author_surname ) ) {
 				$errors[] = self::error( 'JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
 			}
-		}
-
-		// "et al." must NEVER appear in a Journal Article reference-list
-		// entry, for any author count — the one Liverpool Hope misconception
-		// this category exists to test (see Citex_Reference_Rules::
-		// build_reference()'s docblock).
-		if ( preg_match( '/\bet\s*al\.?\b/i', (string) $reference ) ) {
-			$errors[] = self::error( 'JOURNAL_ARTICLE_ET_AL_USED', 'The reference list entry must never use "et al." — every author must be listed in full.' );
 		}
 
 		foreach (
@@ -1217,8 +1287,11 @@ class Citex_Generated_Validator {
 				'volume'       => array( $volume, 'volume' ),
 				'issue'        => array( $issue, 'issue' ),
 				'pages'        => array( $pages, 'page range' ),
-			) as $pair
+			) as $key => $pair
 		) {
+			if ( ! in_array( $key, $design_fields, true ) ) {
+				continue;
+			}
 			list( $value, $label ) = $pair;
 			if ( '' !== $value && ! self::text_contains( $reference, $value ) ) {
 				$errors[] = self::error( 'JOURNAL_ARTICLE_REFERENCE_MISMATCH', sprintf( 'The reconstructed reference does not contain the canonical %1$s: "%2$s".', $label, $value ) );
@@ -1235,8 +1308,11 @@ class Citex_Generated_Validator {
 					'volume'       => array( $volume, 'volume' ),
 					'issue'        => array( $issue, 'issue' ),
 					'pages'        => array( $pages, 'page range' ),
-				) as $pair
+				) as $key => $pair
 			) {
+				if ( ! in_array( $key, $design_fields, true ) ) {
+					continue;
+				}
 				list( $value, $label ) = $pair;
 				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
 					$errors[] = self::error( 'JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
