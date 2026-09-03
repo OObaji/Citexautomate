@@ -80,6 +80,7 @@ window.CitexScanner = ( function () {
 					return inlineStatus;
 				}
 			}
+		}
 
 		if ( row && row.classList ) {
 			var statuses = [ 'publish', 'draft', 'pending', 'private', 'future', 'trash' ];
