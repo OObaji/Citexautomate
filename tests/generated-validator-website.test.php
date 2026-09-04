@@ -328,16 +328,20 @@ $book_regression = Citex_Generated_Validator::validate( array(
 ) );
 check( '[30] existing Book validation is completely unaffected by Website support', $book_regression['status'], 'passed' );
 
+// Journal Article DragDrop questions must use one of the 3-4-part designs
+// (see Citex_Reference_Rules::journal_article_dragdrop_designs()) —
+// 'full_reference' (the default with no design given) is MCQ-only, so this
+// regression check uses a real DragDrop-eligible design instead.
 $ja_regression_fields = array( 'authors' => array( array( 'surname' => 'Mitchell', 'initials' => 'S.' ) ), 'year' => '2010', 'articleTitle' => 'A brief guide to Harvard referencing', 'journalTitle' => 'The British Journal of Referencing', 'volume' => '12', 'issue' => '2', 'pages' => '27-35' );
 $JA = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE;
-$ja_shape = Citex_Reference_Rules::dragdrop_shape( $JA, $ja_regression_fields );
+$ja_shape = Citex_Reference_Rules::dragdrop_shape( $JA, $ja_regression_fields, 'author_year_volume_pages' );
 $journal_article_regression = Citex_Generated_Validator::validate( array_merge(
 	array(
-		'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop',
+		'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop', 'exerciseDesign' => 'author_year_volume_pages',
 		'fixedText' => $ja_shape['fixedText'], 'questionParts' => $ja_shape['parts'],
-		'confusingWords' => array( '2015', 'A different journal', '45-52' ),
+		'confusingWords' => array( '2015', 'A different journal', '11' ),
 		'scenario' => 'You are referencing a journal article titled A brief guide to Harvard referencing by Sarah Mitchell, published in 2010 in The British Journal of Referencing, volume 12, issue 2, pages 27-35.',
-		'reconstructedReference' => Citex_Reference_Rules::build_reference( $JA, $ja_regression_fields ),
+		'reconstructedReference' => Citex_Reference_Rules::reconstruct_reference( $ja_shape ),
 	),
 	$ja_regression_fields
 ) );

@@ -88,6 +88,35 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'QUESTION_PARTS_MISSING', 'Question Parts are missing.' );
 		}
 
+		// HARD RULE, DragDrop-only, Journal Article-only: EXACTLY 3 or 4
+		// Question Parts, every one non-empty. Never applies to MCQ (an MCQ
+		// candidate never reaches validate_dragdrop() at all — see
+		// Citex_Generated_Validator::validate()'s type dispatch) and never
+		// applies to any other category. placeholder_count === question
+		// part count is already enforced generically for every category by
+		// self::reconstruct() below (a slot/part-count mismatch fails that
+		// call outright); this block adds the two checks requirement 2
+		// requires beyond that shared one.
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			$part_count = count( $question_parts );
+			if ( $part_count < Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS || $part_count > Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS ) {
+				$errors[] = self::error(
+					'JOURNAL_ARTICLE_PART_COUNT_OUT_OF_RANGE',
+					sprintf(
+						'Journal Article DragDrop questions must have between %1$d and %2$d Question Parts; %3$d were provided.',
+						Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS,
+						Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS,
+						$part_count
+					)
+				);
+			}
+			foreach ( $question_parts as $index => $part ) {
+				if ( '' === trim( (string) $part ) ) {
+					$errors[] = self::error( 'JOURNAL_ARTICLE_EMPTY_QUESTION_PART', sprintf( 'Question Part %d is empty.', $index + 1 ) );
+				}
+			}
+		}
+
 		$reconstruction = self::reconstruct( $fixed_text, $question_parts );
 		if ( is_wp_error( $reconstruction ) ) {
 			$errors[] = self::error( $reconstruction->get_error_code(), $reconstruction->get_error_message() );
@@ -703,11 +732,11 @@ class Citex_Generated_Validator {
 		if ( preg_match( '/:(?!\/\/)\S/', $reference ) ) {
 			$errors[] = self::error( 'MISSING_SPACE_AFTER_COLON', 'A space is required after the colon between place of publication and publisher.' );
 		}
-		// Some Journal Article partial designs deliberately reconstruct a
-		// FRAGMENT that stops mid-reference (e.g. 'author_list_year's
-		// "Smith, J. (2020)", with no full stop between the year's closing
-		// parenthesis and the article title that follows it in the real
-		// reference) — those must never be flagged for lacking a final full
+		// Journal Article's 'journal_volume_issue' design deliberately
+		// reconstructs a FRAGMENT that stops mid-reference ("Journal title,
+		// Volume(Issue)", with no full stop before ", pp.Start-End." which
+		// follows it in the real reference) — that must never be flagged
+		// for lacking a final full
 		// stop. See Citex_Reference_Rules::journal_article_design_skips_final_period().
 		$skip_final_period_check = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category
 			&& Citex_Reference_Rules::journal_article_design_skips_final_period( $exercise_design );

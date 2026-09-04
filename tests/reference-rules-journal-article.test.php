@@ -89,19 +89,19 @@ check(
 );
 
 // ---------------------------------------------------------------------
-// 17. dragdrop_shape(): for a single author, the author list is exactly
-// ONE draggable part (unchanged, unlike Book, which special-cases one
-// author into 4 parts). For 2+ authors, the mobile-first redesign uses
-// ONE SMALL CHIP PER AUTHOR (never a giant pre-joined "X and Y" string) —
-// so the shape grows by one part per extra author, not a constant 7.
+// 17. dragdrop_shape(): a CONSTANT 7-part shape for ANY author count — the
+// joined author list (via join_people()) is always ONE draggable part,
+// even for 5 authors (never one chip per author — 'full_reference' is
+// MCQ-only now precisely because it is too large for the hard 3-4-part
+// DragDrop rule; see Citex_Reference_Rules::journal_article_designs()).
 // ---------------------------------------------------------------------
 $shape_one = Citex_Reference_Rules::dragdrop_shape( $category, array_merge( $base_fields, array( 'authors' => $one ) ) );
 check( '[17] one author: exactly 7 parts, author list as ONE part (not split into surname/initials)', $shape_one['parts'], array( 'Mitchell, S.', '2010', 'A brief guide to Harvard referencing', 'The British Journal of Referencing', '12', '2', '27-35' ) );
 check( '[17] fixedText matches the confirmed Liverpool Hope grammar', $shape_one['fixedText'], '| (||) ||. ||, ||(||), pp.||.' );
 
 $shape_five = Citex_Reference_Rules::dragdrop_shape( $category, array_merge( $base_fields, array( 'authors' => $five ) ) );
-check( '[17] five authors: 11 parts (one chip per author + 6 fixed fields), never a giant pre-joined chunk', count( $shape_five['parts'] ), 11 );
-check( '[17] five authors: fixedText has the correct per-author-chip joining prefix', $shape_five['fixedText'], Citex_Reference_Rules::journal_article_author_parts_fixed_text( 5 ) . ' (||) ||. ||, ||(||), pp.||.' );
+check( '[17] five authors: still exactly 7 parts (constant shape), author list as ONE compact chip', count( $shape_five['parts'] ), 7 );
+check( '[17] five authors: fixedText is unchanged regardless of author count', $shape_five['fixedText'], $shape_one['fixedText'] );
 
 // Reconstruct via the same |/|| grammar and confirm it matches
 // build_reference()'s own output exactly — DragDrop and MCQ can never

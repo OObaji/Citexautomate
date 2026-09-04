@@ -76,8 +76,13 @@ function invoke_private( $method, $args ) {
 	return $reflection->invokeArgs( null, $args );
 }
 
-function invoke_normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count = null, $scenario_id = '', $rule_tested = '' ) {
-	return invoke_private( 'normalise', array( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested ) );
+// Defaults to 'author_year_volume_pages' — a real DragDrop-eligible design
+// (see Citex_Reference_Rules::journal_article_dragdrop_designs());
+// 'full_reference' (the internal normalise() default when no design is
+// given) is MCQ-only and would be rejected outright for a DragDrop
+// candidate. MCQ call sites pass 'full_reference' explicitly.
+function invoke_normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count = null, $scenario_id = '', $rule_tested = '', $exercise_design = 'author_year_volume_pages' ) {
+	return invoke_private( 'normalise', array( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested, $exercise_design ) );
 }
 
 $JA = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE;
@@ -147,12 +152,12 @@ foreach ( $author_sets as $count => $names ) {
 	if ( ! is_wp_error( $result ) ) {
 		$candidate = $result[0];
 		check( "[$count author(s)] category is 'Journal Article'", $candidate['category'], 'Journal Article' );
-		// Journal Article's mobile-first redesign: one small draggable
-		// chip PER AUTHOR (never a giant pre-joined "X and Y" string), so
-		// the full_reference design's part/placeholder count is
-		// (author count + 6), not a constant 7.
-		check( "[$count author(s)] Question Parts contain one chip per author plus 6 fixed fields", count( $candidate['questionParts'] ), $count + 6 );
-		check( "[$count author(s)] Fixed Text has the correct author-joining prefix, one chip per author", $candidate['fixedText'], Citex_Reference_Rules::journal_article_author_parts_fixed_text( $count ) . ' (||) ||. ||, ||(||), pp.||.' );
+		// HARD RULE: the 'author_year_volume_pages' design always produces
+		// EXACTLY 4 parts (author list AS ONE COMPACT CHIP + year + volume
+		// + pages), for ANY real author count — never one chip per author,
+		// never "et al.".
+		check( "[$count author(s)] exactly 4 draggable Question Parts, for any author count", count( $candidate['questionParts'] ), 4 );
+		check( "[$count author(s)] Fixed Text matches the constant 4-placeholder template", $candidate['fixedText'], '| (||) ||, pp.||.' );
 		check( "[$count author(s)] reconstructedReference contains \"et al.\"? (must not)", false !== stripos( $candidate['reconstructedReference'], 'et al' ), false );
 		check( "[$count author(s)] validates and enters the queue as 'passed'", $candidate['validationStatus'], 'passed' );
 	}
@@ -168,7 +173,7 @@ if ( ! is_wp_error( $result_initials ) ) {
 	$c = $result_initials[0];
 	check( '[6] initials correctly derived: "Sarah Mitchell" -> surname "Mitchell", initials "S."', $c['authors'][0]['surname'] . '|' . $c['authors'][0]['initials'], 'Mitchell|S.' );
 	check( '[6] second author too: "Daniel Evans" -> "Evans", "D."', $c['authors'][1]['surname'] . '|' . $c['authors'][1]['initials'], 'Evans|D.' );
-	check( '[6] Question Parts reflect the correctly-derived author chips, one per author (never pre-joined)', $c['questionParts'][0] . '|' . $c['questionParts'][1], 'Mitchell, S.|Evans, D.' );
+	check( '[6] Question Parts reflect the correctly-derived author list, joined into ONE compact chip', $c['questionParts'][0], 'Mitchell, S. and Evans, D.' );
 }
 
 // ---------------------------------------------------------------------
@@ -198,7 +203,7 @@ if ( ! is_wp_error( $right_count ) ) {
 // dragdrop_shape() output itself were ever inconsistent with itself —
 // exercised here by directly corrupting an internal candidate).
 // ---------------------------------------------------------------------
-check( '[17] placeholder_count() sees exactly 7 slots in the canonical Journal Article fixedText', invoke_private( 'placeholder_count', array( '| (||) ||. ||, ||(||), pp.||.' ) ), 7 );
+check( '[17] placeholder_count() sees exactly 4 slots in the "author_year_volume_pages" fixedText', invoke_private( 'placeholder_count', array( '| (||) ||, pp.||.' ) ), 4 );
 
 // ---------------------------------------------------------------------
 // 10 & 11. Correct year passes; a missing year (or any other required
@@ -232,15 +237,17 @@ $dup_distractor = invoke_normalise(
 check( '[18] a duplicated distractor pair is rejected', is_wp_error( $dup_distractor ), true );
 
 // ---------------------------------------------------------------------
-// 19. Scenario/source mismatch: a scenario naming a different article than
-// the canonical bibliographic fields is rejected by the pre-queue quality
-// gate.
+// 19. Scenario/source mismatch: a scenario naming a different YEAR than the
+// canonical bibliographic fields is rejected by the pre-queue quality gate.
+// (The default 'author_year_volume_pages' design's tested fields are
+// authors/year/volume/pages — NOT articleTitle — so the mismatch must be on
+// a field this design actually checks.)
 // ---------------------------------------------------------------------
 $mismatched_scenario = journal_article_item( array(
-	'scenario' => 'You are referencing a journal article titled A totally different title by Sarah Mitchell and Daniel Evans, published in 2010 in The British Journal of Referencing, volume 12, issue 2, pages 27-35.',
+	'scenario' => 'You are referencing a journal article titled A brief guide to Harvard referencing by Sarah Mitchell and Daniel Evans, published in 1975 in The British Journal of Referencing, volume 12, issue 2, pages 27-35.',
 ) );
 $mismatch_result = invoke_normalise( array( $mismatched_scenario ), array( 'JA01' ), 'medium', array( 'Exercise 1' ), 'DragDrop', $JA );
-check( '[19] a scenario naming a different article title than the canonical record is rejected', is_wp_error( $mismatch_result ), true );
+check( '[19] a scenario naming a different year than the canonical record is rejected', is_wp_error( $mismatch_result ), true );
 
 // ---------------------------------------------------------------------
 // 23. MCQ: normalise() constructs a correct MCQ candidate — Citex builds
@@ -261,7 +268,7 @@ $mcq_item = array(
 		array( 'reference' => 'Mitchell, S. and Evans, D. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), p.27-35.', 'errorReason' => 'Uses "p." instead of "pp.".' ),
 	),
 );
-$mcq_result = invoke_normalise( array( $mcq_item ), array( 'JA01' ), 'medium', array( 'Exercise 1' ), 'MCQ', $JA );
+$mcq_result = invoke_normalise( array( $mcq_item ), array( 'JA01' ), 'medium', array( 'Exercise 1' ), 'MCQ', $JA, null, '', '', 'full_reference' );
 check( '[23] normalise() succeeds for MCQ', is_wp_error( $mcq_result ), false );
 if ( ! is_wp_error( $mcq_result ) ) {
 	$mc = $mcq_result[0];

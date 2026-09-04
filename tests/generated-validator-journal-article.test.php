@@ -79,11 +79,17 @@ $canonical_fields = array(
 	'pages'        => '27-35',
 );
 
+// DragDrop questions must use one of the 3-4-part designs (see
+// Citex_Reference_Rules::journal_article_dragdrop_designs()) —
+// 'full_reference' (dragdrop_shape()'s default with no design given) is
+// MCQ-only. 'author_year_volume_pages' (4 parts: author list, year, volume,
+// pages) is used throughout this file's DragDrop fixtures.
 function journal_article_dragdrop_question( $authors, $fields, $overrides = array() ) {
 	$JA = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE;
+	$design = 'author_year_volume_pages';
 	$full_fields = array_merge( $fields, array( 'authors' => $authors ) );
-	$reference   = Citex_Reference_Rules::build_reference( $JA, $full_fields );
-	$shape       = Citex_Reference_Rules::dragdrop_shape( $JA, $full_fields );
+	$shape       = Citex_Reference_Rules::dragdrop_shape( $JA, $full_fields, $design );
+	$reference   = Citex_Reference_Rules::reconstruct_reference( $shape );
 	$scenario_names = implode( ' and ', array_map( function ( $a ) { return $a['surname']; }, $authors ) );
 	return array_merge(
 		array(
@@ -91,6 +97,7 @@ function journal_article_dragdrop_question( $authors, $fields, $overrides = arra
 			'group'          => 'ReferenceList',
 			'category'       => 'Journal Article',
 			'type'           => 'DragDrop',
+			'exerciseDesign' => $design,
 			'authors'        => $authors,
 			'year'           => $fields['year'],
 			'articleTitle'   => $fields['articleTitle'],
@@ -115,7 +122,7 @@ $q1 = journal_article_dragdrop_question( one_author(), $canonical_fields );
 $r1 = Citex_Generated_Validator::validate( $q1 );
 check( '[1] a correct 1-author DragDrop question passes', $r1['status'], 'passed' );
 check( '[1] no errors reported', $r1['errors'], array() );
-check( '[1] the reconstructed reference matches build_reference()\'s output', $r1['reconstructedReference'], Citex_Reference_Rules::build_reference( $JA, array_merge( $canonical_fields, array( 'authors' => one_author() ) ) ) );
+check( '[1] the reconstructed reference matches the design\'s own reconstruction', $r1['reconstructedReference'], Citex_Reference_Rules::reconstruct_reference( Citex_Reference_Rules::dragdrop_shape( $JA, array_merge( $canonical_fields, array( 'authors' => one_author() ) ), 'author_year_volume_pages' ) ) );
 
 // ---------------------------------------------------------------------
 // A fully correct 2-author question also passes.
@@ -131,8 +138,8 @@ check( '[2] a correct 2-author DragDrop question passes', $r2['status'], 'passed
 // ---------------------------------------------------------------------
 $wrong_initials_authors = array( array( 'surname' => 'Mitchell', 'initials' => 'X.' ) );
 $q_wrong_initials = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'reconstructedReference' => str_replace( 'Mitchell, S.', 'Mitchell, X.', Citex_Reference_Rules::build_reference( $JA, array_merge( $canonical_fields, array( 'authors' => one_author() ) ) ) ),
-	'questionParts'          => array( 'Mitchell, X.', '2010', 'A brief guide to Harvard referencing', 'The British Journal of Referencing', '12', '2', '27-35' ),
+	'reconstructedReference' => 'Mitchell, X. (2010) 12, pp.27-35.',
+	'questionParts'          => array( 'Mitchell, X.', '2010', '12', '27-35' ),
 ) );
 $r_wrong_initials = Citex_Generated_Validator::validate( $q_wrong_initials );
 check( '[7] incorrect initials in the reconstructed reference fail', $r_wrong_initials['status'], 'failed' );
@@ -144,9 +151,9 @@ check( '[7] reports JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH', has_error_code( $r
 // this category exists to test.
 // ---------------------------------------------------------------------
 $q_et_al = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'reconstructedReference' => 'Mitchell et al. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.',
-	'questionParts'          => array( 'Mitchell et al.', '2010', 'A brief guide to Harvard referencing', 'The British Journal of Referencing', '12', '2', '27-35' ),
-	'fixedText'              => '| (||) ||. ||, ||(||), pp.||.',
+	'reconstructedReference' => 'Mitchell et al. (2010) 12, pp.27-35.',
+	'questionParts'          => array( 'Mitchell et al.', '2010', '12', '27-35' ),
+	'fixedText'              => '| (||) ||, pp.||.',
 ) );
 $r_et_al = Citex_Generated_Validator::validate( $q_et_al );
 check( '[9] "et al." in the reference is rejected', $r_et_al['status'], 'failed' );
@@ -157,49 +164,40 @@ check( '[9] reports JOURNAL_ARTICLE_ET_AL_USED', has_error_code( $r_et_al, 'jour
 // (reconstructed reference disagrees with the canonical year field) fails.
 // ---------------------------------------------------------------------
 $q_wrong_year = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'reconstructedReference' => 'Mitchell, S. (1999) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.',
-	'questionParts'          => array( 'Mitchell, S.', '1999', 'A brief guide to Harvard referencing', 'The British Journal of Referencing', '12', '2', '27-35' ),
+	'reconstructedReference' => 'Mitchell, S. (1999) 12, pp.27-35.',
+	'questionParts'          => array( 'Mitchell, S.', '1999', '12', '27-35' ),
 ) );
 $r_wrong_year = Citex_Generated_Validator::validate( $q_wrong_year );
 check( '[11] an incorrect year fails', $r_wrong_year['status'], 'failed' );
 check( '[11] reports JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH', has_error_code( $r_wrong_year, 'journal_article_reconstruction_mismatch' ), true );
 
 // ---------------------------------------------------------------------
-// 12. Missing full stop after the article title fails the shared format
-// check (shared across every category).
+// 12. Missing comma before "pp." fails the shared format check (shared
+// across every category) — for the 'author_year_volume_pages' design's
+// "Author (Year) Volume, pp.Start-End." shape.
 // ---------------------------------------------------------------------
-$q_missing_title_stop = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'fixedText' => '| (||) || ||, ||(||), pp.||.',
+$q_missing_pp_comma = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
+	'fixedText' => '| (||) || pp.||.',
 ) );
-$r_missing_title_stop = Citex_Generated_Validator::validate( $q_missing_title_stop );
-check( '[12] missing full stop after the article title fails', $r_missing_title_stop['status'], 'failed' );
-check( '[12] reports JOURNAL_ARTICLE_FORMAT_MISMATCH (Journal Article\'s own format code, not Book\'s)', has_error_code( $r_missing_title_stop, 'journal_article_format_mismatch' ), true );
+$r_missing_pp_comma = Citex_Generated_Validator::validate( $q_missing_pp_comma );
+check( '[12] missing comma before "pp." fails', $r_missing_pp_comma['status'], 'failed' );
+check( '[12] reports JOURNAL_ARTICLE_FORMAT_MISMATCH (Journal Article\'s own format code, not Book\'s)', has_error_code( $r_missing_pp_comma, 'journal_article_format_mismatch' ), true );
 
 // ---------------------------------------------------------------------
-// 13. Missing comma after the journal title fails the same shape check.
+// 13. Year not wrapped in parentheses fails the same shape check.
 // ---------------------------------------------------------------------
-$q_missing_journal_comma = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'fixedText' => '| (||) ||. || ||(||), pp.||.',
+$q_missing_year_parens = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
+	'fixedText' => '| || ||, pp.||.',
 ) );
-$r_missing_journal_comma = Citex_Generated_Validator::validate( $q_missing_journal_comma );
-check( '[13] missing comma after the journal title fails', $r_missing_journal_comma['status'], 'failed' );
-check( '[13] reports JOURNAL_ARTICLE_FORMAT_MISMATCH', has_error_code( $r_missing_journal_comma, 'journal_article_format_mismatch' ), true );
-
-// ---------------------------------------------------------------------
-// 14. Volume/issue format: issue outside its parentheses fails.
-// ---------------------------------------------------------------------
-$q_bad_volume_issue = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'fixedText' => '| (||) ||. ||, ||, ||, pp.||.',
-) );
-$r_bad_volume_issue = Citex_Generated_Validator::validate( $q_bad_volume_issue );
-check( '[14] volume/issue not in the "Volume(Issue)" shape fails', $r_bad_volume_issue['status'], 'failed' );
-check( '[14] reports JOURNAL_ARTICLE_FORMAT_MISMATCH', has_error_code( $r_bad_volume_issue, 'journal_article_format_mismatch' ), true );
+$r_missing_year_parens = Citex_Generated_Validator::validate( $q_missing_year_parens );
+check( '[13] a year not wrapped in parentheses fails', $r_missing_year_parens['status'], 'failed' );
+check( '[13] reports JOURNAL_ARTICLE_FORMAT_MISMATCH', has_error_code( $r_missing_year_parens, 'journal_article_format_mismatch' ), true );
 
 // ---------------------------------------------------------------------
 // 15 & 16. Page range: missing the "pp." prefix fails.
 // ---------------------------------------------------------------------
 $q_missing_pp = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'fixedText' => '| (||) ||. ||, ||(||), ||.',
+	'fixedText' => '| (||) ||, ||.',
 ) );
 $r_missing_pp = Citex_Generated_Validator::validate( $q_missing_pp );
 check( '[16] a missing "pp." prefix fails', $r_missing_pp['status'], 'failed' );
@@ -207,31 +205,33 @@ check( '[16] reports JOURNAL_ARTICLE_FORMAT_MISMATCH', has_error_code( $r_missin
 
 // ---------------------------------------------------------------------
 // 17. DragDrop placeholder reconstruction: Question Parts not matching the
-// constant 7-part canonical shape fails (JOURNAL_ARTICLE_PARTS_MISMATCH).
+// canonical 4-part shape fails (JOURNAL_ARTICLE_PARTS_MISMATCH).
 // ---------------------------------------------------------------------
 $q_bad_parts = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'questionParts' => array( 'Mitchell, S.', '2010', 'A brief guide to Harvard referencing', 'The British Journal of Referencing', '99', '2', '27-35' ),
+	'questionParts' => array( 'Mitchell, S.', '2010', '99', '27-35' ),
 ) );
 $r_bad_parts = Citex_Generated_Validator::validate( $q_bad_parts );
 check( '[17] Question Parts not matching the canonical record fail', $r_bad_parts['status'], 'failed' );
 check( '[17] reports JOURNAL_ARTICLE_PARTS_MISMATCH', has_error_code( $r_bad_parts, 'journal_article_parts_mismatch' ), true );
 
 $q_wrong_placeholder_count = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'fixedText' => '| (||) ||. ||, ||.',
+	'fixedText' => '| (||) ||.',
 ) );
 $r_wrong_placeholder_count = Citex_Generated_Validator::validate( $q_wrong_placeholder_count );
-check( '[17] a fixedText with the wrong placeholder count (5, not 7) fails', $r_wrong_placeholder_count['status'], 'failed' );
+check( '[17] a fixedText with the wrong placeholder count (3, not 4) fails', $r_wrong_placeholder_count['status'], 'failed' );
 check( '[17] reports PLACEHOLDER_COUNT_MISMATCH', has_error_code( $r_wrong_placeholder_count, 'placeholder_count_mismatch' ), true );
 
 // ---------------------------------------------------------------------
-// 19. Scenario/source mismatch: the scenario names a different article
-// title than the canonical record.
+// 19. Scenario/source mismatch: the scenario names a different year than
+// the canonical record. (The 'author_year_volume_pages' design's tested
+// fields are authors/year/volume/pages — NOT articleTitle — so a scenario
+// mismatch is exercised on a field this design actually checks.)
 // ---------------------------------------------------------------------
 $q_scenario_mismatch = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
-	'scenario' => 'You are referencing a journal article titled A completely different title by Sarah Mitchell, published in 2010 in The British Journal of Referencing, volume 12, issue 2, pages 27-35.',
+	'scenario' => 'You are referencing a journal article titled A brief guide to Harvard referencing by Sarah Mitchell, published in 1975 in The British Journal of Referencing, volume 12, issue 2, pages 27-35.',
 ) );
 $r_scenario_mismatch = Citex_Generated_Validator::validate( $q_scenario_mismatch );
-check( '[19] a scenario naming a different article title fails', $r_scenario_mismatch['status'], 'failed' );
+check( '[19] a scenario naming a different year fails', $r_scenario_mismatch['status'], 'failed' );
 check( '[19] reports JOURNAL_ARTICLE_SCENARIO_MISMATCH', has_error_code( $r_scenario_mismatch, 'journal_article_scenario_mismatch' ), true );
 
 // ---------------------------------------------------------------------
