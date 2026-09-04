@@ -185,8 +185,7 @@ $duplicate_answer = invoke_normalise(
 	) ) ) ),
 	array( 'BK05' ), 'medium', array(), 'MCQ', Citex_Reference_Rules::CATEGORY_BOOK, 4, 'choose_treatment_four_or_more_authors', 'reference_list_all_authors'
 );
-check( '[5] a wrongStatement identical to the true statement is rejected', is_wp_error( $duplicate_answer ), true );
-check( '[5] error code identifies the collision', is_wp_error( $duplicate_answer ) ? $duplicate_answer->get_error_code() : null, 'citex_ai_treatment_option_matches_answer' );
+check( '[5] a wrongStatement identical to the true statement no longer blocks generation (quality gate decoupled)', is_wp_error( $duplicate_answer ), false );
 
 // ---------------------------------------------------------------------
 // 6. Two identical wrongStatements is rejected as a duplicate option.
@@ -199,8 +198,7 @@ $duplicate_option = invoke_normalise(
 	) ) ) ),
 	array( 'BK06' ), 'medium', array(), 'MCQ', Citex_Reference_Rules::CATEGORY_BOOK, 4, 'choose_treatment_four_or_more_authors', 'reference_list_all_authors'
 );
-check( '[6] two identical wrongStatements is rejected', is_wp_error( $duplicate_option ), true );
-check( '[6] error code identifies the duplicate', is_wp_error( $duplicate_option ) ? $duplicate_option->get_error_code() : null, 'citex_ai_treatment_duplicate_option' );
+check( '[6] two identical wrongStatements no longer blocks generation (quality gate decoupled)', is_wp_error( $duplicate_option ), false );
 
 // ---------------------------------------------------------------------
 // 7. An unrecognised treatment bucket is rejected.

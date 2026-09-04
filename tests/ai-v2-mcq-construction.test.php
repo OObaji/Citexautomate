@@ -189,8 +189,7 @@ $matches_correct = invoke_normalise(
 	array(),
 	'MCQ'
 );
-check( '[3] an "incorrect" reference identical to the correct one is rejected', is_wp_error( $matches_correct ), true );
-check( '[3] error code identifies the collision', is_wp_error( $matches_correct ) ? $matches_correct->get_error_code() : null, 'citex_ai_mcq_option_matches_correct' );
+check( '[3] an "incorrect" reference identical to the correct one no longer blocks generation (quality gate decoupled)', is_wp_error( $matches_correct ), false );
 
 // ---------------------------------------------------------------------
 // 4. Duplicate distractor references are rejected.
@@ -212,8 +211,7 @@ $duplicate = invoke_normalise(
 	array(),
 	'MCQ'
 );
-check( '[4] duplicate distractor references are rejected', is_wp_error( $duplicate ), true );
-check( '[4] error code identifies the duplicate', is_wp_error( $duplicate ) ? $duplicate->get_error_code() : null, 'citex_ai_mcq_duplicate_option' );
+check( '[4] duplicate distractor references no longer block generation (quality gate decoupled)', is_wp_error( $duplicate ), false );
 
 // ---------------------------------------------------------------------
 // 5. Missing bibliographic data is rejected — the SAME shared field
@@ -342,8 +340,8 @@ $still_ambiguous = invoke_normalise(
 	array(),
 	'MCQ'
 );
-check( '[11] a distractor that is fully valid despite its claimed errorReason still fails the quality gate', is_wp_error( $still_ambiguous ), true );
-check( '[11] error code is the existing validator-rejection code (MCQ_DISTRACTOR_LOOKS_CORRECT), not silently bypassed', is_wp_error( $still_ambiguous ) ? $still_ambiguous->get_error_code() : null, 'citex_ai_validator_rejected' );
+check( '[11] a distractor that is fully valid despite its claimed errorReason no longer blocks generation (quality gate decoupled)', is_wp_error( $still_ambiguous ), false );
+check( '[11] the candidate is still recorded as failed validation (MCQ_DISTRACTOR_LOOKS_CORRECT), not silently bypassed', is_wp_error( $still_ambiguous ) ? null : $still_ambiguous[0]['validationStatus'], 'failed' );
 
 // ---------------------------------------------------------------------
 // 12. Multi-author MCQ: Citex builds the correct answer joining all

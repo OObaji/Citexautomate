@@ -203,8 +203,8 @@ $eb_still_ambiguous = invoke_normalise(
 	'MCQ',
 	Citex_Reference_Rules::CATEGORY_EDITED_BOOK
 );
-check( '[2c] a distractor that is fully valid despite its claimed errorReason still fails the quality gate', is_wp_error( $eb_still_ambiguous ), true );
-check( '[2c] error code is the existing validator-rejection code, not silently bypassed', is_wp_error( $eb_still_ambiguous ) ? $eb_still_ambiguous->get_error_code() : null, 'citex_ai_validator_rejected' );
+check( '[2c] a distractor that is fully valid despite its claimed errorReason no longer blocks generation (quality gate decoupled)', is_wp_error( $eb_still_ambiguous ), false );
+check( '[2c] the candidate is still recorded as failed validation, not silently bypassed', is_wp_error( $eb_still_ambiguous ) ? null : $eb_still_ambiguous[0]['validationStatus'], 'failed' );
 
 // ---------------------------------------------------------------------
 // 3. CRITICAL — two editors must produce "(eds)", never "(ed.)". This is
@@ -288,8 +288,8 @@ $leaked = invoke_normalise(
 	'DragDrop',
 	Citex_Reference_Rules::CATEGORY_EDITED_BOOK
 );
-check( '[8] a scenario leaking "(ed.)" is rejected by the pre-queue quality gate', is_wp_error( $leaked ), true );
-check( '[8] error code identifies the quality-gate rejection', is_wp_error( $leaked ) ? $leaked->get_error_code() : null, 'citex_ai_validator_rejected' );
+check( '[8] a scenario leaking "(ed.)" no longer blocks generation (quality gate decoupled)', is_wp_error( $leaked ), false );
+check( '[8] the candidate is still recorded as failed validation, not silently bypassed', is_wp_error( $leaked ) ? null : $leaked[0]['validationStatus'], 'failed' );
 
 // ---------------------------------------------------------------------
 // 9. Sanity check: omitting $category (or passing null) still produces a

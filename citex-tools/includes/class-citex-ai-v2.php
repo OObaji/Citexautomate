@@ -7,7 +7,34 @@ class Citex_AI_V2 {
 	const OPTION_WEB_VERIFY = 'citex_gemini_web_verify';
 	const DEFAULT_MODEL = 'gemini-3.7-flash';
 	const API_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
-	const MAX_QUALITY_ATTEMPTS = 3;
+	// Genuine generation attempts (HTTP/API/parse/structural failures) — not
+	// "quality" attempts; a quality problem no longer consumes a retry (see
+	// QUALITY_GATE_ENABLED below).
+	const MAX_GENERATION_ATTEMPTS = 2;
+	// This sprint decouples validation from generation: GENERATE -> NORMALISE
+	// -> STORE, not GENERATE -> VALIDATE -> RETRY -> STORE. Every quality-only
+	// check (mobile/oversized-part, punctuation-only part, duplicate part,
+	// distractor-matches-part, duplicate-distractor, Journal Article's
+	// min/max-part-count, MCQ option-length/duplication) is gated behind this
+	// flag via quality_reject() below instead of being deleted — flipping this
+	// back to true fully restores today's strict, blocking behaviour in one
+	// place. Structural checks (missing required fields, unparseable author
+	// names, wrong placeholder/distractor counts) are never gated — those mean
+	// there is no valid record to store at all, not a quality judgement.
+	const QUALITY_GATE_ENABLED = false;
+
+	/**
+	 * Every quality-only rejection site funnels through here instead of
+	 * `return new WP_Error(...)` directly, so it stops blocking storage
+	 * while QUALITY_GATE_ENABLED is false without losing the check itself —
+	 * `Citex_Generated_Validator::validate()` still runs on every candidate
+	 * and still records the real status/errors for later manual validation.
+	 *
+	 * @return WP_Error|null
+	 */
+	private static function quality_reject( $code, $message ) {
+		return self::QUALITY_GATE_ENABLED ? new WP_Error( $code, $message ) : null;
+	}
 
 	public static function get_api_key() {
 		$env = getenv( 'GEMINI_API_KEY' );
@@ -17,7 +44,7 @@ class Citex_AI_V2 {
 		$model = trim( (string) get_option( self::OPTION_MODEL, self::DEFAULT_MODEL ) );
 		return '' !== $model ? $model : self::DEFAULT_MODEL;
 	}
-	public static function web_verification_enabled() { return (bool) get_option( self::OPTION_WEB_VERIFY, true ); }
+	public static function web_verification_enabled() { return (bool) get_option( self::OPTION_WEB_VERIFY, false ); }
 	public static function save_settings( $api_key, $model, $web_verify ) {
 		if ( '' !== trim( (string) $api_key ) ) { update_option( self::OPTION_API_KEY, trim( (string) $api_key ), false ); }
 		update_option( self::OPTION_MODEL, '' !== trim( (string) $model ) ? sanitize_text_field( $model ) : self::DEFAULT_MODEL, false );
@@ -97,8 +124,10 @@ class Citex_AI_V2 {
 		// Citex_Question_Diversity::is_duplicate_reference().
 		$existing_references = array_map( 'strval', (array) ( $args['existing_references'] ?? array() ) );
 
+		$debug = defined( 'WP_DEBUG' ) && WP_DEBUG;
+		$batch_start = $debug ? microtime( true ) : 0;
 		$last_error = '';
-		for ( $attempt = 1; $attempt <= self::MAX_QUALITY_ATTEMPTS; $attempt++ ) {
+		for ( $attempt = 1; $attempt <= self::MAX_GENERATION_ATTEMPTS; $attempt++ ) {
 			$body = array(
 				'model' => self::get_model(),
 				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction, $scenario_id, $exercise_design ),
@@ -107,15 +136,24 @@ class Citex_AI_V2 {
 				'generation_config' => array( 'max_output_tokens' => max( 4000, min( 24000, $quantity * 650 ) ) ),
 			);
 			if ( $verify ) { $body['tools'] = array( array( 'type' => 'google_search' ) ); }
+			$request_start = $debug ? microtime( true ) : 0;
 			$response = wp_remote_post( self::API_URL, array( 'timeout' => 120, 'headers' => array( 'Content-Type' => 'application/json', 'x-goog-api-key' => $key ), 'body' => wp_json_encode( $body ) ) );
-			if ( is_wp_error( $response ) ) { return new WP_Error( 'citex_ai_request_failed', sprintf( __( 'Gemini request failed: %s', 'citex-tools' ), $response->get_error_message() ) ); }
+			if ( $debug ) { error_log( sprintf( 'Citex AI: attempt %d/%d request took %.2fs', $attempt, self::MAX_GENERATION_ATTEMPTS, microtime( true ) - $request_start ) ); }
+			// Every failure mode below is a genuine generation problem (network,
+			// API, or an unusable response) — bounded-retry it instead of
+			// aborting immediately, up to MAX_GENERATION_ATTEMPTS. Quality
+			// differences (handled inside normalise()) never reach here as a
+			// hard failure while QUALITY_GATE_ENABLED is false.
+			if ( is_wp_error( $response ) ) { $last_error = sprintf( 'Gemini request failed: %s', $response->get_error_message() ); continue; }
 			$code = (int) wp_remote_retrieve_response_code( $response ); $data = json_decode( wp_remote_retrieve_body( $response ), true );
-			if ( $code < 200 || $code >= 300 ) { $message = is_array( $data ) && isset( $data['error']['message'] ) ? $data['error']['message'] : __( 'Gemini returned an unexpected error.', 'citex-tools' ); return new WP_Error( 'citex_ai_api_error', sprintf( __( 'Gemini API error (%1$d): %2$s', 'citex-tools' ), $code, $message ) ); }
+			if ( $code < 200 || $code >= 300 ) { $message = is_array( $data ) && isset( $data['error']['message'] ) ? $data['error']['message'] : __( 'Gemini returned an unexpected error.', 'citex-tools' ); $last_error = sprintf( 'Gemini API error (%1$d): %2$s', $code, $message ); continue; }
 			$text = self::output_text( is_array( $data ) ? $data : array() ); $decoded = json_decode( self::strip_fences( $text ), true );
-			if ( '' === $text || JSON_ERROR_NONE !== json_last_error() || ! is_array( $decoded ) ) { return new WP_Error( 'citex_ai_invalid_json', __( 'Gemini did not return valid structured question data.', 'citex-tools' ) ); }
+			if ( '' === $text || JSON_ERROR_NONE !== json_last_error() || ! is_array( $decoded ) ) { $last_error = 'Gemini did not return valid structured question data.'; continue; }
 			$questions = isset( $decoded['questions'] ) && is_array( $decoded['questions'] ) ? $decoded['questions'] : array();
 			if ( count( $questions ) !== $quantity ) { $last_error = sprintf( 'The previous attempt returned %d questions instead of %d. Return exactly %d.', count( $questions ), $quantity, $quantity ); continue; }
+			$normalise_start = $debug ? microtime( true ) : 0;
 			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested, $exercise_design );
+			if ( $debug ) { error_log( sprintf( 'Citex AI: attempt %d/%d normalise took %.2fs', $attempt, self::MAX_GENERATION_ATTEMPTS, microtime( true ) - $normalise_start ) ); }
 			if ( is_wp_error( $result ) ) { $last_error = $result->get_error_message(); continue; }
 
 			$duplicate = self::find_duplicate_reference( $result, $existing_references );
@@ -127,10 +165,11 @@ class Citex_AI_V2 {
 			if ( '' !== $scenario_id ) {
 				Citex_Question_Diversity::record_batch( $category, array_column( $result, 'blueprint' ) );
 			}
+			if ( $debug ) { error_log( sprintf( 'Citex AI: batch of %d succeeded on attempt %d/%d, total %.2fs', $quantity, $attempt, self::MAX_GENERATION_ATTEMPTS, microtime( true ) - $batch_start ) ); }
 			return $result;
 		}
 
-		return new WP_Error( 'citex_ai_quality_failed', sprintf( __( 'Gemini could not produce a fully valid batch after %d quality checks. Nothing was added. Last issue: %s', 'citex-tools' ), self::MAX_QUALITY_ATTEMPTS, $last_error ) );
+		return new WP_Error( 'citex_ai_generation_failed', sprintf( __( 'Gemini could not produce a usable batch after %d attempt(s). Nothing was added. Last issue: %s', 'citex-tools' ), self::MAX_GENERATION_ATTEMPTS, $last_error ) );
 	}
 
 	/**
@@ -1099,12 +1138,30 @@ class Citex_AI_V2 {
 				'difficulty'   => ucfirst( $difficulty ),
 			);
 
+			// Citex_Generated_Validator::validate() always runs and its real
+			// result is always recorded onto the candidate (so Pending shows an
+			// accurate Passed/Failed badge immediately, and the existing manual
+			// "Validate"/"Revalidate" mechanism has nothing new to do for a
+			// question already validated here) — but a failure only blocks
+			// storage while QUALITY_GATE_ENABLED is true. This sprint's
+			// GENERATE -> NORMALISE -> STORE pipeline stores every structurally
+			// valid candidate and lets validation be corrected later, not a
+			// precondition for being saved at all.
 			$validation = Citex_Generated_Validator::validate( $candidate );
-			if ( 'passed' !== $validation['status'] ) { $first_error = ! empty( $validation['errors'][0]['message'] ) ? $validation['errors'][0]['message'] : __( 'Generated question failed Citex validation.', 'citex-tools' ); return new WP_Error( 'citex_ai_validator_rejected', sprintf( __( 'Question %s failed the pre-queue quality gate: %s', 'citex-tools' ), $id, $first_error ) ); }
-			$candidate['validatedReference'] = $validation['reconstructedReference'];
-			$candidate['validationStatus'] = 'passed';
-			$candidate['validationErrors'] = array();
-			$candidate['validatedAt'] = $validation['validatedAt'];
+			if ( 'passed' !== $validation['status'] ) {
+				$first_error = ! empty( $validation['errors'][0]['message'] ) ? $validation['errors'][0]['message'] : __( 'Generated question failed Citex validation.', 'citex-tools' );
+				$rejection = self::quality_reject( 'citex_ai_validator_rejected', sprintf( __( 'Question %s failed the pre-queue quality gate: %s', 'citex-tools' ), $id, $first_error ) );
+				if ( $rejection ) { return $rejection; }
+				$candidate['validatedReference'] = $validation['reconstructedReference'];
+				$candidate['validationStatus'] = $validation['status'];
+				$candidate['validationErrors'] = $validation['errors'];
+				$candidate['validatedAt'] = $validation['validatedAt'];
+			} else {
+				$candidate['validatedReference'] = $validation['reconstructedReference'];
+				$candidate['validationStatus'] = 'passed';
+				$candidate['validationErrors'] = array();
+				$candidate['validatedAt'] = $validation['validatedAt'];
+			}
 			$out[] = $candidate;
 		}
 		return $out;
@@ -1138,8 +1195,8 @@ class Citex_AI_V2 {
 		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
 		foreach ( $distractors as $distractor ) {
 			$normal = strtolower( trim( $distractor ) );
-			if ( in_array( $normal, $correct_lower, true ) ) { return new WP_Error( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); }
-			if ( isset( $seen[ $normal ] ) ) { return new WP_Error( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); }
+			if ( in_array( $normal, $correct_lower, true ) ) { $rejection = self::quality_reject( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
+			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
 			$seen[ $normal ] = true;
 		}
 		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, $fields );
@@ -1177,10 +1234,12 @@ class Citex_AI_V2 {
 		foreach ( $incorrect as $option ) {
 			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $option ) ) );
 			if ( $normal === $correct_normal ) {
-				return new WP_Error( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			if ( isset( $seen[ $normal ] ) ) {
-				return new WP_Error( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			$seen[ $normal ] = true;
 		}
@@ -1309,10 +1368,12 @@ class Citex_AI_V2 {
 		foreach ( $wrong_descriptions as $description ) {
 			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $description ) ) );
 			if ( $normal === $true_normal ) {
-				return new WP_Error( 'citex_ai_identify_error_option_matches_answer', sprintf( __( 'Question %s has a "wrong" description identical to the true one.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_identify_error_option_matches_answer', sprintf( __( 'Question %s has a "wrong" description identical to the true one.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			if ( isset( $seen[ $normal ] ) ) {
-				return new WP_Error( 'citex_ai_identify_error_duplicate_option', sprintf( __( 'Question %s has a duplicate wrongDescription.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_identify_error_duplicate_option', sprintf( __( 'Question %s has a duplicate wrongDescription.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			$seen[ $normal ] = true;
 		}
@@ -1415,10 +1476,12 @@ class Citex_AI_V2 {
 		foreach ( $wrong_statements as $statement ) {
 			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $statement ) ) );
 			if ( $normal === $correct_normal ) {
-				return new WP_Error( 'citex_ai_treatment_option_matches_answer', sprintf( __( 'Question %s has a "wrong" statement identical to the true one.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_treatment_option_matches_answer', sprintf( __( 'Question %s has a "wrong" statement identical to the true one.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			if ( isset( $seen[ $normal ] ) ) {
-				return new WP_Error( 'citex_ai_treatment_duplicate_option', sprintf( __( 'Question %s has a duplicate wrongStatement.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_treatment_duplicate_option', sprintf( __( 'Question %s has a duplicate wrongStatement.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			$seen[ $normal ] = true;
 		}
@@ -1483,8 +1546,8 @@ class Citex_AI_V2 {
 		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
 		foreach ( $distractors as $distractor ) {
 			$normal = strtolower( trim( $distractor ) );
-			if ( in_array( $normal, $correct_lower, true ) ) { return new WP_Error( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); }
-			if ( isset( $seen[ $normal ] ) ) { return new WP_Error( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); }
+			if ( in_array( $normal, $correct_lower, true ) ) { $rejection = self::quality_reject( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
+			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
 			$seen[ $normal ] = true;
 		}
 		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $fields );
@@ -1515,10 +1578,12 @@ class Citex_AI_V2 {
 		foreach ( $incorrect as $option ) {
 			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $option ) ) );
 			if ( $normal === $correct_normal ) {
-				return new WP_Error( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			if ( isset( $seen[ $normal ] ) ) {
-				return new WP_Error( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			$seen[ $normal ] = true;
 		}
@@ -1589,7 +1654,8 @@ class Citex_AI_V2 {
 		// below), and an empty part is never counted as meaningful (checked
 		// explicitly next).
 		if ( count( $parts ) < Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS || count( $parts ) > Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS ) {
-			return new WP_Error( 'citex_ai_journal_article_part_count_out_of_range', sprintf( __( 'Question %1$s: this exercise design produces %2$d draggable answer part(s); Journal Article DragDrop questions must have between %3$d and %4$d.', 'citex-tools' ), $id, count( $parts ), Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS, Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS ) );
+			$rejection = self::quality_reject( 'citex_ai_journal_article_part_count_out_of_range', sprintf( __( 'Question %1$s: this exercise design produces %2$d draggable answer part(s); Journal Article DragDrop questions must have between %3$d and %4$d.', 'citex-tools' ), $id, count( $parts ), Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS, Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS ) );
+			if ( $rejection ) { return $rejection; }
 		}
 		// NO EMPTY PLACEHOLDERS — every Question Part must be non-empty
 		// after trimming; an empty part would mean a placeholder maps to
@@ -1606,7 +1672,8 @@ class Citex_AI_V2 {
 		foreach ( $parts as $part ) {
 			$normal_part = strtolower( trim( (string) $part ) );
 			if ( isset( $seen_parts[ $normal_part ] ) ) {
-				return new WP_Error( 'citex_ai_journal_article_duplicate_part', sprintf( __( 'Question %1$s has two identical draggable answer parts: "%2$s".', 'citex-tools' ), $id, $part ) );
+				$rejection = self::quality_reject( 'citex_ai_journal_article_duplicate_part', sprintf( __( 'Question %1$s has two identical draggable answer parts: "%2$s".', 'citex-tools' ), $id, $part ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			$seen_parts[ $normal_part ] = true;
 		}
@@ -1614,8 +1681,8 @@ class Citex_AI_V2 {
 		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
 		foreach ( $distractors as $distractor ) {
 			$normal = strtolower( trim( $distractor ) );
-			if ( in_array( $normal, $correct_lower, true ) ) { return new WP_Error( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); }
-			if ( isset( $seen[ $normal ] ) ) { return new WP_Error( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); }
+			if ( in_array( $normal, $correct_lower, true ) ) { $rejection = self::quality_reject( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
+			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
 			$seen[ $normal ] = true;
 		}
 		// MOBILE SUITABILITY — a UX quality-gate check, entirely separate
@@ -1625,7 +1692,8 @@ class Citex_AI_V2 {
 		// other check here, never stored as a "known-bad" candidate.
 		$mobile_reason = Citex_Reference_Rules::journal_article_mobile_suitability( $parts );
 		if ( null !== $mobile_reason ) {
-			return new WP_Error( 'citex_ai_journal_article_mobile_unsuitable', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $mobile_reason ) );
+			$rejection = self::quality_reject( 'citex_ai_journal_article_mobile_unsuitable', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $mobile_reason ) );
+			if ( $rejection ) { return $rejection; }
 		}
 		// The reference this SPECIFIC exercise reconstructs (a full
 		// reference for the 'full_reference' design, or a short segment for
@@ -1680,7 +1748,8 @@ class Citex_AI_V2 {
 		if ( 'full_reference' !== $exercise_design ) {
 			$mobile_reason = Citex_Reference_Rules::journal_article_mobile_suitability( array_merge( array( $reference ), $incorrect ) );
 			if ( null !== $mobile_reason ) {
-				return new WP_Error( 'citex_ai_journal_article_mobile_unsuitable', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $mobile_reason ) );
+				$rejection = self::quality_reject( 'citex_ai_journal_article_mobile_unsuitable', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $mobile_reason ) );
+				if ( $rejection ) { return $rejection; }
 			}
 		}
 		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $reference ) ) );
@@ -1688,10 +1757,12 @@ class Citex_AI_V2 {
 		foreach ( $incorrect as $option ) {
 			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $option ) ) );
 			if ( $normal === $correct_normal ) {
-				return new WP_Error( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			if ( isset( $seen[ $normal ] ) ) {
-				return new WP_Error( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			$seen[ $normal ] = true;
 		}
@@ -1752,8 +1823,8 @@ class Citex_AI_V2 {
 		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
 		foreach ( $distractors as $distractor ) {
 			$normal = strtolower( trim( $distractor ) );
-			if ( in_array( $normal, $correct_lower, true ) ) { return new WP_Error( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); }
-			if ( isset( $seen[ $normal ] ) ) { return new WP_Error( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); }
+			if ( in_array( $normal, $correct_lower, true ) ) { $rejection = self::quality_reject( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
+			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
 			$seen[ $normal ] = true;
 		}
 		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields );
@@ -1794,10 +1865,12 @@ class Citex_AI_V2 {
 		foreach ( $incorrect as $option ) {
 			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $option ) ) );
 			if ( $normal === $correct_normal ) {
-				return new WP_Error( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			if ( isset( $seen[ $normal ] ) ) {
-				return new WP_Error( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
+				$rejection = self::quality_reject( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
+				if ( $rejection ) { return $rejection; }
 			}
 			$seen[ $normal ] = true;
 		}

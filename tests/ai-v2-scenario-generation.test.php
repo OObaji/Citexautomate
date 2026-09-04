@@ -170,7 +170,7 @@ $mismatched = Citex_AI_V2::generate_questions( array(
 	'scenario'    => 'two_authors',
 ) );
 check( '[2] a scenario/author-count mismatch is rejected (not silently accepted)', is_wp_error( $mismatched ), true );
-check( '[2] error names the quality-gate failure after exhausting retries', is_wp_error( $mismatched ) ? $mismatched->get_error_code() : null, 'citex_ai_quality_failed' );
+check( '[2] error names the generation failure after exhausting retries', is_wp_error( $mismatched ) ? $mismatched->get_error_code() : null, 'citex_ai_generation_failed' );
 
 // ---------------------------------------------------------------------
 // 3. No scenario at all (any caller outside Citex_Generator's own
@@ -209,7 +209,7 @@ $duplicate = Citex_AI_V2::generate_questions( array(
 	'existing_references'  => array( 'Smith, J. (2020) Already Used Book. London: SAGE Publications.' ),
 ) );
 check( '[4] a reference duplicating an existing pending question is rejected', is_wp_error( $duplicate ), true );
-check( '[4] error names the quality-gate failure', is_wp_error( $duplicate ) ? $duplicate->get_error_code() : null, 'citex_ai_quality_failed' );
+check( '[4] error names the generation failure', is_wp_error( $duplicate ) ? $duplicate->get_error_code() : null, 'citex_ai_generation_failed' );
 check( '[4] the failure message names the duplicate quality issue', is_wp_error( $duplicate ) ? ( false !== strpos( $duplicate->get_error_message(), 'duplicates one already in the pending queue' ) ) : false, true );
 
 // ---------------------------------------------------------------------

@@ -219,7 +219,7 @@ class Citex_Generator {
 			}
 		}
 		$message = sprintf(
-			_n( '%d AI question generated. Validate it before population.', '%d AI questions generated. Validate them before population.', count( $result ), 'citex-tools' ),
+			_n( '%d AI question generated and saved to Pending. Validate it when ready — only validated questions can be populated.', '%d AI questions generated and saved to Pending. Validate them when ready — only validated questions can be populated.', count( $result ), 'citex-tools' ),
 			count( $result )
 		);
 		$message .= ' ' . sprintf(

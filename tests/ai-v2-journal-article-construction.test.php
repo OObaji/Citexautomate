@@ -224,7 +224,7 @@ $dup_of_part = invoke_normalise(
 	'DragDrop',
 	$JA
 );
-check( '[18] a distractor matching a correct Question Part (the real year) is rejected', is_wp_error( $dup_of_part ), true );
+check( '[18] a distractor matching a correct Question Part (the real year) no longer blocks generation (quality gate decoupled)', is_wp_error( $dup_of_part ), false );
 
 $dup_distractor = invoke_normalise(
 	array( journal_article_item( array( 'confusingWords' => array( 'x', 'x', 'y' ) ) ) ),
@@ -234,7 +234,7 @@ $dup_distractor = invoke_normalise(
 	'DragDrop',
 	$JA
 );
-check( '[18] a duplicated distractor pair is rejected', is_wp_error( $dup_distractor ), true );
+check( '[18] a duplicated distractor pair no longer blocks generation (quality gate decoupled)', is_wp_error( $dup_distractor ), false );
 
 // ---------------------------------------------------------------------
 // 19. Scenario/source mismatch: a scenario naming a different YEAR than the
@@ -247,7 +247,8 @@ $mismatched_scenario = journal_article_item( array(
 	'scenario' => 'You are referencing a journal article titled A brief guide to Harvard referencing by Sarah Mitchell and Daniel Evans, published in 1975 in The British Journal of Referencing, volume 12, issue 2, pages 27-35.',
 ) );
 $mismatch_result = invoke_normalise( array( $mismatched_scenario ), array( 'JA01' ), 'medium', array( 'Exercise 1' ), 'DragDrop', $JA );
-check( '[19] a scenario naming a different year than the canonical record is rejected', is_wp_error( $mismatch_result ), true );
+check( '[19] a scenario naming a different year than the canonical record no longer blocks generation (quality gate decoupled)', is_wp_error( $mismatch_result ), false );
+check( '[19] the candidate is still recorded as failed validation', is_wp_error( $mismatch_result ) ? null : $mismatch_result[0]['validationStatus'], 'failed' );
 
 // ---------------------------------------------------------------------
 // 23. MCQ: normalise() constructs a correct MCQ candidate — Citex builds

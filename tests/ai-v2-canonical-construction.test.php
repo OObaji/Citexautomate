@@ -121,9 +121,16 @@ $item_with_bad_scenario = array(
 	'fixedText'      => '|, || (||) ||. London: Red Globe Press.',
 	'confusingWords' => array( '2016', 'Manchester', 'Brown' ),
 );
+// Validation is decoupled from generation this sprint (QUALITY_GATE_ENABLED
+// = false): a scenario/record mismatch no longer aborts generation — the
+// candidate is stored with validationStatus 'failed' so it can be
+// corrected via the existing manual Validate mechanism, proving
+// Citex_Generated_Validator itself still catches the mismatch even though
+// it no longer blocks storage.
 $rejected = invoke_normalise( array( $item_with_bad_scenario ), array( 'BK02' ), 'medium' );
-check( '[scenario mismatch] normalise() rejects a scenario that does not match the bibliographic record', is_wp_error( $rejected ), true );
-check( '[scenario mismatch] error code identifies the pre-queue quality gate rejection', is_wp_error( $rejected ) ? $rejected->get_error_code() : null, 'citex_ai_validator_rejected' );
+check( '[scenario mismatch] normalise() no longer rejects on a quality-gate mismatch (decoupled from generation)', is_wp_error( $rejected ), false );
+check( '[scenario mismatch] the candidate is still recorded as failed validation', is_wp_error( $rejected ) ? null : $rejected[0]['validationStatus'], 'failed' );
+check( '[scenario mismatch] validationErrors is non-empty', is_wp_error( $rejected ) ? false : ! empty( $rejected[0]['validationErrors'] ), true );
 
 // ---------------------------------------------------------------------
 // 3. Exercise is stamped from the pre-built assignment matrix by slot

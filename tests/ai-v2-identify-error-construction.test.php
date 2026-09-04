@@ -176,8 +176,8 @@ $not_broken = invoke_normalise(
 	array( book_identify_error_item( array( 'brokenReference' => array( 'reference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.', 'errorReason' => 'Missing comma after surname.' ) ) ) ),
 	array( 'BK02' ), 'medium', array(), 'MCQ', Citex_Reference_Rules::CATEGORY_BOOK, 1, 'identify_error', 'error_identification'
 );
-check( '[3] a "broken" reference that is actually fully valid is rejected', is_wp_error( $not_broken ), true );
-check( '[3] error code identifies the quality-gate rejection', is_wp_error( $not_broken ) ? $not_broken->get_error_code() : null, 'citex_ai_validator_rejected' );
+check( '[3] a "broken" reference that is actually fully valid no longer blocks generation (quality gate decoupled)', is_wp_error( $not_broken ), false );
+check( '[3] the candidate is still recorded as failed validation', is_wp_error( $not_broken ) ? null : $not_broken[0]['validationStatus'], 'failed' );
 
 // ---------------------------------------------------------------------
 // 4. A wrongDescription identical to the true description (errorReason)
@@ -192,8 +192,7 @@ $duplicate_answer = invoke_normalise(
 	) ) ) ),
 	array( 'BK03' ), 'medium', array(), 'MCQ', Citex_Reference_Rules::CATEGORY_BOOK, 1, 'identify_error', 'error_identification'
 );
-check( '[4] a wrongDescription identical to the true description is rejected', is_wp_error( $duplicate_answer ), true );
-check( '[4] error code identifies the collision', is_wp_error( $duplicate_answer ) ? $duplicate_answer->get_error_code() : null, 'citex_ai_identify_error_option_matches_answer' );
+check( '[4] a wrongDescription identical to the true description no longer blocks generation (quality gate decoupled)', is_wp_error( $duplicate_answer ), false );
 
 // ---------------------------------------------------------------------
 // 5. Fewer or more than 3 wrongDescriptions is rejected.
@@ -216,8 +215,7 @@ $duplicate_option = invoke_normalise(
 	) ) ) ),
 	array( 'BK05' ), 'medium', array(), 'MCQ', Citex_Reference_Rules::CATEGORY_BOOK, 1, 'identify_error', 'error_identification'
 );
-check( '[6] two identical wrongDescriptions is rejected', is_wp_error( $duplicate_option ), true );
-check( '[6] error code identifies the duplicate', is_wp_error( $duplicate_option ) ? $duplicate_option->get_error_code() : null, 'citex_ai_identify_error_duplicate_option' );
+check( '[6] two identical wrongDescriptions no longer blocks generation (quality gate decoupled)', is_wp_error( $duplicate_option ), false );
 
 // ---------------------------------------------------------------------
 // 7. A missing brokenReference or missing errorReason is rejected before

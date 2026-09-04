@@ -215,17 +215,18 @@ if ( ! is_wp_error( $right_scenario ) ) {
 // ---------------------------------------------------------------------
 $mismatched = website_individual_item( array( 'scenario' => 'You are referencing a webpage written by Sarah Mitchell in 2024 and published by the University of Leeds, titled A totally different title, at https://www.leeds.ac.uk/study-skills.' ) );
 $mismatch_result = invoke_normalise( array( $mismatched ), array( 'WR01' ), 'medium', array( 'Exercise 1' ), 'DragDrop', $WR );
-check( '[22] a scenario naming a different title than the canonical record is rejected', is_wp_error( $mismatch_result ), true );
+check( '[22] a scenario naming a different title than the canonical record no longer blocks generation (quality gate decoupled)', is_wp_error( $mismatch_result ), false );
+check( '[22] the candidate is still recorded as failed validation', is_wp_error( $mismatch_result ) ? null : $mismatch_result[0]['validationStatus'], 'failed' );
 
 // ---------------------------------------------------------------------
 // 25. Distractor validation: a distractor duplicating a correct Question
 // Part is rejected; a duplicate distractor pair is rejected.
 // ---------------------------------------------------------------------
 $dup_of_part = invoke_normalise( array( website_individual_item( array( 'confusingWords' => array( '2024', 'x', 'y' ) ) ) ), array( 'WR01' ), 'medium', array( 'Exercise 1' ), 'DragDrop', $WR );
-check( '[25] a distractor matching a correct Question Part (the real year) is rejected', is_wp_error( $dup_of_part ), true );
+check( '[25] a distractor matching a correct Question Part (the real year) no longer blocks generation (quality gate decoupled)', is_wp_error( $dup_of_part ), false );
 
 $dup_distractor = invoke_normalise( array( website_individual_item( array( 'confusingWords' => array( 'x', 'x', 'y' ) ) ) ), array( 'WR01' ), 'medium', array( 'Exercise 1' ), 'DragDrop', $WR );
-check( '[25] a duplicated distractor pair is rejected', is_wp_error( $dup_distractor ), true );
+check( '[25] a duplicated distractor pair no longer blocks generation (quality gate decoupled)', is_wp_error( $dup_distractor ), false );
 
 // ---------------------------------------------------------------------
 // 24. MCQ: normalise() constructs a correct MCQ candidate.

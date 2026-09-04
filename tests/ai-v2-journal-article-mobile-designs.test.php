@@ -268,9 +268,15 @@ $item_excessive = array_merge( $item_base, array(
 	'scenario'     => 'You are referencing an article titled Learning Online by Anna Smith, published in 2020 in a journal with an extremely long name, volume 12, issue 3, pages 45-52.',
 	'journalTitle' => 'International Multidisciplinary Journal of Advanced Interdisciplinary Educational Research and Practice Studies',
 ) );
+// Validation is decoupled from generation this sprint (QUALITY_GATE_ENABLED
+// = false): an oversized draggable component no longer aborts generation —
+// it is stored, not silently dropped, and can be corrected later via the
+// existing manual Validate mechanism. The underlying rule itself is not
+// weakened: Citex_Reference_Rules::journal_article_mobile_suitability()
+// still detects the exact same problem when called directly.
 $result_i = invoke_normalise( array( $item_excessive ), array( 'JA05' ), array( 'Exercise 1' ), 'DragDrop', $JA, 1, '', '', 'author_year_journal' );
-check( '[I] an oversized draggable component is rejected', is_wp_error( $result_i ), true );
-check( '[I] rejected with the mobile-unsuitability error code', is_wp_error( $result_i ) ? $result_i->get_error_code() : null, 'citex_ai_journal_article_mobile_unsuitable' );
+check( '[I] an oversized draggable component no longer blocks generation (quality gate decoupled)', is_wp_error( $result_i ), false );
+check_true( '[I] the underlying mobile-suitability rule still detects the same oversized component', ! is_wp_error( $result_i ) && null !== Citex_Reference_Rules::journal_article_mobile_suitability( $result_i[0]['questionParts'] ) );
 
 // =======================================================================
 // J. Valid 3-part reconstruction (author_year_issue).
@@ -296,7 +302,7 @@ check_true( '[K] reconstruction matches its own format regex', 1 === preg_match(
 // to fail, exhausting MAX_QUALITY_ATTEMPTS and returning a WP_Error
 // instead of ever storing a bad candidate.
 // =======================================================================
-check_true( '[L] MAX_QUALITY_ATTEMPTS retry budget exists (regenerate, never store invalid output)', Citex_AI_V2::MAX_QUALITY_ATTEMPTS >= 1 );
+check_true( '[L] MAX_GENERATION_ATTEMPTS retry budget exists (regenerate, never store invalid output)', Citex_AI_V2::MAX_GENERATION_ATTEMPTS >= 1 );
 $result_l = invoke_normalise( array( $item_base, $item_base ), array( 'JA06', 'JA07' ), array( 'Exercise 1', 'Exercise 1' ), 'DragDrop', $JA, 1, '', '', 'full_reference' );
 check( '[L] an entire batch is rejected (never partially stored) when one candidate structure is invalid', is_wp_error( $result_l ), true );
 
@@ -368,8 +374,12 @@ if ( ! is_wp_error( $result_initials ) ) {
 $item_leak = array_merge( $item_base, array(
 	'scenario' => 'You are referencing an article written by Anna Smith (initials A.), published in 2020 in Journal of Studies, volume 12, issue 3, pages 45-52.',
 ) );
+// Validation is decoupled from generation this sprint: answer leakage no
+// longer aborts generation, but Citex_Generated_Validator itself still
+// catches it (validationStatus 'failed'), unchanged.
 $result_leak = invoke_normalise( array( $item_leak ), array( 'JA10' ), array( 'Exercise 1' ), 'DragDrop', $JA, 1, 'one_author', 'author_formatting', 'author_year_volume_pages' );
-check( 'answer leakage (the word "initials") is still rejected', is_wp_error( $result_leak ), true );
+check( 'answer leakage (the word "initials") no longer blocks generation (decoupled)', is_wp_error( $result_leak ), false );
+check( 'answer leakage (the word "initials") is still caught by the validator', is_wp_error( $result_leak ) ? null : $result_leak[0]['validationStatus'], 'failed' );
 
 // =======================================================================
 // Real-world regression: a genuine 4-author academic paper with longer
