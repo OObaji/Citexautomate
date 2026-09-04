@@ -550,17 +550,22 @@ class Citex_Reference_Rules {
 	 * @return string|null A human-readable rejection reason, or null when suitable.
 	 */
 	public static function journal_article_mobile_suitability( array $parts ) {
-		// Generous enough that a genuinely typical 4-5 real-author joined
-		// list, or a normally-worded real title, is never rejected (section
-		// 5's explicit "occasional 5+ author examples where mobile layout
-		// remains usable" and "FOUR-AUTHOR: test complete author
-		// construction" both require full_reference to keep working for
-		// realistic multi-author sources) — this is a backstop against
-		// genuinely excessive cases (an unusually long title, or 6+ authors
-		// with long names), not a filter on ordinary variation.
-		$max_single_component = 70;
-		$max_combined_total   = 220;
-		$total                = 0;
+		// Generous enough that a genuinely typical real source is never
+		// rejected — this is a backstop against genuinely excessive cases
+		// (an unusually long title, or many authors with long names), not a
+		// filter on ordinary variation. A joined multi-person author list
+		// (the whole author list is always ONE compact chip, any real
+		// count — see journal_article_dragdrop_shape()'s docblock) is
+		// structurally longer than any other single field by design, since
+		// Liverpool Hope's rule requires every author present in full, so it
+		// gets its own, larger budget instead of sharing the tight
+		// single-field cap — real academic author lists (4-6 authors,
+		// including longer surnames) routinely run 80-120 characters even
+		// though each individual name is perfectly reasonable.
+		$max_single_component       = 70;
+		$max_author_list_component  = 140;
+		$max_combined_total         = 260;
+		$total                      = 0;
 		foreach ( $parts as $part ) {
 			$text = (string) $part;
 			// Punctuation must never itself be the draggable answer being
@@ -575,7 +580,19 @@ class Citex_Reference_Rules {
 			}
 			$length = mb_strlen( $text );
 			$total += $length;
-			if ( $length > $max_single_component ) {
+			// Detect a join_people()-shaped multi-person list STRUCTURALLY
+			// (one or more "Surname, I." groups, comma-separated with a
+			// final "and") rather than merely checking for the substring
+			// " and " — a long article/journal title containing the
+			// ordinary English word "and" (e.g. "...Research and Practice
+			// Studies") must never be misclassified as an author list and
+			// given the larger budget it was never meant to have.
+			$is_author_list = 1 === preg_match(
+				'/^[^,]+,\s*(?:[A-Z]\.\s*)+(?:,\s*[^,]+,\s*(?:[A-Z]\.\s*)+)*(?:\s+and\s+[^,]+,\s*(?:[A-Z]\.\s*)+)?$/u',
+				$text
+			);
+			$limit = $is_author_list ? $max_author_list_component : $max_single_component;
+			if ( $length > $limit ) {
 				return sprintf(
 					'A single draggable component is %1$d characters long ("%2$s…"), too large for a comfortable mobile DragDrop layout — prefer a shorter real source, or a smaller exercise design.',
 					$length,

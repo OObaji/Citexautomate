@@ -372,6 +372,36 @@ $result_leak = invoke_normalise( array( $item_leak ), array( 'JA10' ), array( 'E
 check( 'answer leakage (the word "initials") is still rejected', is_wp_error( $result_leak ), true );
 
 // =======================================================================
+// Real-world regression: a genuine 4-author academic paper with longer
+// surnames (reported live — Aelterman/Vansteenkiste/Van den Berghe/
+// Haerens, joined into one compact chip per the "always one chip, any
+// author count" design) must NOT be rejected as oversized just because
+// real academic names are longer than a short single field. A joined
+// author list gets its own larger budget (max_author_list_component),
+// detected STRUCTURALLY (the join_people() "Surname, I." shape), never by
+// a naive "contains the word and" check — which must never misfire on an
+// ordinary title containing "and" as English prose.
+// =======================================================================
+$long_name_authors = array(
+	array( 'surname' => 'Aelterman', 'initials' => 'N.' ),
+	array( 'surname' => 'Vansteenkiste', 'initials' => 'M.' ),
+	array( 'surname' => 'Van den Berghe', 'initials' => 'L.' ),
+	array( 'surname' => 'Haerens', 'initials' => 'L.' ),
+);
+$long_name_shape = Citex_Reference_Rules::dragdrop_shape( $JA, array_merge( $base_fields, array( 'authors' => $long_name_authors ) ), 'author_year_volume_pages' );
+check_true( 'a real 4-author list with longer surnames is accepted as a single compact chip', null === Citex_Reference_Rules::journal_article_mobile_suitability( $long_name_shape['parts'] ) );
+
+$long_title_not_author_list = 'International Multidisciplinary Journal of Advanced Interdisciplinary Educational Research and Practice Studies';
+check( 'a long title containing the word "and" is never misdetected as an author list', Citex_Reference_Rules::journal_article_mobile_suitability( array( 'Smith, A.', '2020', $long_title_not_author_list ) ), sprintf( 'A single draggable component is %1$d characters long ("%2$s…"), too large for a comfortable mobile DragDrop layout — prefer a shorter real source, or a smaller exercise design.', mb_strlen( $long_title_not_author_list ), mb_substr( $long_title_not_author_list, 0, 30 ) ) );
+
+$item_long_authors = array_merge( $item_base, array(
+	'authorFullNames' => array( 'Nathalie Aelterman', 'Maarten Vansteenkiste', 'Leen Van den Berghe', 'Leen Haerens' ),
+	'scenario'         => 'You are referencing an article titled A study of referencing by Nathalie Aelterman, Maarten Vansteenkiste, Leen Van den Berghe and Leen Haerens, published in 2020 in Journal of Studies, volume 12, issue 3, pages 45-52.',
+) );
+$result_long_authors = invoke_normalise( array( $item_long_authors ), array( 'JA11' ), array( 'Exercise 1' ), 'DragDrop', $JA, 4, 'four_or_more_authors', 'reference_list_all_authors', 'author_year_volume_pages' );
+check( 'a real 4-author DragDrop question with longer surnames generates successfully', is_wp_error( $result_long_authors ), false );
+
+// =======================================================================
 // Existing Book / Journal Article (full_reference MCQ) regression — direct
 // Citex_Generated_Validator checks, unaffected by any of the above.
 // =======================================================================
