@@ -1,7 +1,7 @@
 <?php
 /**
  * Regression tests for Citex_Generator::generate_via_scenarios() — the
- * grouped-request orchestration that issues one Citex_AI::generate_questions()
+ * grouped-request orchestration that issues one Citex_AI_V2::generate_questions()
  * call per scenario (Citex_Question_Diversity::assign_scenarios()) instead
  * of always one shared request for the whole batch, so a single "generate
  * N questions" submission can genuinely test several different Harvard
@@ -96,7 +96,6 @@ require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-ai-v2.php';
-if ( ! class_exists( 'Citex_AI', false ) ) { class Citex_AI extends Citex_AI_V2 {} }
 require __DIR__ . '/../citex-tools/includes/class-citex-generator.php';
 
 $failures = 0;

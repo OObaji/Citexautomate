@@ -30,7 +30,7 @@ class Citex_Generator {
 		$question_types     = array( 'dragdrop' => 'DragDrop', 'mcq' => 'MCQ' );
 		$difficulties       = array( 'easy' => 'Easy', 'medium' => 'Medium', 'hard' => 'Hard' );
 		$pending_questions  = self::get_pending_questions();
-		$ai_configured      = '' !== Citex_AI::get_api_key();
+		$ai_configured      = '' !== Citex_AI_V2::get_api_key();
 		require CITEX_TOOLS_PATH . 'admin/views/generate.php';
 	}
 
@@ -236,7 +236,7 @@ class Citex_Generator {
 	}
 
 	/**
-	 * Issues ONE Citex_AI::generate_questions() request per scenario
+	 * Issues ONE Citex_AI_V2::generate_questions() request per scenario
 	 * (Citex_Question_Diversity::assign_scenarios()) instead of always one
 	 * shared request for the whole batch — this is what lets a single
 	 * "generate 12 questions" submission actually test 4 different
@@ -287,7 +287,7 @@ class Citex_Generator {
 				$group_exercises[] = $exercise_assignments[ $index ];
 			}
 
-			$result = Citex_AI::generate_questions(
+			$result = Citex_AI_V2::generate_questions(
 				array(
 					'quantity'             => count( $indices ),
 					'starting_id'          => $starting_id,
