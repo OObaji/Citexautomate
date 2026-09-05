@@ -1,0 +1,516 @@
+<?php
+/**
+ * Regression tests for Citex_Populator's MCQ population path —
+ * write_mcq_acf_values() and verify_mcq_acf_values().
+ *
+ * The MCQ ACF field keys (option_1-4, answer) are the real, confirmed field
+ * keys captured via Citex Diagnostics against an actual post on this site's
+ * citex-reference post type (see FIELD_OPTION_1..4/FIELD_ANSWER in
+ * class-citex-populator.php) — not guessed.
+ *
+ * The Answer field holds the FULL TEXT of the correct reference
+ * (reconstructedReference) — never a letter, number, or other short
+ * identifier, and it is NEVER also duplicated into one of the 4 Option
+ * slots. Option 1-3 hold the 3 distractors, in order; Option 4 is ALWAYS
+ * left blank. A real live-site Diagnostics capture (WordPress post
+ * #5006113, an "Edited Book | MCQ" question) showed the previous design —
+ * which placed the correct reference into a pseudo-random option slot AND
+ * into the Answer field — rendering as duplicate, simultaneously-"selected"
+ * options in the student app, because the two copies were treated as
+ * separate choices. Writing the answer ONLY to the Answer field, and never
+ * into any option, removes the duplication entirely.
+ *
+ * Repo-level only, run with plain
+ * `php tests/populator-mcq-population.test.php` — not shipped in
+ * citex-tools.zip.
+ */
+
+define( 'ABSPATH', '/tmp/fake-wp/' );
+
+$GLOBALS['__posts']                         = array();
+$GLOBALS['__post_terms']                    = array();
+$GLOBALS['__terms_full']                    = array();
+$GLOBALS['__taxonomies_by_post_type']       = array();
+$GLOBALS['__acf_fields']                    = array();
+$GLOBALS['__acf_field_groups_by_post_type'] = array();
+$GLOBALS['__post_field_objects']            = array();
+$GLOBALS['__acf_values']                    = array();
+$GLOBALS['__registered_post_types']         = array();
+$GLOBALS['__next_post_id']                  = 100;
+$GLOBALS['__deleted_posts']                 = array();
+$GLOBALS['__wp_update_post_calls']          = 0;
+$GLOBALS['__clean_post_cache_calls']        = array();
+$GLOBALS['__acf_save_post_calls']           = array();
+$GLOBALS['__options']                       = array();
+
+class WP_Error {
+	public $code;
+	public $message;
+	public function __construct( $code = '', $message = '' ) {
+		$this->code    = $code;
+		$this->message = $message;
+	}
+	public function get_error_message() {
+		return $this->message;
+	}
+	public function get_error_code() {
+		return $this->code;
+	}
+}
+function is_wp_error( $thing ) {
+	return $thing instanceof WP_Error;
+}
+function sanitize_text_field( $v ) {
+	return trim( (string) $v );
+}
+function sanitize_key( $v ) {
+	return strtolower( preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $v ) ) );
+}
+function wp_unslash( $v ) {
+	return $v;
+}
+function absint( $v ) {
+	return abs( intval( $v ) );
+}
+function __( $s, $d = '' ) {
+	return $s;
+}
+function esc_html__( $s, $d = '' ) {
+	return $s;
+}
+function post_type_exists( $pt ) {
+	return in_array( $pt, $GLOBALS['__registered_post_types'], true );
+}
+
+function get_posts( $args ) {
+	$post_type    = $args['post_type'] ?? '';
+	$statuses     = (array) ( $args['post_status'] ?? array( 'publish' ) );
+	$title_filter = array_key_exists( 'title', $args ) ? $args['title'] : null;
+	$fields       = $args['fields'] ?? 'all';
+	$matches      = array();
+	foreach ( $GLOBALS['__posts'] as $id => $p ) {
+		if ( $p['post_type'] !== $post_type || ! in_array( $p['post_status'], $statuses, true ) ) {
+			continue;
+		}
+		if ( null !== $title_filter && $p['post_title'] !== $title_filter ) {
+			continue;
+		}
+		$matches[ $id ] = $p;
+	}
+	if ( 'ids' === $fields ) {
+		return array_map( 'intval', array_keys( $matches ) );
+	}
+	$objects = array();
+	foreach ( $matches as $id => $p ) {
+		$objects[] = (object) array_merge( $p, array( 'ID' => $id ) );
+	}
+	return $objects;
+}
+
+function get_post( $id ) {
+	if ( ! isset( $GLOBALS['__posts'][ $id ] ) ) {
+		return null;
+	}
+	return (object) array_merge( $GLOBALS['__posts'][ $id ], array( 'ID' => $id ) );
+}
+
+function wp_insert_post( $args, $wp_error = false ) {
+	$id = $GLOBALS['__next_post_id']++;
+	$GLOBALS['__posts'][ $id ] = array(
+		'post_type'    => $args['post_type'] ?? '',
+		'post_status'  => $args['post_status'] ?? 'draft',
+		'post_title'   => $args['post_title'] ?? '',
+		'post_content' => $args['post_content'] ?? '',
+		'post_excerpt' => $args['post_excerpt'] ?? '',
+		'menu_order'   => $args['menu_order'] ?? 0,
+	);
+	return $id;
+}
+
+function wp_update_post( $args, $wp_error = false ) {
+	$GLOBALS['__wp_update_post_calls']++;
+	$id = $args['ID'] ?? 0;
+	if ( ! isset( $GLOBALS['__posts'][ $id ] ) ) {
+		return new WP_Error( 'missing_post', 'Post not found' );
+	}
+	foreach ( $args as $k => $v ) {
+		if ( 'ID' === $k ) {
+			continue;
+		}
+		$GLOBALS['__posts'][ $id ][ $k ] = $v;
+	}
+	return $id;
+}
+
+function get_post_status( $post_id ) {
+	return $GLOBALS['__posts'][ $post_id ]['post_status'] ?? false;
+}
+
+function clean_post_cache( $post_id ) {
+	$GLOBALS['__clean_post_cache_calls'][] = $post_id;
+}
+
+function do_action( $hook, ...$args ) {
+	if ( 'acf/save_post' === $hook ) {
+		$GLOBALS['__acf_save_post_calls'][] = $args[0] ?? null;
+	}
+}
+
+function get_option( $key, $default = false ) {
+	return $GLOBALS['__options'][ $key ] ?? $default;
+}
+function update_option( $key, $value, $autoload = null ) {
+	$GLOBALS['__options'][ $key ] = $value;
+	return true;
+}
+
+function wp_delete_post( $id, $force = false ) {
+	if ( isset( $GLOBALS['__posts'][ $id ] ) ) {
+		unset( $GLOBALS['__posts'][ $id ] );
+		$GLOBALS['__deleted_posts'][] = $id;
+	}
+	return true;
+}
+
+function get_post_meta( $post_id, $key = '', $single = false ) {
+	if ( '' === $key ) {
+		return $GLOBALS['__post_meta'][ $post_id ] ?? array();
+	}
+	$values = $GLOBALS['__post_meta'][ $post_id ][ $key ] ?? array();
+	return $single ? ( $values[0] ?? '' ) : $values;
+}
+function add_post_meta( $post_id, $key, $value ) {
+	$GLOBALS['__post_meta'][ $post_id ][ $key ][] = $value;
+	return true;
+}
+function delete_post_meta( $post_id, $key ) {
+	unset( $GLOBALS['__post_meta'][ $post_id ][ $key ] );
+	return true;
+}
+function update_post_meta( $post_id, $key, $value ) {
+	$GLOBALS['__post_meta'][ $post_id ][ $key ] = array( $value );
+	return true;
+}
+function maybe_unserialize( $v ) { return $v; }
+
+function get_object_taxonomies( $post_type, $output = 'names' ) {
+	return $GLOBALS['__taxonomies_by_post_type'][ $post_type ] ?? array();
+}
+function wp_get_object_terms( $post_id, $taxonomy, $args = array() ) {
+	return $GLOBALS['__post_terms'][ $post_id ][ $taxonomy ] ?? array();
+}
+function wp_set_object_terms( $post_id, $term_ids, $taxonomy, $append = false ) {
+	$GLOBALS['__post_terms'][ $post_id ][ $taxonomy ] = array_values( (array) $term_ids );
+	return $term_ids;
+}
+function get_term_by( $field, $value, $taxonomy ) { return false; }
+function get_terms( $args = array() ) {
+	$taxonomy      = $args['taxonomy'] ?? '';
+	$parent_filter = array_key_exists( 'parent', $args ) ? $args['parent'] : null;
+	$out = array();
+	foreach ( ( $GLOBALS['__terms_full'][ $taxonomy ] ?? array() ) as $term_id => $t ) {
+		if ( null !== $parent_filter && (int) ( $t['parent'] ?? 0 ) !== (int) $parent_filter ) {
+			continue;
+		}
+		$out[] = (object) array( 'term_id' => $term_id, 'name' => $t['name'] ?? '', 'parent' => (int) ( $t['parent'] ?? 0 ), 'taxonomy' => $taxonomy );
+	}
+	return $out;
+}
+
+function acf_get_field( $key ) {
+	return $GLOBALS['__acf_fields'][ $key ] ?? false;
+}
+function acf_get_field_groups( $args = array() ) {
+	$post_type = $args['post_type'] ?? '';
+	return $GLOBALS['__acf_field_groups_by_post_type'][ $post_type ] ?? array();
+}
+function acf_get_fields( $group ) {
+	return $group['fields'] ?? array();
+}
+function get_field_objects( $post_id, $formatted = false, $load_value = false ) {
+	return $GLOBALS['__post_field_objects'][ $post_id ] ?? array();
+}
+function get_field( $selector, $post_id, $format = false ) {
+	return $GLOBALS['__acf_values'][ $post_id ][ $selector ] ?? null;
+}
+function update_field( $selector, $value, $post_id ) {
+	$GLOBALS['__acf_values'][ $post_id ][ $selector ] = $value;
+	return true;
+}
+
+require __DIR__ . '/../citex-tools/includes/class-citex-populator.php';
+
+$failures = 0;
+function check( $description, $actual, $expected ) {
+	global $failures;
+	$pass = $actual === $expected;
+	echo ( $pass ? 'PASS' : 'FAIL' ) . ': ' . $description
+		. ( $pass ? '' : ' (expected ' . var_export( $expected, true ) . ', got ' . var_export( $actual, true ) . ')' )
+		. "\n";
+	if ( ! $pass ) {
+		$failures++;
+	}
+}
+
+function invoke_private( $object, $method, $args ) {
+	$reflection = new ReflectionMethod( 'Citex_Populator', $method );
+	$reflection->setAccessible( true );
+	return $reflection->invokeArgs( $object, $args );
+}
+
+function reset_environment() {
+	$GLOBALS['__posts']                         = array();
+	$GLOBALS['__post_meta']                     = array();
+	$GLOBALS['__post_terms']                    = array();
+	$GLOBALS['__terms_full']                    = array();
+	$GLOBALS['__taxonomies_by_post_type']       = array( 'question' => array( 'reference_category' ) );
+	$GLOBALS['__acf_fields']                    = array();
+	$GLOBALS['__acf_field_groups_by_post_type'] = array();
+	$GLOBALS['__post_field_objects']            = array();
+	$GLOBALS['__acf_values']                    = array();
+	$GLOBALS['__registered_post_types']         = array( 'question' );
+	$GLOBALS['__next_post_id']                  = 100;
+	$GLOBALS['__deleted_posts']                 = array();
+	$GLOBALS['__wp_update_post_calls']          = 0;
+	$GLOBALS['__clean_post_cache_calls']        = array();
+	$GLOBALS['__acf_save_post_calls']           = array();
+	$GLOBALS['__options']                       = array();
+
+	// Book (1) -> Exercise 1 (2)
+	$GLOBALS['__terms_full']['reference_category'] = array(
+		1 => array( 'name' => 'Book', 'parent' => 0 ),
+		2 => array( 'name' => 'Exercise 1', 'parent' => 1 ),
+	);
+
+	// The confirmed real MCQ field keys registered, with a text-type Answer
+	// field by default (the "not a choice field" branch) — individual tests
+	// override $GLOBALS['__acf_fields'][Citex_Populator::FIELD_ANSWER] for
+	// the choice-type discovery scenarios.
+	foreach (
+		array(
+			Citex_Populator::FIELD_OPTION_1       => 'text',
+			Citex_Populator::FIELD_OPTION_2       => 'text',
+			Citex_Populator::FIELD_OPTION_3       => 'text',
+			Citex_Populator::FIELD_OPTION_4       => 'text',
+			Citex_Populator::FIELD_ANSWER         => 'text',
+			Citex_Populator::FIELD_HINT           => 'textarea',
+			Citex_Populator::FIELD_QUESTION_CLASS => 'text',
+		) as $key => $type
+	) {
+		$GLOBALS['__acf_fields'][ $key ] = array( 'key' => $key, 'type' => $type );
+	}
+
+	$GLOBALS['__acf_field_groups_by_post_type']['question'] = array(
+		array( 'fields' => array(
+			array( 'key' => 'field_scenario', 'label' => 'Scenario', 'name' => 'scenario', 'type' => 'textarea' ),
+		) ),
+	);
+}
+
+function mcq_question( $overrides = array() ) {
+	return array_merge(
+		array(
+			'questionId'           => 'BK-MCQ-1',
+			'title'                => 'Harvard | ReferenceList | Book | MCQ | BK-MCQ-1',
+			'category'             => 'Book',
+			'exercise'             => 'Exercise 1',
+			'type'                 => 'MCQ',
+			'scenario'             => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
+			// Option 1-3 are the 3 distractors; Option 4 is always blank. The
+			// correct answer lives only in reconstructedReference, below — it
+			// is never placed into, or duplicated into, any option slot.
+			'options'              => array(
+				'Bryman A. (2012) Social Research Methods. Oxford: Oxford University Press.',
+				'A. Bryman (2012) Social Research Methods. Oxford: Oxford University Press.',
+				'Bryman, A. (2012) Social Research Methods. Oxford:Oxford University Press.',
+				'',
+			),
+			'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
+			'hint'                 => 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the title, place and publisher.',
+		),
+		$overrides
+	);
+}
+
+// ---------------------------------------------------------------------
+// 1. End-to-end: a valid MCQ question populates successfully — post
+// created, options/scenario/answer written and read back verified,
+// Category/Exercise assigned and verified, status verified, save
+// lifecycle (wp_update_post/clean_post_cache/acf_save_post) fired.
+// ---------------------------------------------------------------------
+reset_environment();
+$populator = new Citex_Populator();
+$field_map = array(
+	'scenario'      => 'field_scenario',
+	'option1'       => Citex_Populator::FIELD_OPTION_1,
+	'option2'       => Citex_Populator::FIELD_OPTION_2,
+	'option3'       => Citex_Populator::FIELD_OPTION_3,
+	'option4'       => Citex_Populator::FIELD_OPTION_4,
+	'answer'        => Citex_Populator::FIELD_ANSWER,
+	'hint'          => Citex_Populator::FIELD_HINT,
+	'questionClass' => Citex_Populator::FIELD_QUESTION_CLASS,
+);
+$question = mcq_question();
+$result   = invoke_private( $populator, 'populate_one', array( $question, 'question', 0, $field_map, 'draft' ) );
+check( '[1] MCQ population succeeds', is_wp_error( $result ), false );
+if ( ! is_wp_error( $result ) ) {
+	$post_id = $result['postId'];
+	check( '[1] result reports type MCQ', $result['type'], 'MCQ' );
+	check( '[1] option 1 (a distractor) persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_1 ], $question['options'][0] );
+	check( '[1] option 2 (a distractor) persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_2 ], $question['options'][1] );
+	check( '[1] option 3 (a distractor) persisted', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_3 ], $question['options'][2] );
+	check( '[1] option 4 persisted blank', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_4 ], '' );
+	check( '[1] scenario persisted', $GLOBALS['__acf_values'][ $post_id ]['field_scenario'], $question['scenario'] );
+	check( '[1] Hint persisted with the generated non-revealing hint (there is no separate "explanation" field on this site)', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_HINT ], $question['hint'] );
+	check( '[1] Question Class is set to harvard', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_QUESTION_CLASS ], 'harvard' );
+	// CRITICAL — the Answer field holds the FULL TEXT of the correct
+	// reference (reconstructedReference), never a bare letter, and it is
+	// NEVER also duplicated into one of the 4 option slots. This is the
+	// direct fix for the reported bug: the previous design placed the
+	// correct reference into a pseudo-random option slot AND into the
+	// Answer field, and the student app rendered the two copies as
+	// separate, simultaneously-"selected" options.
+	check( '[1] Answer field written as the FULL correct reference text, never a letter', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_ANSWER ], $question['reconstructedReference'] );
+	check( '[1] Answer field is NOT a bare letter', in_array( $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_ANSWER ], array( 'A', 'B', 'C', 'D' ), true ), false );
+	check( '[1] the correct answer is never duplicated into any option slot', in_array( $question['reconstructedReference'], $question['options'], true ), false );
+	check( '[1] result reports optionsVerified 4/4', $result['optionsVerified'], '4/4' );
+	check( '[1] result reports answerVerified', $result['answerVerified'], true );
+	check( '[1] result reports scenarioVerified', $result['scenarioVerified'], true );
+	check( '[1] result reports hintVerified', $result['hintVerified'], true );
+	check( '[1] Category/Exercise assigned and verified', $GLOBALS['__post_terms'][ $post_id ]['reference_category'], array( 1, 2 ) );
+	check( '[1] status is draft as requested', get_post_status( $post_id ), 'draft' );
+	check( '[1] save lifecycle fired wp_update_post', $GLOBALS['__wp_update_post_calls'] > 0, true );
+	check( '[1] save lifecycle fired clean_post_cache for this post', in_array( $post_id, $GLOBALS['__clean_post_cache_calls'], true ), true );
+	check( '[1] save lifecycle explicitly fired acf/save_post for this post', in_array( $post_id, $GLOBALS['__acf_save_post_calls'], true ), true );
+	check( '[1] a plain _citex_question_type post meta key is written (no ACF field for this exists on the site)', $GLOBALS['__post_meta'][ $post_id ]['_citex_question_type'][0] ?? null, 'MCQ' );
+}
+
+// ---------------------------------------------------------------------
+// 2. CRITICAL — the Answer field holds the FULL correct option text
+// regardless of the field's own ACF configuration, even when Answer is
+// (unexpectedly) a choice-type field with a small fixed choice list that
+// obviously cannot contain a full reference string as one of its options.
+// There is no longer any "discover the field's accepted shape" step for
+// Answer — the full text is written unconditionally, exactly matching the
+// real, confirmed "Answer" field on the live site (a plain text input).
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_ANSWER ] = array(
+	'key'     => Citex_Populator::FIELD_ANSWER,
+	'type'    => 'select',
+	'choices' => array( 'option_1' => 'Option 1', 'option_2' => 'Option 2', 'option_3' => 'Option 3', 'option_4' => 'Option 4' ),
+);
+$populator2 = new Citex_Populator();
+$question2  = mcq_question();
+$result2 = invoke_private( $populator2, 'populate_one', array( $question2, 'question', 0, $field_map, 'draft' ) );
+check( '[2] population succeeds even with a choice-type Answer field', is_wp_error( $result2 ), false );
+if ( ! is_wp_error( $result2 ) ) {
+	check( '[2] the FULL correct reference text is written, not a choice key', $GLOBALS['__acf_values'][ $result2['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question2['reconstructedReference'] );
+}
+
+// ---------------------------------------------------------------------
+// 3. The same holds for a radio-type Answer field with numerically-keyed
+// choices — still the full option text, never "2".
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_ANSWER ] = array(
+	'key'     => Citex_Populator::FIELD_ANSWER,
+	'type'    => 'radio',
+	'choices' => array( '1' => 'First option', '2' => 'Second option', '3' => 'Third option', '4' => 'Fourth option' ),
+);
+$populator3 = new Citex_Populator();
+$question3  = mcq_question();
+$result3 = invoke_private( $populator3, 'populate_one', array( $question3, 'question', 0, $field_map, 'draft' ) );
+check( '[3] population succeeds with a numerically-keyed choice Answer field', is_wp_error( $result3 ), false );
+if ( ! is_wp_error( $result3 ) ) {
+	check( '[3] the FULL correct reference text is written, not "2"', $GLOBALS['__acf_values'][ $result3['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question3['reconstructedReference'] );
+}
+
+// ---------------------------------------------------------------------
+// 3b. And for a letter-keyed choice-type Answer field — still the full
+// option text, never "B". This is the exact bug this fix addresses: a
+// bare letter ("C" on the real reported record) rendered as a spurious
+// 5th option in the student app because it could not be translated back
+// into option text.
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_ANSWER ] = array(
+	'key'     => Citex_Populator::FIELD_ANSWER,
+	'type'    => 'select',
+	'choices' => array( 'A' => 'Option A', 'B' => 'Option B', 'C' => 'Option C', 'D' => 'Option D' ),
+);
+$populator3b = new Citex_Populator();
+$question3b  = mcq_question();
+$result3b = invoke_private( $populator3b, 'populate_one', array( $question3b, 'question', 0, $field_map, 'draft' ) );
+check( '[3b] population succeeds with a letter-keyed choice Answer field', is_wp_error( $result3b ), false );
+if ( ! is_wp_error( $result3b ) ) {
+	check( '[3b] the FULL correct reference text is written, not "B"', $GLOBALS['__acf_values'][ $result3b['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question3b['reconstructedReference'] );
+}
+
+// ---------------------------------------------------------------------
+// 4. Even an Answer field whose choices don't remotely resemble option
+// identifiers no longer causes an "ambiguous" failure — there is nothing
+// to disambiguate any more, since Citex never tries to match a choice at
+// all. Population succeeds and the full option text is still written.
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_ANSWER ] = array(
+	'key'     => Citex_Populator::FIELD_ANSWER,
+	'type'    => 'select',
+	'choices' => array( 'yes' => 'Yes', 'no' => 'No' ), // no choice remotely resembles an option identifier
+);
+$populator4 = new Citex_Populator();
+$question4  = mcq_question();
+$result4 = invoke_private( $populator4, 'populate_one', array( $question4, 'question', 0, $field_map, 'draft' ) );
+check( '[4] population succeeds regardless of how unrelated the Answer field\'s choices are', is_wp_error( $result4 ), false );
+if ( ! is_wp_error( $result4 ) ) {
+	check( '[4] the FULL correct reference text is still written', $GLOBALS['__acf_values'][ $result4['postId'] ][ Citex_Populator::FIELD_ANSWER ], $question4['reconstructedReference'] );
+}
+
+// ---------------------------------------------------------------------
+// 5. A malformed MCQ question record (not exactly 4 options) fails safely
+// with a clear message and no post left behind — the same "verify, then
+// rollback on any failure" contract already used for DragDrop.
+// ---------------------------------------------------------------------
+reset_environment();
+$populator5 = new Citex_Populator();
+$result5 = invoke_private( $populator5, 'populate_one', array( mcq_question( array( 'options' => array( 'a', 'b', 'c' ) ) ), 'question', 0, $field_map, 'draft' ) );
+check( '[5] exactly 4 options is enforced at population time too', is_wp_error( $result5 ), true );
+check( '[5] no post is left behind', $GLOBALS['__posts'], array() );
+
+// ---------------------------------------------------------------------
+// 6b. Exercise assignment must never cross-leak — a real production report
+// was "questions for Exercise 1 showing up in Exercise 3 too". This proves
+// the mechanism MCQ shares with DragDrop (assign_generated_classification())
+// attaches ONLY the requested Exercise's term, with Exercise 2 and 3's own
+// term IDs present as real siblings in the taxonomy but never attached.
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__terms_full']['reference_category'] = array(
+	1 => array( 'name' => 'Book', 'parent' => 0 ),
+	2 => array( 'name' => 'Exercise 1', 'parent' => 1 ),
+	3 => array( 'name' => 'Exercise 2', 'parent' => 1 ),
+	4 => array( 'name' => 'Exercise 3', 'parent' => 1 ),
+);
+$populator6b = new Citex_Populator();
+$result6b = invoke_private( $populator6b, 'populate_one', array( mcq_question( array( 'exercise' => 'Exercise 1' ) ), 'question', 0, $field_map, 'draft' ) );
+check( '[6b] an Exercise-1 MCQ populates successfully alongside sibling Exercise 2/3 terms', is_wp_error( $result6b ), false );
+if ( ! is_wp_error( $result6b ) ) {
+	$attached = $GLOBALS['__post_terms'][ $result6b['postId'] ]['reference_category'] ?? array();
+	check( '[6b] only Book + Exercise 1 are attached — Exercise 3\'s term ID (4) is never present', $attached, array( 1, 2 ) );
+	check( '[6b] Exercise 3\'s term is not attached', in_array( 4, $attached, true ), false );
+	check( '[6b] Exercise 2\'s term is not attached', in_array( 3, $attached, true ), false );
+}
+
+// ---------------------------------------------------------------------
+// 6. Wiring guard: an MCQ question is never populated against a
+// DragDrop-only template (which would leave stray DragDrop meta on an MCQ
+// post) — asserted directly against the source, since find_template_post_id()
+// only ever finds a Book/DragDrop record and maybe_handle_submit() must
+// force template_id to 0 for MCQ specifically rather than reusing it.
+// ---------------------------------------------------------------------
+$populator_source = file_get_contents( __DIR__ . '/../citex-tools/includes/class-citex-populator.php' );
+check( "[6] maybe_handle_submit() forces template_id to 0 for MCQ questions ('MCQ' === \$type ? 0 : ...)", false !== strpos( $populator_source, "'MCQ' === \$type ? 0 : \$dragdrop_template_id" ), true );
+
+echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
+exit( 0 === $failures ? 0 : 1 );
