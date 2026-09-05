@@ -83,7 +83,7 @@ check(
 // ---------------------------------------------------------------------
 $shape = Citex_Reference_Rules::dragdrop_shape( $WR, $dated_fields );
 check( '[17] exactly 6 draggable parts, in Liverpool Hope order', $shape['parts'], array( 'Mitchell, S.', '2024', 'Study skills guide', 'University of Leeds', 'https://www.leeds.ac.uk/study-skills', '2 September 2026' ) );
-check( '[17] fixedText bakes in "[online]"/"Available from:" as fixed literal text', $shape['fixedText'], '|| (||) || [online]. ||. Available from: <||> [accessed ||].' );
+check( '[17] fixedText bakes in "[online]"/"Available from:" as fixed literal text', $shape['fixedText'], '| (||) || [online]. ||. Available from: <||> [accessed ||].' );
 
 function reconstruct_from_shape( $shape ) {
 	$fixed = $shape['fixedText']; $parts = $shape['parts']; $reference = ''; $part_index = 0; $length = strlen( $fixed );

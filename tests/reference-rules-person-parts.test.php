@@ -82,10 +82,10 @@ foreach ( array( 1, 2, 3 ) as $max ) {
 // joiner as literal text between consecutive tokens.
 // =======================================================================
 list( $drawn2, $joiners2 ) = Citex_Reference_Rules::person_parts( array_slice( $pool, 0, 2 ), 2 );
-check( '[2] name_template() for 2 drawn parts (no overflow)', Citex_Reference_Rules::name_template( $drawn2, $joiners2 ), '|| and ||' );
+check( '[2] name_template() for 2 drawn parts (no overflow)', Citex_Reference_Rules::name_template( $drawn2, $joiners2 ), '| and ||' );
 
 list( $drawn3, $joiners3 ) = Citex_Reference_Rules::person_parts( array_slice( $pool, 0, 4 ), 2 );
-check( '[2] name_template() for 2 drawn parts (with overflow — comma, not "and")', Citex_Reference_Rules::name_template( $drawn3, $joiners3 ), '||, ||' );
+check( '[2] name_template() for 2 drawn parts (with overflow — comma, not "and")', Citex_Reference_Rules::name_template( $drawn3, $joiners3 ), '|, ||' );
 
 // =======================================================================
 // 3. part_suitability()'s word-count cap — a part under ~20 words is

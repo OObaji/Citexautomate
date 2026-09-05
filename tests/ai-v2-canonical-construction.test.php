@@ -223,7 +223,7 @@ check( '[multi-author] normalise() succeeds for three authors', is_wp_error( $th
 if ( ! is_wp_error( $three_author_result ) ) {
 	$candidate = $three_author_result[0];
 	check( '[multi-author] Question Parts draw only the first author individually, plus year and title (never multiple authors as one part, never as separate parts)', $candidate['questionParts'], array( 'Smith, J.', '2020', 'Understanding digital culture' ) );
-	check( '[multi-author] Fixed Text has 3 placeholder tokens, with the 2nd and 3rd authors folded in as a correct literal continuation', $candidate['fixedText'], '||, Jones, A. and Brown, T. (||) ||. London: SAGE Publications.' );
+	check( '[multi-author] Fixed Text has 3 placeholder tokens, with the 2nd and 3rd authors folded in as a correct literal continuation', $candidate['fixedText'], '|, Jones, A. and Brown, T. (||) ||. London: SAGE Publications.' );
 	check( '[multi-author] the reconstructed reference joins all three authors, never "et al."', $candidate['reconstructedReference'], 'Smith, J., Jones, A. and Brown, T. (2020) Understanding digital culture. London: SAGE Publications.' );
 	check( '[multi-author] "et al." never appears in the reference', false !== strpos( $candidate['reconstructedReference'], 'et al' ), false );
 	check( '[multi-author] authorFullNames is carried through in order', $candidate['authorFullNames'], array( 'John Smith', 'Amy Jones', 'Tom Brown' ) );

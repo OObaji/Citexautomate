@@ -167,12 +167,22 @@ class Citex_AI_V2 {
 		$rule_tested    = $scenario_entry['ruleTested'] ?? '';
 		$target_count   = $scenario_entry ? Citex_Question_Scenarios::target_count_for( $scenario_entry, $args['starting_id'] ?? $scenario_id ) : null;
 		$scenario_instruction = self::scenario_count_instruction( $category, $target_count, $scenario_id );
-		// The Journal Article "exercise design" this batch tests — see
+		// The "exercise design" this batch/question tests. For Journal
+		// Article/Website this is the batch-level design named by the
+		// assigned scenario (see
 		// Citex_Reference_Rules::journal_article_dragdrop_shape()'s
-		// docblock. 'full_reference' (the original, unchanged 7-part shape)
-		// whenever the assigned scenario carries no 'exerciseDesign' key, or
-		// for every other category, which never reads this value at all.
-		$exercise_design = $scenario_entry['exerciseDesign'] ?? 'full_reference';
+		// docblock) — 'full_reference' (the original, unchanged shape)
+		// whenever the scenario carries no 'exerciseDesign' key. For Book/
+		// Edited Book (neither of which has ever had a scenario carry this
+		// key), the default is instead 'random': normalise_dragdrop_item()/
+		// normalise_edited_book_item() read this to mean "pick one of
+		// Citex_Reference_Rules::book_dragdrop_designs()/
+		// edited_book_dragdrop_designs(), seeded per QUESTION" rather than a
+		// single fixed design for the whole batch — so not every generated
+		// question tests the same fields (year always, place/publisher
+		// never). MCQ ignores this value entirely for every category.
+		$default_exercise_design = in_array( $category, array( Citex_Reference_Rules::CATEGORY_BOOK, Citex_Reference_Rules::CATEGORY_EDITED_BOOK ), true ) ? 'random' : 'full_reference';
+		$exercise_design = $scenario_entry['exerciseDesign'] ?? $default_exercise_design;
 
 		// Existing reconstructed references (same category) this batch must
 		// not duplicate — the one concrete "too similar to recent history"
@@ -1083,7 +1093,7 @@ class Citex_AI_V2 {
 				}
 				$candidate = 'MCQ' === $type
 					? self::normalise_edited_book_mcq_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty )
-					: self::normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors );
+					: self::normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design );
 			} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
 				$article_title = trim( (string) ( $item['articleTitle'] ?? '' ) );
 				$journal_title = trim( (string) ( $item['journalTitle'] ?? '' ) );
@@ -1201,7 +1211,7 @@ class Citex_AI_V2 {
 
 				$candidate = 'MCQ' === $type
 					? self::normalise_mcq_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty )
-					: self::normalise_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors );
+					: self::normalise_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design );
 			}
 			if ( is_wp_error( $candidate ) ) { return $candidate; }
 
@@ -1267,10 +1277,21 @@ class Citex_AI_V2 {
 	 * @param array $authors array<{fullName, surname, initials}>, 1 or more.
 	 * @return array|WP_Error
 	 */
-	private static function normalise_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors ) {
+	private static function normalise_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design = 'full_reference' ) {
 		$distractors = array_values( array_filter( array_map( 'trim', (array) ( $item['confusingWords'] ?? array() ) ), 'strlen' ) );
 		$fields = array( 'authors' => $authors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
-		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, $fields );
+		// 'random' (generate_questions()'s real default for this category —
+		// see its own docblock) picks a design per QUESTION, seeded by this
+		// question's own id, so a batch of several Book questions does not
+		// all draw the same fields — never the same design twice just
+		// because they share one Gemini request/scenario. Any other value
+		// (an explicit design id, or the 'full_reference' default used by
+		// every caller that never opts in, including every existing test)
+		// is passed straight through — dragdrop_shape() falls back to the
+		// unchanged baseline shape for any id it does not recognise as one
+		// of its own variants.
+		$book_design = 'random' === $exercise_design ? Citex_Reference_Rules::book_dragdrop_design_for( $id ) : $exercise_design;
+		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, $fields, $book_design );
 		$parts = $shape['parts'];
 		$fixed = $shape['fixedText'];
 		$count = self::placeholder_count( $fixed ); if ( is_wp_error( $count ) ) { return $count; } if ( count( $parts ) !== $count ) { return new WP_Error( 'citex_ai_bad_placeholders', sprintf( __( 'Question %1$s has %2$d draggable placeholder tokens; %3$d are required.', 'citex-tools' ), $id, $count, count( $parts ) ) ); }
@@ -1289,7 +1310,7 @@ class Citex_AI_V2 {
 		}
 		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, $fields );
 		$author_full_names = array_column( $authors, 'fullName' );
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'exerciseDesign' => sanitize_key( $book_design ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**
@@ -1623,10 +1644,12 @@ class Citex_AI_V2 {
 	 *
 	 * @return array|WP_Error
 	 */
-	private static function normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors ) {
+	private static function normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design = 'full_reference' ) {
 		$distractors = array_values( array_filter( array_map( 'trim', (array) ( $item['confusingWords'] ?? array() ) ), 'strlen' ) );
 		$fields = array( 'editors' => $editors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
-		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $fields );
+		// See normalise_dragdrop_item()'s identical 'random' handling.
+		$edited_book_design = 'random' === $exercise_design ? Citex_Reference_Rules::edited_book_dragdrop_design_for( $id ) : $exercise_design;
+		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $fields, $edited_book_design );
 		$parts = $shape['parts'];
 		$fixed = $shape['fixedText'];
 		$count = self::placeholder_count( $fixed ); if ( is_wp_error( $count ) ) { return $count; } if ( count( $parts ) !== $count ) { return new WP_Error( 'citex_ai_bad_placeholders', sprintf( __( 'Question %1$s has %2$d draggable placeholder tokens; %3$d are required.', 'citex-tools' ), $id, $count, count( $parts ) ) ); }
@@ -1645,7 +1668,7 @@ class Citex_AI_V2 {
 		}
 		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $fields );
 		$editor_full_names = array_column( $editors, 'fullName' );
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Edited Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'initials' => sanitize_text_field( $editor['initials'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Edited Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'exerciseDesign' => sanitize_key( $edited_book_design ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'initials' => sanitize_text_field( $editor['initials'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**
