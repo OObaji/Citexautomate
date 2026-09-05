@@ -51,6 +51,18 @@ class Citex_Reference_Rules {
 	const JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS = 3;
 	const JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS = 4;
 
+	/**
+	 * HARD RULE for Book DragDrop questions (never MCQ): every generated
+	 * question must draw between 2 and 4 draggable Question Parts, no
+	 * fewer, no more — Citex_Book_Dragdrop_Parts::select_parts() only ever
+	 * produces a selection within this range. Enforced independently at
+	 * validation time (Citex_Generated_Validator::validate_dragdrop()'s
+	 * Book-only block), mirroring JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/
+	 * MAX_PARTS's existing pattern.
+	 */
+	const BOOK_DRAGDROP_MIN_PARTS = 2;
+	const BOOK_DRAGDROP_MAX_PARTS = 4;
+
 	public static function categories() {
 		return array( self::CATEGORY_BOOK, self::CATEGORY_EDITED_BOOK, self::CATEGORY_JOURNAL_ARTICLE, self::CATEGORY_WEBSITE );
 	}
@@ -349,34 +361,28 @@ class Citex_Reference_Rules {
 	 * grammar — see class-citex-populator.php's docblock) that the parts
 	 * slot into.
 	 *
-	 * Book/Edited Book's DEFAULT design (null, or the id returned by
-	 * book_dragdrop_designs()[0]/edited_book_dragdrop_designs()[0]) is
-	 * unchanged from before this plugin ever varied place/publisher:
-	 * author(s)/editor(s), designation (Edited Book only), year and title
-	 * are draggable; place and publisher are baked into the fixed template
-	 * directly, from the record. Book branches on author count: a SINGLE
-	 * author keeps the original 4-part shape (surname and initials as two
-	 * separate draggable parts — every existing single-author question is
-	 * completely unaffected). TWO OR MORE authors draw only the FIRST
-	 * author as an individual part (via person_parts( $authors, 1 )) plus
-	 * year and title — 3 parts total; a 2nd+ author is folded into
-	 * fixedText as a correct, non-draggable continuation (person_parts()'s
-	 * overflow), never lumped together with the drawn author, and never
-	 * adding a second author as its own part — a Question Part is never
-	 * lengthened by joining multiple author names.
+	 * Book is NOT handled here — its DragDrop shape is built dynamically,
+	 * per question, by Citex_Book_Dragdrop_Parts (a 2-4 part selection from
+	 * a wider pool that includes the joining word "and" and punctuation,
+	 * not just whole bibliographic fields), replacing the fixed
+	 * catalogue this method used to serve for it.
 	 *
-	 * Edited Book keeps its designation ("(ed.)"/"(eds)") as its own
-	 * dedicated part always, and likewise draws only the FIRST editor as an
-	 * individual part (person_parts( $editors, 1 )) plus designation, year
-	 * and title — always exactly 4 parts, for any editor count; a 2nd+
-	 * editor is folded into fixedText the same way.
+	 * Edited Book's DEFAULT design (null, or the id returned by
+	 * edited_book_dragdrop_designs()[0]) is unchanged from before this
+	 * plugin ever varied place/publisher: the editor, designation
+	 * ("(ed.)"/"(eds)"), year and title are draggable; place and publisher
+	 * are baked into the fixed template directly, from the record. It
+	 * keeps its designation as its own dedicated part always, and draws
+	 * only the FIRST editor as an individual part (person_parts( $editors, 1 )
+	 * ) plus designation, year and title — always exactly 4 parts, for any
+	 * editor count; a 2nd+ editor is folded into fixedText as a correct,
+	 * non-draggable continuation (person_parts()'s overflow).
 	 *
-	 * Any OTHER $design id from book_dragdrop_designs()/
-	 * edited_book_dragdrop_designs() swaps year for place or publisher (see
-	 * book_dragdrop_shape_variant()/edited_book_dragdrop_shape_variant()) so
-	 * not every generated question tests the same fields — see
-	 * Citex_AI_V2::normalise_dragdrop_item()/normalise_edited_book_item()
-	 * for where a design is actually picked, at random, per question.
+	 * Any OTHER $design id from edited_book_dragdrop_designs() swaps year
+	 * for place or publisher (see edited_book_dragdrop_shape_variant())
+	 * so not every generated question tests the same fields — see
+	 * Citex_AI_V2::normalise_edited_book_item() for where a design is
+	 * actually picked, at random, per question.
 	 *
 	 * @return array{parts: string[], fixedText: string}
 	 */
@@ -399,202 +405,16 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_WEBSITE === $category ) {
 			return self::website_dragdrop_shape( $fields, $design );
 		}
-		$authors = $fields['authors'];
-		if ( in_array( $design, self::book_dragdrop_variant_designs(), true ) ) {
-			return self::book_dragdrop_shape_variant( $design, $authors, $fields );
-		}
-		if ( 1 === count( $authors ) ) {
-			return array(
-				'parts'     => array( $authors[0]['surname'], $authors[0]['initials'], $fields['year'], $fields['title'] ),
-				'fixedText' => sprintf( '|, || (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
-			);
-		}
-		// Only the FIRST author is ever an individual draggable part — any
-		// further authors are folded into fixedText as a correct,
-		// non-draggable continuation (person_parts()'s overflow), so a
-		// Question Part is never lengthened by joining multiple author
-		// names together. See person_parts()'s docblock.
-		list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
-		return array(
-			'parts'     => array_merge( $drawn, array( $fields['year'], $fields['title'] ) ),
-			'fixedText' => sprintf( '%s%s (||) ||. %s: %s.', self::name_template( $drawn, $joiners ), $overflow, $fields['place'], $fields['publisher'] ),
-		);
+		return null;
 	}
 
 	/**
-	 * Book's DragDrop "exercise design" catalogue — the baseline
-	 * ('author_year_title', unchanged behaviour, always tests year, never
-	 * place/publisher) plus variety designs that swap year for place or
-	 * publisher, and/or split the drawn author's surname and initials into
-	 * two separate Question Parts instead of one combined "Surname, I."
-	 * chip — so a generated batch does not test the exact same fields, in
-	 * the exact same shape, every single question:
-	 * - author_title_place (3 parts): author, title, place — year and
-	 *   publisher baked into fixedText.
-	 * - author_title_publisher (3 parts): author, title, publisher — year
-	 *   and place baked into fixedText.
-	 * - author_year_title_place (4 parts): author, year, title, place —
-	 *   publisher baked into fixedText.
-	 * - author_year_title_publisher (4 parts): author, year, title,
-	 *   publisher — place baked into fixedText.
-	 * - author_split_year_title (4 parts): surname, initials, year, title —
-	 *   same fields as the baseline, but ALWAYS as two separate parts (the
-	 *   baseline itself already does this, but only incidentally, for
-	 *   exactly one author; this design does it for any author count).
-	 * - author_split_title_place (4 parts): surname, initials, title,
-	 *   place — year baked, publisher baked.
-	 * - author_split_title_publisher (4 parts): surname, initials, title,
-	 *   publisher — year baked, place baked.
-	 * Never both place AND publisher drawn in the same design — Harvard's
-	 * "Place: Publisher." pair always appears together in the final
-	 * reference either way, just with one of the two baked as literal text
-	 * when the other is the one being tested. The split designs never pair
-	 * with the 4-field place+year or publisher+year combinations — splitting
-	 * the name into 2 parts already uses the 4th slot, so a split design
-	 * always bakes both year and one of place/publisher, keeping every
-	 * design at exactly 3 or 4 parts.
-	 *
-	 * @return string[] design ids, baseline first.
-	 */
-	public static function book_dragdrop_designs() {
-		return array( 'author_year_title', 'author_title_place', 'author_title_publisher', 'author_year_title_place', 'author_year_title_publisher', 'author_split_year_title', 'author_split_title_place', 'author_split_title_publisher' );
-	}
-
-	/**
-	 * Design ids that trigger book_dragdrop_shape_variant() — every design
-	 * except the baseline, which dragdrop_shape() keeps handling inline
-	 * (unchanged code path, for zero behaviour change to any existing
-	 * caller that never names a design at all).
-	 *
-	 * @return string[]
-	 */
-	private static function book_dragdrop_variant_designs() {
-		return array_values( array_diff( self::book_dragdrop_designs(), array( 'author_year_title' ) ) );
-	}
-
-	/**
-	 * Which canonical fields a given Book design's reconstructed string
-	 * actually draws as draggable Question Parts (mirrors
-	 * journal_article_design_fields()'s role for Journal Article) — every
-	 * design's reconstructed STRING still contains every field regardless
-	 * (place/publisher/year always appear in the final reference; this is
-	 * only about which ones are draggable vs. baked literal text).
-	 *
-	 * @return string[]|null null for an unrecognised design id.
-	 */
-	public static function book_dragdrop_design_fields( $design ) {
-		$map = array(
-			'author_year_title'            => array( 'authors', 'year', 'title' ),
-			'author_title_place'           => array( 'authors', 'title', 'place' ),
-			'author_title_publisher'       => array( 'authors', 'title', 'publisher' ),
-			'author_year_title_place'      => array( 'authors', 'year', 'title', 'place' ),
-			'author_year_title_publisher'  => array( 'authors', 'year', 'title', 'publisher' ),
-			'author_split_year_title'      => array( 'authors', 'year', 'title' ),
-			'author_split_title_place'     => array( 'authors', 'title', 'place' ),
-			'author_split_title_publisher' => array( 'authors', 'title', 'publisher' ),
-		);
-		return $map[ $design ] ?? null;
-	}
-
-	/**
-	 * Deterministically, but effectively unpredictably, picks one Book
-	 * design per generated question, seeded by that question's own id (so
-	 * repeated calls for different questions in the same batch land on
-	 * different designs, while a re-run with the same id is reproducible
-	 * for testing) — see Citex_Question_Scenarios::target_count_for()'s
-	 * identical crc32-seeding pattern. Weighted so the baseline
-	 * ('author_year_title') is picked half the time, and each of the 7
-	 * variety designs (place/publisher-testing and split-name alike) a
-	 * further fourteenth — "not every question", per this feature's own
-	 * requirement, without ever making the baseline rare.
-	 *
-	 * @param string|int $seed Typically the question's own id (e.g. "BK04").
-	 * @return string design id.
-	 */
-	public static function book_dragdrop_design_for( $seed ) {
-		$weighted = array_merge(
-			array_fill( 0, 7, 'author_year_title' ),
-			array( 'author_title_place', 'author_title_publisher', 'author_year_title_place', 'author_year_title_publisher', 'author_split_year_title', 'author_split_title_place', 'author_split_title_publisher' )
-		);
-		$index = abs( crc32( 'book|' . (string) $seed ) ) % count( $weighted );
-		return $weighted[ $index ];
-	}
-
-	/**
-	 * Builds the DragDrop shape for any of book_dragdrop_designs()'s
-	 * non-baseline ids — see book_dragdrop_designs()'s own docblock for
-	 * which fields each draws. The four "author_*" (non-split) designs use
-	 * ONE combined "Surname, I." author chip (person_parts( $authors, 1 )),
-	 * for any author count, exactly like the baseline's own 2+-author
-	 * case — freeing a slot (vs. the baseline's single-author surname/
-	 * initials split) for the extra place/publisher part. The three
-	 * "author_split_*" designs instead always render the drawn author as
-	 * TWO separate parts (surname, then initials) — reusing person_parts()
-	 * purely for its $overflow computation (a 2nd+ author still folds in
-	 * as a correct literal continuation exactly as elsewhere; only how the
-	 * FIRST author's own name is split changes) and Citex's established
-	 * leading-pipe fragment "|, ||" (see name_template()'s docblock and the
-	 * original single-author baseline's own identical fragment) for the
-	 * two name slots themselves.
-	 *
-	 * @return array{parts: string[], fixedText: string}
-	 */
-	private static function book_dragdrop_shape_variant( $design, array $authors, array $fields ) {
-		list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
-		if ( in_array( $design, array( 'author_split_year_title', 'author_split_title_place', 'author_split_title_publisher' ), true ) ) {
-			$surname  = $authors[0]['surname'];
-			$initials = $authors[0]['initials'];
-			if ( 'author_split_title_place' === $design ) {
-				return array(
-					'parts'     => array( $surname, $initials, $fields['title'], $fields['place'] ),
-					'fixedText' => sprintf( '|, ||%s (%s) ||. ||: %s.', $overflow, $fields['year'], $fields['publisher'] ),
-				);
-			}
-			if ( 'author_split_title_publisher' === $design ) {
-				return array(
-					'parts'     => array( $surname, $initials, $fields['title'], $fields['publisher'] ),
-					'fixedText' => sprintf( '|, ||%s (%s) ||. %s: ||.', $overflow, $fields['year'], $fields['place'] ),
-				);
-			}
-			// 'author_split_year_title'.
-			return array(
-				'parts'     => array( $surname, $initials, $fields['year'], $fields['title'] ),
-				'fixedText' => sprintf( '|, ||%s (||) ||. %s: %s.', $overflow, $fields['place'], $fields['publisher'] ),
-			);
-		}
-		$author_template = self::name_template( $drawn, $joiners ) . $overflow;
-		if ( 'author_title_publisher' === $design ) {
-			return array(
-				'parts'     => array_merge( $drawn, array( $fields['title'], $fields['publisher'] ) ),
-				'fixedText' => sprintf( '%s (%s) ||. %s: ||.', $author_template, $fields['year'], $fields['place'] ),
-			);
-		}
-		if ( 'author_year_title_place' === $design ) {
-			return array(
-				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['title'], $fields['place'] ) ),
-				'fixedText' => sprintf( '%s (||) ||. ||: %s.', $author_template, $fields['publisher'] ),
-			);
-		}
-		if ( 'author_year_title_publisher' === $design ) {
-			return array(
-				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['title'], $fields['publisher'] ) ),
-				'fixedText' => sprintf( '%s (||) ||. %s: ||.', $author_template, $fields['place'] ),
-			);
-		}
-		// 'author_title_place' (also the fallback for any other id reaching
-		// here, though dragdrop_shape() only ever calls this for a
-		// recognised variant design).
-		return array(
-			'parts'     => array_merge( $drawn, array( $fields['title'], $fields['place'] ) ),
-			'fixedText' => sprintf( '%s (%s) ||. ||: %s.', $author_template, $fields['year'], $fields['publisher'] ),
-		);
-	}
-
-	/**
-	 * Edited Book's DragDrop "exercise design" catalogue — same rationale
-	 * as book_dragdrop_designs(), but the designation ("(ed.)"/"(eds)")
-	 * part is never traded away (it is this category's own defining rule,
-	 * always tested):
+	 * Edited Book's DragDrop "exercise design" catalogue — a fixed
+	 * catalogue of author/field-swap designs (Book's own equivalent
+	 * catalogue was replaced by Citex_Book_Dragdrop_Parts's dynamic 2-4
+	 * part selection — see dragdrop_shape()'s docblock). The designation
+	 * ("(ed.)"/"(eds)") part is never traded away (it is this category's
+	 * own defining rule, always tested):
 	 * - editor_designation_year_title (baseline, unchanged): editor,
 	 *   designation, year, title.
 	 * - editor_designation_title_place: editor, designation, title, place —

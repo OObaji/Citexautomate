@@ -172,16 +172,19 @@ class Citex_AI_V2 {
 		// assigned scenario (see
 		// Citex_Reference_Rules::journal_article_dragdrop_shape()'s
 		// docblock) — 'full_reference' (the original, unchanged shape)
-		// whenever the scenario carries no 'exerciseDesign' key. For Book/
-		// Edited Book (neither of which has ever had a scenario carry this
-		// key), the default is instead 'random': normalise_dragdrop_item()/
-		// normalise_edited_book_item() read this to mean "pick one of
-		// Citex_Reference_Rules::book_dragdrop_designs()/
-		// edited_book_dragdrop_designs(), seeded per QUESTION" rather than a
-		// single fixed design for the whole batch — so not every generated
-		// question tests the same fields (year always, place/publisher
-		// never). MCQ ignores this value entirely for every category.
-		$default_exercise_design = in_array( $category, array( Citex_Reference_Rules::CATEGORY_BOOK, Citex_Reference_Rules::CATEGORY_EDITED_BOOK ), true ) ? 'random' : 'full_reference';
+		// whenever the scenario carries no 'exerciseDesign' key. For
+		// Edited Book (which has never had a scenario carry this key), the
+		// default is instead 'random': normalise_edited_book_item() reads
+		// this to mean "pick one of
+		// Citex_Reference_Rules::edited_book_dragdrop_designs(), seeded per
+		// QUESTION" rather than a single fixed design for the whole batch —
+		// so not every generated question tests the same fields (year
+		// always, place/publisher never). Book ignores this value entirely
+		// for both MCQ and DragDrop — Citex_Book_Mcq_Variants/
+		// Citex_Book_Dragdrop_Parts each pick their own per-question
+		// selection directly from the question id, independent of any
+		// batch-level design concept.
+		$default_exercise_design = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'random' : 'full_reference';
 		$exercise_design = $scenario_entry['exerciseDesign'] ?? $default_exercise_design;
 
 		// Existing reconstructed references (same category) this batch must
@@ -312,7 +315,7 @@ class Citex_AI_V2 {
 		}
 		return 'MCQ' === $type
 			? self::build_prompt_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
-			: self::build_prompt( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+			: self::build_prompt_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 	}
 
 	/**
@@ -393,7 +396,7 @@ class Citex_AI_V2 {
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			return 'MCQ' === $type ? self::schema_website_mcq() : self::schema_website();
 		}
-		return 'MCQ' === $type ? self::schema_book_mcq_variant() : self::schema();
+		return 'MCQ' === $type ? self::schema_book_mcq_variant() : self::schema_book_dragdrop();
 	}
 
 	private static function system_instruction_for( $type, $category, $scenario_id = '' ) {
@@ -420,7 +423,7 @@ class Citex_AI_V2 {
 	private static function system_instruction_for_book( $type ) {
 		return 'MCQ' === $type
 			? 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Book bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book — never a different edition or a different book, and never a different number of authors than the real book actually has. You are NOT asked for a scenario, question text, options, or a correct answer of any kind; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, drawing on a fixed catalogue of Harvard book-formatting rules (author joining and ordering, publication year formatting, place/publisher ordering, overall reference structure, and more) that varies from question to question. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: authorFullNames, year, bookTitle, place and publisher all describe the same book with no contradictions, and the real author count. Return only the requested JSON.'
-			: 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Book DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book, and the scenario text must explicitly name that same title, EVERY author\'s full name, the same year, place and publisher — never a different edition, a different book, or a different number of authors than the real book actually has. Citex derives each author\'s surname and initials itself from authorFullNames — you never provide them separately — and constructs Question Parts and Fixed Text itself (including how multiple authors are joined: Harvard always lists every author in full, joined with "and"/commas, never "et al." in the reference list), so your questionParts and fixedText values are for your own self-check only and are not read as authoritative. CRITICAL — the scenario must state every author\'s full real name naturally (for example "Alan Bryman" or "Alan Bryman and Jo Martin") and must NEVER state, label, or abbreviate any author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference (never write anything like "Bryman, A." or "Bryman et al."), and must NEVER use the words "initial" or "surname" — the student must derive the initials and the Harvard format themselves from the full name(s) you provide. Before returning each question, perform a strict self-check: scenario, authorFullNames, year, bookTitle, place and publisher must all describe the same book with no contradictions; the scenario must not reveal any answer value by labelling it as a surname, initial, year blank, title blank, or reference component; and every confusing word must be unique and different from every correct Question Part. Return only the requested JSON.';
+			: 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Book DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book, and the scenario text must explicitly name that same title, EVERY author\'s full name, the same year, place and publisher — never a different edition, a different book, or a different number of authors than the real book actually has. You are NOT asked for questionParts, fixedText, or any distractor/confusingWords list at all; Citex builds the ENTIRE draggable question itself — deterministically, from this canonical record alone — deciding which 2 to 4 parts a student must drag into place (possibly including the joining word "and" or the punctuation around the year/publisher, not just whole bibliographic fields) and every wrong chip, covering a range of different Harvard book-formatting rules across the batch. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through. CRITICAL — the scenario must state every author\'s full real name naturally (for example "Alan Bryman" or "Alan Bryman and Jo Martin") and must NEVER state, label, or abbreviate any author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference (never write anything like "Bryman, A." or "Bryman et al."), and must NEVER use the words "initial" or "surname" — the student must derive the initials and the Harvard format themselves from the full name(s) you provide. Before returning each question, perform a strict self-check: scenario, authorFullNames, year, bookTitle, place and publisher must all describe the same book with no contradictions; and the scenario must not reveal any answer value by labelling it as a surname, initial, year blank, title blank, or reference component. Return only the requested JSON.';
 	}
 
 	/**
@@ -503,8 +506,18 @@ class Citex_AI_V2 {
 			. "- Keep every other field concise too, short enough to sit comfortably on a mobile screen.";
 	}
 
-	private static function build_prompt( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
-		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher/journal is real.' : 'Invent a plausible, internally consistent record if needed — the publisher/journal must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Bryman\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Keep the author count consistent throughout the question. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- The scenario MUST explicitly state that same bookTitle, EVERY author's full name, the same year, the same place and the same publisher. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nMULTIPLE AUTHORS — LIVERPOOL HOPE'S REFERENCE-LIST RULE:\n- For the reference list (which is the only thing this question generates), EVERY author is always listed in full — 2 authors are joined with \"and\"; 3 or more are comma-separated with \"and\" before the final author; this never changes at 4 or more authors.\n- \"et al.\" must NEVER appear in the reference-list entry, for any author count. (\"et al.\" is Harvard's separate IN-TEXT-CITATION convention for 4+ authors — this question never generates an in-text citation, only a reference-list entry, so that abbreviation does not belong here at all.)\n- Citex constructs the joined author list itself from authorFullNames — you never write the joined form yourself.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are creating a reference for a book titled...' or 'You are referencing a book titled...'.\n- State the book title, EVERY author's FULL NAME, publication year, publisher and publication place.\n- Prefer concise real book titles; never truncate or alter the actual bibliographic title.\n- The scenario MUST NOT state, label, or abbreviate any author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, and MUST NOT show any completed or abbreviated Harvard reference (e.g. never write \"Bryman, A.\", \"Bryman, A. (2012)\", or \"Bryman et al.\").\n- GOOD (one author): \"You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.\"\n- GOOD (two authors): \"You are referencing a book titled Understanding digital culture by Vincent Miller and Jo Martin, published in 2020 by SAGE Publications in London.\"\n- BAD: \"...by Alan Bryman (initials A.), published in 2012...\" — reveals the initials directly.\n- BAD: \"...by Bryman, A., published in 2012...\" — states the abbreviated citation form directly.\n- BAD: \"...by Smith et al., published in 2020...\" — states the in-text-citation abbreviation directly, and is also not how the reference-list entry is written.\n- BAD: \"The author's surname is Bryman and his initials are A.\" — explicitly labels both answers.\n- A full author name naturally containing the surname (e.g. \"Alan Bryman\") is correct and required — the failure is explicitly labelling or abbreviating an answer value, not the surname appearing as part of the full name.\n- The student must transform the full bibliographic information you give into the Harvard reference themselves; do not do that transformation for them anywhere in the scenario.\n\nDRAGDROP:\n- Citex derives each author's surname/initials from authorFullNames and constructs Question Parts and Fixed Text itself from surname(s)/initials/year/bookTitle/place/publisher — your questionParts and fixedText fields are used only for your own self-check and are not read as authoritative, so make sure they exactly match those fields too (surname = each full name's last word; initials = the first letter of every other word in that name, each followed by a full stop, no spaces, e.g. \"John Michael Smith\" -> \"J.M.\").\n- For ONE author: questionParts must contain exactly 4 items: surname, initials, year, book title.\n- For TWO OR MORE authors: questionParts must contain exactly 3 items: the joined author list (e.g. \"Smith, J. and Jones, A.\"), year, book title — the whole author list is a SINGLE draggable part, not one part per author.\n- fixedText must contain a draggable placeholder TOKEN for every item in questionParts (4 for one author, 3 for two or more).\n- A single | token is allowed only at the beginning or end. Every internal placeholder token MUST be ||.\n- Canonical fixedText for one author: |, || (||) ||. Place: Publisher.\n- Canonical fixedText for two or more authors: | (||) ||. Place: Publisher.\n- Do not use a single internal |.\n- Reconstructed answer (one author): Surname, I. (YYYY) Book Title. Place: Publisher.\n- Reconstructed answer (two or more authors): Surname, I. and Surname, I. (YYYY) Book Title. Place: Publisher. (extending with commas and a final \"and\" for 3+, never \"et al.\").\n- No full stop after the year parentheses; no spaces before punctuation; one space after the colon; final full stop required.\n\nDISTRACTORS — CRITICAL:\n- Medium exactly 3; Easy exactly 2; Hard exactly 4.\n- Every distractor must be different from ALL correct Question Parts after trimming and case-insensitive comparison.\n- Distractors must also be unique from one another.\n- Do not use the correct title, surname(s), initials, year or any exact copy of a correct part as a distractor.\n- Before returning each question, compare every confusingWords value against every Question Part and replace any match.\n- Prefer plausible alternatives such as another year, city, publisher, author surname, or book title; for a multi-author question, an author-joining mistake (\"&\" instead of \"and\", or \"et al.\") is also a good confusing word.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. The scenario states every author's full name naturally and never the words \"initial\"/\"initials\"/\"surname\", and never a completed, abbreviated, or \"et al.\" reference.\n3. Question Parts exactly match the required shape for this author count (4 items for one author; 3 items — joined author list, year, title — for two or more), correctly derived from authorFullNames.\n4. Fixed Text has exactly as many placeholder positions as Question Parts and reconstructs the required reference, with every author listed in full and \"et al.\" never used.\n5. No unwanted punctuation or spacing errors.\n6. Correct number of distractors for the difficulty.\n7. Zero distractors match any correct Question Part.\n8. Zero duplicate distractors.\n9. Only return questions that pass all nine checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+	/**
+	 * Book DragDrop prompt — like build_prompt_book_mcq_variant(), this asks
+	 * Gemini for NOTHING beyond the canonical book record and a non-leaking
+	 * scenario: no questionParts, no fixedText, no confusingWords.
+	 * Citex_Book_Dragdrop_Parts::select_parts()/build() construct the entire
+	 * question (which 2-4 parts are drawn, Fixed Text, and every wrong
+	 * chip) deterministically from that record alone — replaces the
+	 * original fixed 8-design catalogue and its Gemini-authored
+	 * confusingWords list.
+	 */
+	private static function build_prompt_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Bryman\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Keep the author count consistent throughout the question. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- The scenario MUST explicitly state that same bookTitle, EVERY author's full name, the same year, the same place and the same publisher. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nMULTIPLE AUTHORS — LIVERPOOL HOPE'S REFERENCE-LIST RULE:\n- For the reference list (which is the only thing this question generates), EVERY author is always listed in full — 2 authors are joined with \"and\"; 3 or more are comma-separated with \"and\" before the final author; this never changes at 4 or more authors.\n- \"et al.\" must NEVER appear in the reference-list entry, for any author count. (\"et al.\" is Harvard's separate IN-TEXT-CITATION convention for 4+ authors — this question never generates an in-text citation, only a reference-list entry, so that abbreviation does not belong here at all.)\n- Citex constructs the joined author list itself from authorFullNames — you never write the joined form yourself.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are creating a reference for a book titled...' or 'You are referencing a book titled...'.\n- State the book title, EVERY author's FULL NAME, publication year, publisher and publication place.\n- Prefer concise real book titles; never truncate or alter the actual bibliographic title.\n- The scenario MUST NOT state, label, or abbreviate any author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, and MUST NOT show any completed or abbreviated Harvard reference (e.g. never write \"Bryman, A.\", \"Bryman, A. (2012)\", or \"Bryman et al.\").\n- GOOD (one author): \"You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.\"\n- GOOD (two authors): \"You are referencing a book titled Understanding digital culture by Vincent Miller and Jo Martin, published in 2020 by SAGE Publications in London.\"\n- BAD: \"...by Alan Bryman (initials A.), published in 2012...\" — reveals the initials directly.\n- BAD: \"...by Bryman, A., published in 2012...\" — states the abbreviated citation form directly.\n- BAD: \"...by Smith et al., published in 2020...\" — states the in-text-citation abbreviation directly, and is also not how the reference-list entry is written.\n- BAD: \"The author's surname is Bryman and his initials are A.\" — explicitly labels both answers.\n- A full author name naturally containing the surname (e.g. \"Alan Bryman\") is correct and required — the failure is explicitly labelling or abbreviating an answer value, not the surname appearing as part of the full name.\n- The student must transform the full bibliographic information you give into the Harvard reference themselves; do not do that transformation for them anywhere in the scenario.\n\nYou are NOT asked for questionParts, fixedText, or any distractor/confusingWords list — Citex builds the whole draggable question itself (which 2-4 parts are drawn from the record — possibly including the joining word \"and\" or the punctuation around the year/publisher — Fixed Text, and every wrong chip), deterministically, after you respond. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. The scenario states every author's full name naturally and never the words \"initial\"/\"initials\"/\"surname\", and never a completed, abbreviated, or \"et al.\" reference.\n3. Only return questions that pass both checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
@@ -813,12 +826,19 @@ class Citex_AI_V2 {
 		), 'required' => array( 'questionId','editorFullNames','year','bookTitle','place','publisher','distractors' ) ) ) ), 'required' => array( 'questions' ) );
 	}
 
-	private static function schema() {
+	/**
+	 * Book DragDrop schema — Gemini supplies only the canonical
+	 * bibliographic record and a scenario, the same shape
+	 * schema_book_mcq_variant() already uses: no `questionParts`,
+	 * `fixedText`, or `confusingWords` properties at all —
+	 * Citex_Book_Dragdrop_Parts constructs the entire question
+	 * deterministically from this record alone.
+	 */
+	private static function schema_book_dragdrop() {
 		$s = array( 'type' => 'string' );
 		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
 			'questionId' => $s, 'scenario' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'place' => $s, 'publisher' => $s,
-			'questionParts' => array( 'type' => 'array', 'items' => $s ), 'fixedText' => $s, 'confusingWords' => array( 'type' => 'array', 'items' => $s )
-		), 'required' => array( 'questionId','scenario','authorFullNames','year','bookTitle','place','publisher','questionParts','fixedText','confusingWords' ) ) ) ), 'required' => array( 'questions' ) );
+		), 'required' => array( 'questionId','scenario','authorFullNames','year','bookTitle','place','publisher' ) ) ) ), 'required' => array( 'questions' ) );
 	}
 
 	/**
@@ -1228,7 +1248,7 @@ class Citex_AI_V2 {
 
 				$candidate = 'MCQ' === $type
 					? self::normalise_book_mcq_variant_item( $item, $id, $authors, $year, $title, $place, $publisher, $exercise, $difficulty )
-					: self::normalise_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design );
+					: self::normalise_book_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty );
 			}
 			if ( is_wp_error( $candidate ) ) { return $candidate; }
 
@@ -1294,40 +1314,39 @@ class Citex_AI_V2 {
 	 * @param array $authors array<{fullName, surname, initials}>, 1 or more.
 	 * @return array|WP_Error
 	 */
-	private static function normalise_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design = 'full_reference' ) {
-		$distractors = array_values( array_filter( array_map( 'trim', (array) ( $item['confusingWords'] ?? array() ) ), 'strlen' ) );
-		$fields = array( 'authors' => $authors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
-		// 'random' (generate_questions()'s real default for this category —
-		// see its own docblock) picks a design per QUESTION, seeded by this
-		// question's own id, so a batch of several Book questions does not
-		// all draw the same fields — never the same design twice just
-		// because they share one Gemini request/scenario. Any other value
-		// (an explicit design id, or the 'full_reference' default used by
-		// every caller that never opts in, including every existing test)
-		// is passed straight through — dragdrop_shape() falls back to the
-		// unchanged baseline shape for any id it does not recognise as one
-		// of its own variants.
-		$book_design = 'random' === $exercise_design ? Citex_Reference_Rules::book_dragdrop_design_for( $id ) : $exercise_design;
-		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, $fields, $book_design );
-		$parts = $shape['parts'];
-		$fixed = $shape['fixedText'];
-		$count = self::placeholder_count( $fixed ); if ( is_wp_error( $count ) ) { return $count; } if ( count( $parts ) !== $count ) { return new WP_Error( 'citex_ai_bad_placeholders', sprintf( __( 'Question %1$s has %2$d draggable placeholder tokens; %3$d are required.', 'citex-tools' ), $id, $count, count( $parts ) ) ); }
-		if ( count( $distractors ) !== $expected_distractors ) { return new WP_Error( 'citex_ai_bad_distractors', sprintf( __( 'Question %s has %d distractors; %d are required for %s difficulty.', 'citex-tools' ), $id, count( $distractors ), $expected_distractors, ucfirst( $difficulty ) ) ); }
-		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
-		foreach ( $distractors as $distractor ) {
-			$normal = strtolower( trim( $distractor ) );
-			if ( in_array( $normal, $correct_lower, true ) ) { $rejection = self::quality_reject( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
-			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
-			$seen[ $normal ] = true;
+	/**
+	 * Citex — not Gemini — authors the ENTIRE Book DragDrop question: which
+	 * 2-4 parts are drawn, the wrong ("confusing") chip for each, Question
+	 * Parts, and Fixed Text, via Citex_Book_Dragdrop_Parts — replaces the
+	 * original fixed 8-design catalogue (Citex_Reference_Rules::
+	 * book_dragdrop_designs() and friends, now removed) and its
+	 * Gemini-authored confusingWords list. Gemini supplies nothing beyond
+	 * the canonical book record ($authors/$year/$title/$place/$publisher)
+	 * and a non-leaking scenario — no distractor text, nothing that needs
+	 * its own plausibility check, since every part and every wrong chip is
+	 * a deterministic transformation of that one record (see
+	 * Citex_Generated_Validator::validate_dragdrop()'s Book-only block,
+	 * which recomputes and exact-matches this from the stored
+	 * `dragdropPartKeys` selection).
+	 *
+	 * The selection is picked per QUESTION (seeded by this question's own
+	 * id, via Citex_Book_Dragdrop_Parts::select_parts()) — so a batch is
+	 * not all the same part combination, and always includes at least one
+	 * real content field (never only structural chips).
+	 *
+	 * @param array $authors array<{fullName, surname, initials}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_book_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty ) {
+		$fields = array( 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
+		$selected_keys = Citex_Book_Dragdrop_Parts::select_parts( $id, $authors );
+		$built = Citex_Book_Dragdrop_Parts::build( $selected_keys, $authors, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_book_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build Book DragDrop parts for this record.', 'citex-tools' ), $id ) );
 		}
-		$suitability_reason = Citex_Reference_Rules::part_suitability( $parts, self::configured_part_word_limit() );
-		if ( null !== $suitability_reason ) {
-			$rejection = self::quality_reject( 'citex_ai_part_too_long', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $suitability_reason ) );
-			if ( $rejection ) { return $rejection; }
-		}
-		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, $fields );
+		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, array_merge( $fields, array( 'authors' => $authors ) ) );
 		$author_full_names = array_column( $authors, 'fullName' );
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'exerciseDesign' => sanitize_key( $book_design ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**

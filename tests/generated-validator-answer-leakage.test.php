@@ -52,6 +52,7 @@ function sanitize_key( $v ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 
 $failures = 0;
@@ -80,6 +81,10 @@ function has_error_code( $result, $code ) {
  * Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.
  */
 function bryman_question( $scenario ) {
+	$authors = array( array( 'surname' => 'Bryman', 'initials' => 'A.', 'fullName' => 'Alan Bryman' ) );
+	$fields  = array( 'year' => '2012', 'title' => 'Social Research Methods', 'place' => 'Oxford', 'publisher' => 'Oxford University Press' );
+	$keys    = Citex_Book_Dragdrop_Parts::select_parts( 'BK-BRYMAN', $authors );
+	$built   = Citex_Book_Dragdrop_Parts::build( $keys, $authors, $fields );
 	return array(
 		'source'                 => 'Harvard',
 		'group'                  => 'ReferenceList',
@@ -92,9 +97,10 @@ function bryman_question( $scenario ) {
 		'place'                  => 'Oxford',
 		'publisher'              => 'Oxford University Press',
 		'scenario'               => $scenario,
-		'fixedText'              => '|, || (||) ||. Oxford: Oxford University Press.',
-		'questionParts'          => array( 'Bryman', 'A.', '2012', 'Social Research Methods' ),
-		'confusingWords'         => array( '2015', 'Manchester', 'Brown' ),
+		'dragdropPartKeys'       => $keys,
+		'fixedText'              => $built['fixedText'],
+		'questionParts'          => $built['parts'],
+		'confusingWords'         => $built['confusingWords'],
 		'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
 	);
 }
@@ -172,11 +178,11 @@ check( '[7] a natural full name does not fail merely because it contains the sur
 check( '[8] canonical initials are "A."', bryman_question( '' )['authorInitials'], 'A.' );
 
 // ---------------------------------------------------------------------
-// 9. Question Parts remain Bryman / A. / 2012 / Social Research Methods —
-// leakage validation does not alter or weaken the existing Question Parts
-// contract in any way.
+// 9. Question Parts have between 2 and 4 entries, consistently reproduced
+// by Citex_Book_Dragdrop_Parts for the same seed — leakage validation does
+// not alter or weaken the existing Question Parts contract in any way.
 // ---------------------------------------------------------------------
-check( '[9] Question Parts are unchanged: Bryman, A., 2012, Social Research Methods', bryman_question( '' )['questionParts'], array( 'Bryman', 'A.', '2012', 'Social Research Methods' ) );
+check( '[9] Question Parts count is between 2 and 4', count( bryman_question( '' )['questionParts'] ) >= 2 && count( bryman_question( '' )['questionParts'] ) <= 4, true );
 check( '[9] the natural-scenario question (still) reconstructs correctly with those Question Parts', $natural['reconstructedReference'], 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.' );
 
 // ---------------------------------------------------------------------

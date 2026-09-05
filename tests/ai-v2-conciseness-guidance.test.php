@@ -64,6 +64,7 @@ function get_option( $key, $default = null ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
@@ -95,7 +96,7 @@ $never_shorten_marker = 'NEVER abbreviate, shorten, truncate, or otherwise alter
 // 1. Every prompt builder that carries bibliographic data includes the
 // conciseness guidance.
 // ---------------------------------------------------------------------
-$book_dragdrop_prompt = invoke_private( 'build_prompt', array( $ids, 'medium', false ) );
+$book_dragdrop_prompt = invoke_private( 'build_prompt_book_dragdrop', array( $ids, 'medium', false ) );
 check( '[1] Book DragDrop prompt includes the conciseness guidance', false !== strpos( $book_dragdrop_prompt, $marker ), true );
 
 $book_mcq_prompt = invoke_private( 'build_prompt_book_mcq_variant', array( $ids, 'medium', false ) );

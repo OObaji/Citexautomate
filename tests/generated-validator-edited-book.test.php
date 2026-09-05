@@ -37,6 +37,7 @@ function sanitize_key( $v ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 
 $failures = 0;
@@ -356,6 +357,10 @@ check( '[9] reports EDITED_BOOK_SCENARIO_MISMATCH', has_error_code( $missing_edi
 // ---------------------------------------------------------------------
 // 10. Book itself is completely unaffected by Edited Book support.
 // ---------------------------------------------------------------------
+$bryman_authors = array( array( 'surname' => 'Bryman', 'initials' => 'A.', 'fullName' => 'Alan Bryman' ) );
+$bryman_fields  = array( 'year' => '2012', 'title' => 'Social Research Methods', 'place' => 'Oxford', 'publisher' => 'Oxford University Press' );
+$bryman_keys    = Citex_Book_Dragdrop_Parts::select_parts( 'BK-BRYMAN', $bryman_authors );
+$bryman_built   = Citex_Book_Dragdrop_Parts::build( $bryman_keys, $bryman_authors, $bryman_fields );
 $book_still_works = Citex_Generated_Validator::validate(
 	array(
 		'source'                 => 'Harvard',
@@ -369,9 +374,10 @@ $book_still_works = Citex_Generated_Validator::validate(
 		'place'                  => 'Oxford',
 		'publisher'              => 'Oxford University Press',
 		'scenario'               => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
-		'fixedText'              => '|, || (||) ||. Oxford: Oxford University Press.',
-		'questionParts'          => array( 'Bryman', 'A.', '2012', 'Social Research Methods' ),
-		'confusingWords'         => array( '2015', 'Manchester', 'Brown' ),
+		'dragdropPartKeys'       => $bryman_keys,
+		'fixedText'              => $bryman_built['fixedText'],
+		'questionParts'          => $bryman_built['parts'],
+		'confusingWords'         => $bryman_built['confusingWords'],
 		'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
 	)
 );

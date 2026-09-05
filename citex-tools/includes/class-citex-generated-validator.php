@@ -127,6 +127,71 @@ class Citex_Generated_Validator {
 			}
 		}
 
+		// HARD RULE, DragDrop-only, Book-only: EXACTLY 2-4 Question Parts
+		// (Citex_Reference_Rules::BOOK_DRAGDROP_MIN_PARTS/MAX_PARTS) — see
+		// validate_book_mcq_variant()'s own docblock for why this can go
+		// further than a mere plausibility check: every Book DragDrop part
+		// and every confusing word is Citex-authored, deterministically,
+		// from the record's own canonical fields via
+		// Citex_Book_Dragdrop_Parts, so the exact expected
+		// {parts, fixedText, confusingWords} can be recomputed from the
+		// record and the question's own stored `dragdropPartKeys`
+		// selection and compared exactly, rather than merely sanity-checked.
+		if ( Citex_Reference_Rules::CATEGORY_BOOK === $category ) {
+			$part_count = count( $question_parts );
+			if ( $part_count < Citex_Reference_Rules::BOOK_DRAGDROP_MIN_PARTS || $part_count > Citex_Reference_Rules::BOOK_DRAGDROP_MAX_PARTS ) {
+				$errors[] = self::error(
+					'BOOK_DRAGDROP_PART_COUNT_OUT_OF_RANGE',
+					sprintf(
+						'Book DragDrop questions must have between %1$d and %2$d Question Parts; %3$d were provided.',
+						Citex_Reference_Rules::BOOK_DRAGDROP_MIN_PARTS,
+						Citex_Reference_Rules::BOOK_DRAGDROP_MAX_PARTS,
+						$part_count
+					)
+				);
+			}
+
+			$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+			if ( empty( $authors ) ) {
+				$fallback_surname  = trim( (string) ( $question['authorSurname'] ?? '' ) );
+				$fallback_initials = trim( (string) ( $question['authorInitials'] ?? '' ) );
+				if ( '' !== $fallback_surname || '' !== $fallback_initials ) {
+					$authors = array( array( 'surname' => $fallback_surname, 'initials' => $fallback_initials, 'fullName' => (string) ( $question['authorFullName'] ?? '' ) ) );
+				}
+			}
+			$book_title = trim( (string) ( $question['bookTitle'] ?? '' ) );
+
+			// Records with no canonical author or title data at all (e.g.
+			// externally imported, pre-dating this feature) are unaffected —
+			// mirrors validate_bibliographic_consistency()'s own identical
+			// skip condition; this exact-match check must not retroactively
+			// fail data that never carried a canonical record to recompute
+			// against in the first place.
+			if ( ! ( empty( $authors ) && '' === $book_title ) ) {
+				$selected_keys  = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$book_fields    = array(
+					'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+					'title'     => $book_title,
+					'place'     => trim( (string) ( $question['place'] ?? '' ) ),
+					'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+				);
+				$expected_build = ( empty( $selected_keys ) || empty( $authors ) ) ? null : Citex_Book_Dragdrop_Parts::build( $selected_keys, $authors, $book_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'BOOK_DRAGDROP_PARTS_UNKNOWN', 'The Book DragDrop part selection (dragdropPartKeys) is missing, malformed, or names an author index out of range.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'BOOK_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'BOOK_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'BOOK_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
+				}
+			}
+		}
+
 		$reconstruction = self::reconstruct( $fixed_text, $question_parts );
 		if ( is_wp_error( $reconstruction ) ) {
 			$errors[] = self::error( $reconstruction->get_error_code(), $reconstruction->get_error_message() );
@@ -1089,11 +1154,11 @@ class Citex_Generated_Validator {
 	 * `authors` array falls back to the singular authorSurname/authorInitials
 	 * fields (treated as a single author) — this keeps every pre-multi-author
 	 * record, and any externally imported record that only ever populated
-	 * the singular fields, validating exactly as before. Question Parts must
-	 * exactly match Citex_Reference_Rules::dragdrop_shape()'s own output for
-	 * these same canonical authors — reusing that method (rather than
-	 * re-deriving its author-count branching here) is what keeps this check
-	 * correct for any author count instead of assuming a fixed 4-part shape.
+	 * the singular fields, validating exactly as before. Question Parts are
+	 * NOT re-checked here — validate_dragdrop()'s own Book-only block
+	 * already recomputes and exact-matches {parts, fixedText,
+	 * confusingWords} via Citex_Book_Dragdrop_Parts::build(), which is
+	 * strictly stronger than a parts-shape check alone.
 	 */
 	private static function validate_bibliographic_consistency( $question, $question_parts, $reference, $check_scenario = true ) {
 		$errors  = array();
@@ -1118,33 +1183,6 @@ class Citex_Generated_Validator {
 		$year      = trim( (string) ( $question['year'] ?? '' ) );
 		$place     = trim( (string) ( $question['place'] ?? '' ) );
 		$publisher = trim( (string) ( $question['publisher'] ?? '' ) );
-
-		// Question Parts must be EXACTLY the shape Citex_Reference_Rules::
-		// dragdrop_shape() would build for these canonical authors, for
-		// WHICHEVER exercise design this record was generated with (see
-		// Citex_Reference_Rules::book_dragdrop_designs()'s docblock) —
-		// mirrors how validate_journal_article_consistency()/
-		// validate_website_consistency() read their own exerciseDesign
-		// field. Defaults to 'full_reference' (not one of Book's own design
-		// ids, so dragdrop_shape() falls back to the original baseline
-		// shape) for any pre-existing record with no exerciseDesign field
-		// at all — reusing dragdrop_shape() itself (rather than
-		// re-deriving its branching logic here) is what makes this check
-		// meaningful for any author count and any design.
-		$design         = trim( (string) ( $question['exerciseDesign'] ?? 'full_reference' ) );
-		$expected_shape = Citex_Reference_Rules::dragdrop_shape(
-			Citex_Reference_Rules::CATEGORY_BOOK,
-			array( 'authors' => $authors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher ),
-			$design
-		);
-		$expected_parts = array_map( 'trim', $expected_shape['parts'] );
-		$actual_parts   = array_map( 'trim', (array) $question_parts );
-		if ( $expected_parts !== array_values( $actual_parts ) ) {
-			$errors[] = self::error(
-				'BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH',
-				'Question Parts do not exactly match the canonical bibliographic record (author(s), year, title) for this author count.'
-			);
-		}
 
 		foreach ( $authors as $index => $author ) {
 			$author_surname  = trim( (string) ( $author['surname'] ?? '' ) );

@@ -38,6 +38,7 @@ function sanitize_key( $v ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 
 $failures = 0;
@@ -66,6 +67,15 @@ function has_error_code( $result, $code ) {
  * Cottrell, S. (2019) Critical Thinking Skills. London: Red Globe Press.
  */
 function canonical_question( $overrides = array() ) {
+	$authors = array( array( 'surname' => 'Cottrell', 'initials' => 'S.', 'fullName' => 'Stella Cottrell' ) );
+	$fields  = array( 'year' => '2019', 'title' => 'Critical Thinking Skills', 'place' => 'London', 'publisher' => 'Red Globe Press' );
+	// Explicit keys (surname, initials, year, title), not select_parts()'s own
+	// seeded random pick — this fixture needs a fixed, predictable 4-part
+	// shape so the below sections' Question-Parts overrides stay meaningful
+	// (a mismatched surname/year/title) regardless of which fields the real
+	// per-question seeding would otherwise have drawn.
+	$keys  = array( 'author_0_surname', 'author_0_initials', 'year', 'title' );
+	$built = Citex_Book_Dragdrop_Parts::build( $keys, $authors, $fields );
 	$base = array(
 		'source'                 => 'Harvard',
 		'group'                  => 'ReferenceList',
@@ -78,9 +88,10 @@ function canonical_question( $overrides = array() ) {
 		'place'                  => 'London',
 		'publisher'              => 'Red Globe Press',
 		'scenario'               => 'You are referencing a book titled Critical Thinking Skills by Stella Cottrell, published in London by Red Globe Press in 2019.',
-		'fixedText'              => '|, || (||) ||. London: Red Globe Press.',
-		'questionParts'          => array( 'Cottrell', 'S.', '2019', 'Critical Thinking Skills' ),
-		'confusingWords'         => array( '2016', 'Manchester', 'Brown' ),
+		'dragdropPartKeys'       => $keys,
+		'fixedText'              => $built['fixedText'],
+		'questionParts'          => $built['parts'],
+		'confusingWords'         => $built['confusingWords'],
 		'reconstructedReference' => 'Cottrell, S. (2019) Critical Thinking Skills. London: Red Globe Press.',
 	);
 	return array_merge( $base, $overrides );
@@ -100,7 +111,7 @@ $bug_repro = canonical_question(
 );
 $result = Citex_Generated_Validator::validate( $bug_repro );
 check( '[bug repro] mismatched Question Parts vs. scenario must FAIL', $result['status'], 'failed' );
-check( '[bug repro] reports BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH', has_error_code( $result, 'bibliographic_consistency_parts_mismatch' ), true );
+check( '[bug repro] reports BOOK_DRAGDROP_PARTS_MISMATCH', has_error_code( $result, 'book_dragdrop_parts_mismatch' ), true );
 check( '[bug repro] reports BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH (initials/year/title absent from reference)', has_error_code( $result, 'bibliographic_consistency_reference_mismatch' ), true );
 
 // ---------------------------------------------------------------------
@@ -159,7 +170,7 @@ $wrong_parts = Citex_Generated_Validator::validate(
 	)
 );
 check( '[question parts wrong] status is failed', $wrong_parts['status'], 'failed' );
-check( '[question parts wrong] reports BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH', has_error_code( $wrong_parts, 'bibliographic_consistency_parts_mismatch' ), true );
+check( '[question parts wrong] reports BOOK_DRAGDROP_PARTS_MISMATCH', has_error_code( $wrong_parts, 'book_dragdrop_parts_mismatch' ), true );
 check( '[question parts wrong] reports BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH (wrong surname in reference)', has_error_code( $wrong_parts, 'bibliographic_consistency_reference_mismatch' ), true );
 
 // ---------------------------------------------------------------------
@@ -202,21 +213,20 @@ $no_canonical = Citex_Generated_Validator::validate(
 check( '[no canonical record] a record without authorSurname/bookTitle is unaffected by the new check', $no_canonical['status'], 'passed' );
 
 // ---------------------------------------------------------------------
-// 11. Regression for a real reported bug: a Book DragDrop candidate built
-// with one of the new field-variety exercise designs (see
-// Citex_Reference_Rules::book_dragdrop_designs()) was being validated as
-// if it always used the plain author/year/title baseline shape — this
-// check never read the record's own `exerciseDesign` field, so any
-// question that instead drew place or publisher as a Question Part
-// failed with a spurious BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH even
-// though its Question Parts were exactly correct for the design it was
-// actually built with.
+// 11. Regression for the real reported bug this check was built for,
+// re-targeted at the current mechanism: a Book DragDrop candidate NOT
+// using a single fixed baseline shape must still validate correctly,
+// judged against its OWN recorded `dragdropPartKeys` selection (see
+// Citex_Book_Dragdrop_Parts) rather than one hardcoded shape.
 // ---------------------------------------------------------------------
 $three_authors = array(
-	array( 'surname' => 'Bennett', 'initials' => 'L.' ),
-	array( 'surname' => 'Harper', 'initials' => 'C.' ),
-	array( 'surname' => 'Foster', 'initials' => 'F.' ),
+	array( 'surname' => 'Bennett', 'initials' => 'L.', 'fullName' => 'Lucas Bennett' ),
+	array( 'surname' => 'Harper', 'initials' => 'C.', 'fullName' => 'Chloe Harper' ),
+	array( 'surname' => 'Foster', 'initials' => 'F.', 'fullName' => 'Felix Foster' ),
 );
+$urban_fields = array( 'year' => '2021', 'title' => 'Urban Design', 'place' => 'London', 'publisher' => 'Routledge' );
+$urban_keys   = Citex_Book_Dragdrop_Parts::select_parts( 'BK-URBAN', $three_authors );
+$urban_built  = Citex_Book_Dragdrop_Parts::build( $urban_keys, $three_authors, $urban_fields );
 $variety_design_question = array(
 	'source'                 => 'Harvard',
 	'group'                  => 'ReferenceList',
@@ -228,63 +238,44 @@ $variety_design_question = array(
 	'bookTitle'              => 'Urban Design',
 	'place'                  => 'London',
 	'publisher'              => 'Routledge',
-	'exerciseDesign'         => 'author_year_title_place',
-	'fixedText'              => '|, Harper, C. and Foster, F. (||) ||. ||: Routledge.',
-	'questionParts'          => array( 'Bennett, L.', '2021', 'Urban Design', 'London' ),
-	'confusingWords'         => array( 'Bennett, L, Harper, C & Foster, F.', 'Bennett et al.', '2019 Urban Planning' ),
+	'dragdropPartKeys'       => $urban_keys,
+	'fixedText'              => $urban_built['fixedText'],
+	'questionParts'          => $urban_built['parts'],
+	'confusingWords'         => $urban_built['confusingWords'],
 	'reconstructedReference' => 'Bennett, L., Harper, C. and Foster, F. (2021) Urban Design. London: Routledge.',
 );
 $variety_result = Citex_Generated_Validator::validate( $variety_design_question );
-check( '[field-variety design] a correctly-built author_year_title_place question PASSES (not judged against the plain baseline shape)', $variety_result['status'], 'passed' );
-check( '[field-variety design] no BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH', has_error_code( $variety_result, 'bibliographic_consistency_parts_mismatch' ), false );
+check( '[part-selection] a correctly-built dynamic-selection question PASSES (not judged against a single fixed baseline shape)', $variety_result['status'], 'passed' );
+check( '[part-selection] no BOOK_DRAGDROP_PARTS_MISMATCH', has_error_code( $variety_result, 'book_dragdrop_parts_mismatch' ), false );
 
-// The SAME Question Parts, but with no exerciseDesign field at all (an
-// older record predating this feature, or one Gemini/Citex built as the
-// plain baseline) — this one legitimately SHOULD fail, since it really
-// doesn't match the baseline (author/year/title) shape it claims to be.
-$missing_design_question = $variety_design_question;
-unset( $missing_design_question['exerciseDesign'] );
-$missing_design_result = Citex_Generated_Validator::validate( $missing_design_question );
-check( '[field-variety design] the identical Question Parts WITHOUT exerciseDesign correctly FAILS against the baseline shape', $missing_design_result['status'], 'failed' );
-check( '[field-variety design] reports BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH when no design is recorded', has_error_code( $missing_design_result, 'bibliographic_consistency_parts_mismatch' ), true );
+// The SAME Question Parts, but with no dragdropPartKeys field at all (an
+// older record predating this feature) — this correctly fails, since
+// there is nothing to recompute the expected parts/fixedText from.
+$missing_keys_question = $variety_design_question;
+unset( $missing_keys_question['dragdropPartKeys'] );
+$missing_keys_result = Citex_Generated_Validator::validate( $missing_keys_question );
+check( '[part-selection] the identical Question Parts WITHOUT dragdropPartKeys correctly FAILS', $missing_keys_result['status'], 'failed' );
+check( '[part-selection] reports BOOK_DRAGDROP_PARTS_UNKNOWN when no selection is recorded', has_error_code( $missing_keys_result, 'book_dragdrop_parts_unknown' ), true );
 
-// A publisher-testing variant passes too, and a place-testing candidate
-// mislabelled with the publisher design correctly fails (wrong shape for
-// the design actually named).
-$publisher_variant = $variety_design_question;
-$publisher_variant['exerciseDesign'] = 'author_year_title_publisher';
-$publisher_variant['fixedText']      = '|, Harper, C. and Foster, F. (||) ||. London: ||.';
-$publisher_variant['questionParts']  = array( 'Bennett, L.', '2021', 'Urban Design', 'Routledge' );
-check( '[field-variety design] author_year_title_publisher with matching parts PASSES', Citex_Generated_Validator::validate( $publisher_variant )['status'], 'passed' );
+// A DIFFERENT valid selection (fewer parts) for the same record also
+// passes — proving the check adapts to whichever selection was actually
+// recorded, not a single hardcoded shape.
+$alt_keys     = array( 'year', 'title' );
+$alt_built    = Citex_Book_Dragdrop_Parts::build( $alt_keys, $three_authors, $urban_fields );
+$alt_question = $variety_design_question;
+$alt_question['dragdropPartKeys'] = $alt_keys;
+$alt_question['fixedText']        = $alt_built['fixedText'];
+$alt_question['questionParts']    = $alt_built['parts'];
+$alt_question['confusingWords']   = $alt_built['confusingWords'];
+check( '[part-selection] a different, smaller valid selection for the same record also PASSES', Citex_Generated_Validator::validate( $alt_question )['status'], 'passed' );
 
-$mislabelled_variant = $variety_design_question;
-$mislabelled_variant['exerciseDesign'] = 'author_year_title_publisher';
-// Parts/fixedText left as the PLACE-testing shape — wrong for the
-// publisher design named here.
-check( '[field-variety design] place-shaped parts mislabelled as author_year_title_publisher correctly FAILS', Citex_Generated_Validator::validate( $mislabelled_variant )['status'], 'failed' );
-
-// The "split" designs (surname/initials as two separate parts) validate
-// correctly too — built via dragdrop_shape() itself so the check can
-// never silently disagree with what Citex actually generates.
-$split_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, array( 'authors' => $three_authors, 'year' => '2021', 'title' => 'Urban Design', 'place' => 'London', 'publisher' => 'Routledge' ), 'author_split_title_place' );
-$split_design_question = array(
-	'source'                 => 'Harvard',
-	'group'                  => 'ReferenceList',
-	'category'               => 'Book',
-	'type'                   => 'DragDrop',
-	'scenario'               => 'You are referencing a book titled Urban Design by Lucas Bennett, Chloe Harper and Felix Foster, published in 2021 by Routledge in London.',
-	'authors'                => $three_authors,
-	'year'                   => '2021',
-	'bookTitle'              => 'Urban Design',
-	'place'                  => 'London',
-	'publisher'              => 'Routledge',
-	'exerciseDesign'         => 'author_split_title_place',
-	'fixedText'              => $split_shape['fixedText'],
-	'questionParts'          => $split_shape['parts'],
-	'confusingWords'         => array( 'Bennett, L, Harper, C & Foster, F.', 'Bennett et al.', '2019 Urban Planning' ),
-	'reconstructedReference' => 'Bennett, L., Harper, C. and Foster, F. (2021) Urban Design. London: Routledge.',
-);
-check( '[field-variety design] a correctly-built author_split_title_place question PASSES', Citex_Generated_Validator::validate( $split_design_question )['status'], 'passed' );
+// Question Parts tampered to no longer match the recorded selection
+// correctly FAILS.
+$tampered_question = $variety_design_question;
+$tampered_question['questionParts'][0] = 'Wrong';
+$tampered_result = Citex_Generated_Validator::validate( $tampered_question );
+check( '[part-selection] tampered Question Parts not matching the recorded selection correctly FAILS', $tampered_result['status'], 'failed' );
+check( '[part-selection] reports BOOK_DRAGDROP_PARTS_MISMATCH for tampered parts', has_error_code( $tampered_result, 'book_dragdrop_parts_mismatch' ), true );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

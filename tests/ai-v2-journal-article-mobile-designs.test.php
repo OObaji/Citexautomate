@@ -73,6 +73,7 @@ function get_option( $key, $default = null ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
@@ -419,13 +420,18 @@ check( 'a real 4-author DragDrop question with longer surnames generates success
 // Existing Book / Journal Article (full_reference MCQ) regression — direct
 // Citex_Generated_Validator checks, unaffected by any of the above.
 // =======================================================================
+$bryman_authors = array( array( 'surname' => 'Bryman', 'initials' => 'A.', 'fullName' => 'Alan Bryman' ) );
+$bryman_fields  = array( 'year' => '2012', 'title' => 'Social Research Methods', 'place' => 'Oxford', 'publisher' => 'Oxford University Press' );
+$bryman_keys    = Citex_Book_Dragdrop_Parts::select_parts( 'BK-BRYMAN', $bryman_authors );
+$bryman_built   = Citex_Book_Dragdrop_Parts::build( $bryman_keys, $bryman_authors, $bryman_fields );
 $book_check = Citex_Generated_Validator::validate( array(
 	'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'type' => 'DragDrop',
-	'authors' => array( array( 'surname' => 'Bryman', 'initials' => 'A.' ) ),
+	'authors' => $bryman_authors,
 	'year' => '2012', 'bookTitle' => 'Social Research Methods', 'place' => 'Oxford', 'publisher' => 'Oxford University Press',
-	'fixedText' => '|, || (||) ||. Oxford: Oxford University Press.',
-	'questionParts' => array( 'Bryman', 'A.', '2012', 'Social Research Methods' ),
-	'confusingWords' => array( '2010', 'London', 'Smith' ),
+	'dragdropPartKeys' => $bryman_keys,
+	'fixedText' => $bryman_built['fixedText'],
+	'questionParts' => $bryman_built['parts'],
+	'confusingWords' => $bryman_built['confusingWords'],
 	'scenario' => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
 	'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
 ) );

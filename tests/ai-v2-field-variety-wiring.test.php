@@ -1,20 +1,26 @@
 <?php
 /**
- * Regression tests for Citex_AI_V2::generate_questions()'s new default for
- * Book/Edited Book: $exercise_design defaults to 'random' (instead of the
- * inert 'full_reference' sentinel these two categories never read before),
- * which normalise_dragdrop_item()/normalise_edited_book_item() interpret as
- * "pick one of Citex_Reference_Rules::book_dragdrop_designs()/
- * edited_book_dragdrop_designs(), seeded per QUESTION" — so a batch of
- * several questions does not all draw the exact same fields (per the user's
- * own request: test place/publisher sometimes, not year every time).
+ * Regression tests for Citex_AI_V2::generate_questions()'s 'random'
+ * exercise_design default for Edited Book: $exercise_design defaults to
+ * 'random' (instead of the inert 'full_reference' sentinel this category
+ * never read before), which normalise_edited_book_item() interprets as
+ * "pick one of Citex_Reference_Rules::edited_book_dragdrop_designs(),
+ * seeded per QUESTION" — so a batch of several questions does not all draw
+ * the exact same fields (per the user's own request: test place/publisher
+ * sometimes, not year every time).
+ *
+ * Book no longer has an equivalent "exercise_design opt-in" concept at
+ * all — its DragDrop shape is always built dynamically, per question, by
+ * Citex_Book_Dragdrop_Parts (see tests/ai-v2-book-dragdrop-wiring.test.php
+ * for that coverage), independent of any batch-level design/exercise_design
+ * value.
  *
  * Crucially, every EXISTING test/caller that never passes $exercise_design
- * at all keeps normalise_dragdrop_item()/normalise_edited_book_item()'s own
- * default ('full_reference'), which is NOT one of either category's design
- * ids, so dragdrop_shape() falls through to the exact original baseline
- * shape — these tests exist to prove the 'random' opt-in is genuinely
- * additive, not a change to that default.
+ * at all keeps normalise_edited_book_item()'s own default
+ * ('full_reference'), which is NOT one of Edited Book's design ids, so
+ * dragdrop_shape() falls through to the exact original baseline shape —
+ * these tests exist to prove the 'random' opt-in is genuinely additive, not
+ * a change to that default.
  *
  * Repo-level only, run with plain
  * `php tests/ai-v2-field-variety-wiring.test.php` — not shipped in
@@ -65,6 +71,7 @@ function get_option( $key, $default = null ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
@@ -96,7 +103,6 @@ function make_book_item( $suffix ) {
 		'bookTitle'       => "Book $suffix",
 		'place'           => 'Cambridge',
 		'publisher'       => 'Polity',
-		'confusingWords'  => array( '2018', 'London', 'Brown' ),
 	);
 }
 
@@ -114,84 +120,58 @@ function make_edited_book_item( $suffix ) {
 
 // ---------------------------------------------------------------------
 // 1. Without opting in (the default 'full_reference' every pre-existing
-// caller/test relies on), Book/Edited Book DragDrop questions are
-// completely unaffected — always the exact original baseline shape.
-// ---------------------------------------------------------------------
-$book_ids = array_map( function ( $i ) { return 'BK' . str_pad( $i, 2, '0', STR_PAD_LEFT ); }, range( 1, 30 ) );
-$book_items = array_map( function ( $i ) { return make_book_item( $i ); }, range( 1, 30 ) );
-$unaffected_result = invoke_normalise( $book_items, $book_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_BOOK, 'full_reference' );
-check( '[1] normalise() succeeds with the default exercise_design', is_wp_error( $unaffected_result ), false );
-if ( ! is_wp_error( $unaffected_result ) ) {
-	$all_baseline = true;
-	foreach ( $unaffected_result as $candidate ) {
-		if ( 'full_reference' !== $candidate['exerciseDesign'] || array( 'Vance', 'C.', '2019', $candidate['bookTitle'] ) !== $candidate['questionParts'] ) {
-			$all_baseline = false;
-		}
-	}
-	check( '[1] every question keeps the exact original baseline shape (no opt-in)', $all_baseline, true );
-}
-
-// ---------------------------------------------------------------------
-// 2. With 'random' (generate_questions()'s real production default for
-// this category), a batch of many Book questions is NOT all identical —
-// some test year, some test place, some test publisher, per the user's
-// explicit "make every question different" request.
-// ---------------------------------------------------------------------
-$random_result = invoke_normalise( $book_items, $book_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_BOOK, 'random' );
-check( '[2] normalise() succeeds with exercise_design "random"', is_wp_error( $random_result ), false );
-if ( ! is_wp_error( $random_result ) ) {
-	$designs_seen = array();
-	$known_designs = Citex_Reference_Rules::book_dragdrop_designs();
-	foreach ( $random_result as $candidate ) {
-		check( '[2] every candidate\'s exerciseDesign is one of the known Book designs', in_array( $candidate['exerciseDesign'], $known_designs, true ), true );
-		check( '[2] every candidate has exactly 3 or 4 Question Parts', count( $candidate['questionParts'] ) >= 3 && count( $candidate['questionParts'] ) <= 4, true );
-		check( '[2] every candidate\'s reconstructedReference still names the real book/author/year/place/publisher', $candidate['reconstructedReference'], 'Vance, C. (2019) ' . $candidate['bookTitle'] . '. Cambridge: Polity.' );
-		$designs_seen[ $candidate['exerciseDesign'] ] = true;
-	}
-	check( '[2] a batch of 30 "random" questions is not all the same design', count( $designs_seen ) > 1, true );
-	// Deterministic per-id: matches Citex_Reference_Rules::book_dragdrop_design_for()
-	// directly, proving the seed really is the question's own id.
-	check(
-		'[2] each question\'s picked design matches book_dragdrop_design_for() for its own id',
-		$random_result[0]['exerciseDesign'],
-		Citex_Reference_Rules::book_dragdrop_design_for( 'BK01' )
-	);
-}
-
-// ---------------------------------------------------------------------
-// 3. Same coverage for Edited Book.
+// caller/test relies on), Edited Book DragDrop questions are completely
+// unaffected — always the exact original baseline shape.
 // ---------------------------------------------------------------------
 $eb_ids = array_map( function ( $i ) { return 'EB' . str_pad( $i, 2, '0', STR_PAD_LEFT ); }, range( 1, 30 ) );
 $eb_items = array_map( function ( $i ) { return make_edited_book_item( $i ); }, range( 1, 30 ) );
 $eb_unaffected = invoke_normalise( $eb_items, $eb_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'full_reference' );
-check( '[3] Edited Book: normalise() succeeds with the default exercise_design', is_wp_error( $eb_unaffected ), false );
+check( '[1] Edited Book: normalise() succeeds with the default exercise_design', is_wp_error( $eb_unaffected ), false );
 if ( ! is_wp_error( $eb_unaffected ) ) {
-	check( '[3] Edited Book: unaffected by default keeps the original baseline shape', $eb_unaffected[0]['questionParts'], array( 'Vance, C.', 'ed.', '2019', $eb_unaffected[0]['bookTitle'] ) );
+	check( '[1] Edited Book: unaffected by default keeps the original baseline shape', $eb_unaffected[0]['questionParts'], array( 'Vance, C.', 'ed.', '2019', $eb_unaffected[0]['bookTitle'] ) );
 }
 
+// ---------------------------------------------------------------------
+// 2. With 'random' (generate_questions()'s real production default for
+// this category), a batch of many Edited Book questions is NOT all
+// identical — some test year, some test place, some test publisher, per
+// the user's explicit "make every question different" request.
+// ---------------------------------------------------------------------
 $eb_random = invoke_normalise( $eb_items, $eb_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'random' );
-check( '[3] Edited Book: normalise() succeeds with exercise_design "random"', is_wp_error( $eb_random ), false );
+check( '[2] Edited Book: normalise() succeeds with exercise_design "random"', is_wp_error( $eb_random ), false );
 if ( ! is_wp_error( $eb_random ) ) {
-	$eb_designs_seen = array();
 	$known_eb_designs = Citex_Reference_Rules::edited_book_dragdrop_designs();
 	foreach ( $eb_random as $candidate ) {
-		check( '[3] every candidate\'s exerciseDesign is one of the known Edited Book designs', in_array( $candidate['exerciseDesign'], $known_eb_designs, true ), true );
-		check( '[3] every candidate still draws the designation as its own Question Part', in_array( 'ed.', $candidate['questionParts'], true ), true );
+		check( '[2] every candidate\'s exerciseDesign is one of the known Edited Book designs', in_array( $candidate['exerciseDesign'], $known_eb_designs, true ), true );
+		check( '[2] every candidate still draws the designation as its own Question Part', in_array( 'ed.', $candidate['questionParts'], true ), true );
 	}
 	$eb_designs_seen = array_unique( array_column( $eb_random, 'exerciseDesign' ) );
-	check( '[3] a batch of 30 "random" Edited Book questions is not all the same design', count( $eb_designs_seen ) > 1, true );
+	check( '[2] a batch of 30 "random" Edited Book questions is not all the same design', count( $eb_designs_seen ) > 1, true );
+}
+
+// ---------------------------------------------------------------------
+// 3. Book DragDrop ignores exercise_design entirely — its shape always
+// comes from Citex_Book_Dragdrop_Parts, per question, regardless of what
+// (if anything) is passed here. No exerciseDesign field at all on the
+// candidate (that field belongs only to Edited Book/Journal
+// Article/Website's own batch-level design concept).
+// ---------------------------------------------------------------------
+$book_ids   = array_map( function ( $i ) { return 'BK' . str_pad( $i, 2, '0', STR_PAD_LEFT ); }, range( 1, 5 ) );
+$book_items = array_map( function ( $i ) { return make_book_item( $i ); }, range( 1, 5 ) );
+$book_result = invoke_normalise( $book_items, $book_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_BOOK, 'random' );
+check( '[3] Book: normalise() succeeds regardless of exercise_design', is_wp_error( $book_result ), false );
+if ( ! is_wp_error( $book_result ) ) {
+	foreach ( $book_result as $candidate ) {
+		check( '[3] Book candidate carries no exerciseDesign field at all: ' . $candidate['questionId'], array_key_exists( 'exerciseDesign', $candidate ), false );
+	}
 }
 
 // ---------------------------------------------------------------------
 // 4. MCQ never reads exercise_design for either category — options/answer
-// are built via build_reference() directly, unaffected either way.
+// are built via Citex_Book_Mcq_Variants::build()/build_reference()
+// directly, unaffected either way.
 // ---------------------------------------------------------------------
 $mcq_item = make_book_item( 'MCQ' );
-$mcq_item['distractors'] = array(
-	array( 'reference' => 'Vance, C. (2018) A Different Book. Cambridge: Polity.', 'errorReason' => 'Wrong year.' ),
-	array( 'reference' => 'Vance, C. (2019) Book MCQ. London: Polity.', 'errorReason' => 'Wrong place.' ),
-	array( 'reference' => 'Vance, C. (2019) Book MCQ. Cambridge: Routledge.', 'errorReason' => 'Wrong publisher.' ),
-);
 $mcq_result = invoke_normalise( array( $mcq_item ), array( 'BK99' ), 'medium', array(), 'MCQ', Citex_Reference_Rules::CATEGORY_BOOK, 'random' );
 check( '[4] MCQ succeeds even with exercise_design "random"', is_wp_error( $mcq_result ), false );
 if ( ! is_wp_error( $mcq_result ) ) {

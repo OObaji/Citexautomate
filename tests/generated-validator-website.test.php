@@ -37,6 +37,7 @@ function sanitize_key( $v ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 
 $failures = 0;
@@ -317,13 +318,18 @@ check( 'an unrecognised category is still rejected as unsupported', has_error_co
 // 30 & 31. Existing Book / Journal Article validation is completely
 // unaffected by Website support.
 // ---------------------------------------------------------------------
+$bryman_authors = array( array( 'surname' => 'Bryman', 'initials' => 'A.', 'fullName' => 'Alan Bryman' ) );
+$bryman_fields  = array( 'year' => '2012', 'title' => 'Social Research Methods', 'place' => 'Oxford', 'publisher' => 'Oxford University Press' );
+$bryman_keys    = Citex_Book_Dragdrop_Parts::select_parts( 'BK-BRYMAN', $bryman_authors );
+$bryman_built   = Citex_Book_Dragdrop_Parts::build( $bryman_keys, $bryman_authors, $bryman_fields );
 $book_regression = Citex_Generated_Validator::validate( array(
 	'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'type' => 'DragDrop',
-	'authors' => array( array( 'surname' => 'Bryman', 'initials' => 'A.' ) ),
+	'authors' => $bryman_authors,
 	'year' => '2012', 'bookTitle' => 'Social Research Methods', 'place' => 'Oxford', 'publisher' => 'Oxford University Press',
-	'fixedText' => '|, || (||) ||. Oxford: Oxford University Press.',
-	'questionParts' => array( 'Bryman', 'A.', '2012', 'Social Research Methods' ),
-	'confusingWords' => array( '2010', 'London', 'Smith' ),
+	'dragdropPartKeys' => $bryman_keys,
+	'fixedText' => $bryman_built['fixedText'],
+	'questionParts' => $bryman_built['parts'],
+	'confusingWords' => $bryman_built['confusingWords'],
 	'scenario' => 'You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.',
 	'reconstructedReference' => 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.',
 ) );

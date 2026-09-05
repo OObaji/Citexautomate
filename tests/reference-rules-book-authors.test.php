@@ -81,53 +81,12 @@ check(
 );
 
 // ---------------------------------------------------------------------
-// 3. dragdrop_shape() branches on author count: ONE author keeps the
-// original 4-part shape (surname, initials, year, title as 4 SEPARATE
-// draggable parts) — every existing single-author question is completely
-// unaffected. TWO OR MORE authors use a 3-part shape (the whole joined
-// author list as ONE draggable part, year, title).
+// 3. Book's DragDrop shape (which of these authors gets drawn as parts,
+// and how) is no longer built by Citex_Reference_Rules::dragdrop_shape()
+// at all — see tests/reference-rules-book-dragdrop-parts.test.php for
+// Citex_Book_Dragdrop_Parts's own dedicated coverage of that dynamic,
+// per-question mechanism.
 // ---------------------------------------------------------------------
-$shape_one = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, array_merge( $base_fields, array( 'authors' => $one ) ) );
-check( '[3] one author: exactly 4 parts (unchanged shape)', $shape_one['parts'], array( 'Smith', 'J.', '2020', 'Understanding digital culture' ) );
-check( '[3] one author: fixedText is the original 4-placeholder template', $shape_one['fixedText'], '|, || (||) ||. London: SAGE Publications.' );
-
-$shape_three = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, array_merge( $base_fields, array( 'authors' => $three ) ) );
-check( '[3] three authors: exactly 3 parts (only the first author individually, year, title)', $shape_three['parts'], array( 'Smith, J.', '2020', 'Understanding digital culture' ) );
-check( '[3] three authors: fixedText folds the 2nd and 3rd authors in as a correct literal continuation', $shape_three['fixedText'], '|, Jones, P. and Brown, T. (||) ||. London: SAGE Publications.' );
-
-// The reconstructed reference from EITHER shape must exactly match
-// build_reference()'s own output — DragDrop and the correct MCQ answer can
-// never silently disagree.
-function reconstruct_from_shape( $shape ) {
-	$fixed = $shape['fixedText'];
-	$parts = $shape['parts'];
-	$reference = '';
-	$part_index = 0;
-	$length = strlen( $fixed );
-	for ( $i = 0; $i < $length; $i++ ) {
-		if ( '|' !== $fixed[ $i ] ) {
-			$reference .= $fixed[ $i ];
-			continue;
-		}
-		if ( $i + 1 < $length && '|' === $fixed[ $i + 1 ] ) {
-			$reference .= (string) $parts[ $part_index++ ];
-			$i++;
-			continue;
-		}
-		$reference .= (string) $parts[ $part_index++ ];
-	}
-	return trim( $reference );
-}
-check(
-	'[3] one-author shape reconstructs to exactly build_reference()\'s output',
-	reconstruct_from_shape( $shape_one ),
-	Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, array_merge( $base_fields, array( 'authors' => $one ) ) )
-);
-check(
-	'[3] three-author shape reconstructs to exactly build_reference()\'s output',
-	reconstruct_from_shape( $shape_three ),
-	Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, array_merge( $base_fields, array( 'authors' => $three ) ) )
-);
 
 // ---------------------------------------------------------------------
 // 4. format_regex() for Book: a real repeating group, not `.+` — accepts
