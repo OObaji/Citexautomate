@@ -84,8 +84,8 @@ function invoke_private( $method, $args ) {
 }
 
 $ids = array( 'BK01' );
-$marker = 'PREFER CONCISE REAL NAMES WHEN POSSIBLE';
-$never_shorten_marker = 'NEVER abbreviate, shorten, truncate, or otherwise alter';
+$marker = 'PREFER CONCISE REAL PUBLISHER/JOURNAL NAMES WHEN POSSIBLE';
+$never_shorten_marker = 'NEVER abbreviate, shorten, truncate, or otherwise alter the real publisher/journal name';
 
 // ---------------------------------------------------------------------
 // 1. Every prompt builder that carries bibliographic data includes the
@@ -122,9 +122,9 @@ check( '[2] choose_treatment prompt does NOT include the conciseness guidance', 
 // real options, never an instruction to shorten/abbreviate/truncate a
 // real name that is actually used.
 // ---------------------------------------------------------------------
-check( '[3] the guidance explicitly forbids abbreviating/shortening/truncating any real name', false !== strpos( $book_mcq_prompt, $never_shorten_marker ), true );
-check( '[3] the guidance frames conciseness as a tie-breaker, not a requirement', false !== strpos( $book_mcq_prompt, 'PREFERENCE only, never a requirement' ), true );
-check( '[3] the guidance says accuracy/relevance always come first', false !== strpos( $book_mcq_prompt, 'accuracy and a genuine, real bibliographic record always come first' ), true );
+check( '[3] the guidance explicitly forbids abbreviating/shortening/truncating the real publisher/journal name', false !== strpos( $book_mcq_prompt, $never_shorten_marker ), true );
+check( '[3] the guidance frames conciseness as a tie-breaker between real publisher/journal choices, never a reason to alter one', false !== strpos( $book_mcq_prompt, 'never a reason to alter one' ), true );
+check( '[3] the guidance also covers content_realism_guidance() (invented content is fine except the publisher/journal)', false !== strpos( $book_mcq_prompt, 'INVENTED CONTENT IS FINE' ), true );
 
 // ---------------------------------------------------------------------
 // 4. The guidance still coexists correctly with scenario_instruction and

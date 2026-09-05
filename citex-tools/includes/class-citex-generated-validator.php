@@ -744,23 +744,23 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'MISSING_FINAL_PERIOD', 'Missing final full stop.' );
 		}
 
-		// Liverpool Hope shape for this category — Surname, I. (Year) Title.
+		// Harvard shape for this category — Surname, I. (Year) Title.
 		// Place: Publisher. for Book; Editor(s), I. (ed.|eds) (Year) Title.
 		// Place: Publisher. for Edited Book. $exercise_design only ever
 		// affects Journal Article — every other category ignores it.
 		if ( ! preg_match( Citex_Reference_Rules::format_regex( $category, $exercise_design ), $reference ) ) {
 			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 				$code    = 'EDITED_BOOK_FORMAT_MISMATCH';
-				$message = 'Citation does not match the Liverpool Hope Edited Book format.';
+				$message = 'Citation does not match the Harvard Edited Book format.';
 			} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
 				$code    = 'JOURNAL_ARTICLE_FORMAT_MISMATCH';
-				$message = 'Citation does not match the Liverpool Hope Journal Article format.';
+				$message = 'Citation does not match the Harvard Journal Article format.';
 			} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 				$code    = 'WEBSITE_FORMAT_MISMATCH';
-				$message = 'Citation does not match the Liverpool Hope Website/Web Resource format.';
+				$message = 'Citation does not match the Harvard Website/Web Resource format.';
 			} else {
 				$code    = 'BOOK_FORMAT_MISMATCH';
-				$message = 'Citation does not match the Liverpool Hope Book format.';
+				$message = 'Citation does not match the Harvard Book format.';
 			}
 			$errors[] = self::error( $code, $message );
 		}
@@ -963,7 +963,7 @@ class Citex_Generated_Validator {
 	 *
 	 * Reshaped for one-or-more authors (mirrors
 	 * validate_edited_book_consistency()'s per-editor loop exactly — Book
-	 * authors and Edited Book editors are joined by the same Liverpool Hope
+	 * authors and Edited Book editors are joined by the same Harvard
 	 * rule and validated the same way): every author's surname/initials must
 	 * appear in the reconstructed reference, and (scenario checks only)
 	 * every author's surname must appear in the scenario. A record with no
@@ -1251,7 +1251,7 @@ class Citex_Generated_Validator {
 			);
 		}
 		// "et al." must NEVER appear in a Journal Article reference-list
-		// entry, for any author count — the one Liverpool Hope misconception
+		// entry, for any author count — the one Harvard misconception
 		// this category exists to test (see Citex_Reference_Rules::
 		// build_reference()'s docblock). Checked against BOTH the complete
 		// canonical reference (defence in depth against a "clean-looking"
@@ -1446,8 +1446,15 @@ class Citex_Generated_Validator {
 		);
 
 		// Question Parts must be EXACTLY the shape website_dragdrop_shape()
-		// would build for this canonical author-or-organisation.
-		$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields );
+		// would build for this canonical author-or-organisation, for
+		// WHICHEVER exercise design this record was generated with (see
+		// Citex_Reference_Rules::website_dragdrop_designs()'s docblock) —
+		// mirrors how validate_journal_article_consistency() reads its own
+		// exerciseDesign field. Defaults to 'full_reference' (the original
+		// always-6-part shape) for any pre-existing record with no
+		// exerciseDesign field at all.
+		$design         = trim( (string) ( $question['exerciseDesign'] ?? 'full_reference' ) );
+		$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields, $design );
 		$expected_parts = array_map( 'trim', $expected_shape['parts'] );
 		$actual_parts   = array_map( 'trim', (array) $question_parts );
 		if ( $expected_parts !== array_values( $actual_parts ) ) {

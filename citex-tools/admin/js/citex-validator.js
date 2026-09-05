@@ -302,7 +302,7 @@ window.CitexValidator = ( function () {
 	}
 
 	/**
-	 * Liverpool Hope Book structure: "Author (Year) Title. Place: Publisher."
+	 * Harvard Book structure: "Author (Year) Title. Place: Publisher."
 	 * Checked as two structural landmarks in the right order — a
 	 * parenthesized year, followed later by a "Place: Publisher" colon
 	 * separator — deliberately loose on period placement, since that's
@@ -313,12 +313,12 @@ window.CitexValidator = ( function () {
 	function checkBookFormat( reference ) {
 		var yearMatch = /\(\d{4}\)/.exec( reference );
 		if ( ! yearMatch ) {
-			return { code: 'BOOK_FORMAT_MISMATCH', message: 'Citation does not match the Liverpool Hope Book format (no publication year found in parentheses).' };
+			return { code: 'BOOK_FORMAT_MISMATCH', message: 'Citation does not match the Harvard Book format (no publication year found in parentheses).' };
 		}
 
 		var afterYear = reference.slice( yearMatch.index + yearMatch[ 0 ].length );
 		if ( ! /:\s*\S/.test( afterYear ) ) {
-			return { code: 'BOOK_FORMAT_MISMATCH', message: 'Citation does not match the Liverpool Hope Book format (no "Place: Publisher" separator found after the year).' };
+			return { code: 'BOOK_FORMAT_MISMATCH', message: 'Citation does not match the Harvard Book format (no "Place: Publisher" separator found after the year).' };
 		}
 
 		return null;

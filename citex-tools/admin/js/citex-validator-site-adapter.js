@@ -180,14 +180,14 @@
 		if ( ! yearMatch ) {
 			return {
 				code: 'BOOK_FORMAT_MISMATCH',
-				message: 'Citation does not match the Liverpool Hope Book format (no four-digit publication year found in parentheses).',
+				message: 'Citation does not match the Harvard Book format (no four-digit publication year found in parentheses).',
 			};
 		}
 		var afterYear = reference.slice( yearMatch.index + yearMatch[ 0 ].length );
 		if ( ! /:\s*\S/.test( afterYear ) ) {
 			return {
 				code: 'BOOK_FORMAT_MISMATCH',
-				message: 'Citation does not match the Liverpool Hope Book format (no "Place: Publisher" separator found after the year).',
+				message: 'Citation does not match the Harvard Book format (no "Place: Publisher" separator found after the year).',
 			};
 		}
 		return null;

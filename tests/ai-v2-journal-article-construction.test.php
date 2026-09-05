@@ -113,11 +113,11 @@ function journal_article_item( $overrides = array() ) {
 $dd_prompt  = invoke_private( 'build_prompt_for', array( 'DragDrop', $JA, array( 'JA01' ), 'medium', false, '' ) );
 check( '[dispatch] Journal Article DragDrop prompt mentions "Journal Article"', false !== strpos( $dd_prompt, 'Journal Article' ), true );
 check( '[dispatch] Journal Article DragDrop prompt mentions "articleTitle"', false !== strpos( $dd_prompt, 'articleTitle' ), true );
-check( '[25] Journal Article DragDrop prompt includes the conciseness (mobile-readability) guidance', false !== strpos( $dd_prompt, 'PREFER CONCISE REAL NAMES WHEN POSSIBLE' ), true );
+check( '[25] Journal Article DragDrop prompt includes the conciseness (mobile-readability) guidance', false !== strpos( $dd_prompt, 'PREFER CONCISE REAL PUBLISHER/JOURNAL NAMES WHEN POSSIBLE' ), true );
 
 $mcq_prompt = invoke_private( 'build_prompt_for', array( 'MCQ', $JA, array( 'JA01' ), 'medium', false, '' ) );
 check( '[dispatch] Journal Article MCQ prompt mentions "Journal Article"', false !== strpos( $mcq_prompt, 'Journal Article' ), true );
-check( '[25] Journal Article MCQ prompt includes the conciseness (mobile-readability) guidance', false !== strpos( $mcq_prompt, 'PREFER CONCISE REAL NAMES WHEN POSSIBLE' ), true );
+check( '[25] Journal Article MCQ prompt includes the conciseness (mobile-readability) guidance', false !== strpos( $mcq_prompt, 'PREFER CONCISE REAL PUBLISHER/JOURNAL NAMES WHEN POSSIBLE' ), true );
 
 $dd_schema  = invoke_private( 'schema_for', array( 'DragDrop', $JA, '' ) );
 $props      = $dd_schema['properties']['questions']['items']['properties'];
@@ -153,11 +153,12 @@ foreach ( $author_sets as $count => $names ) {
 		$candidate = $result[0];
 		check( "[$count author(s)] category is 'Journal Article'", $candidate['category'], 'Journal Article' );
 		// HARD RULE: the 'author_year_volume_pages' design always produces
-		// EXACTLY 4 parts (author list AS ONE COMPACT CHIP + year + volume
-		// + pages), for ANY real author count — never one chip per author,
-		// never "et al.".
+		// EXACTLY 4 parts (the first author as an individual part + year +
+		// volume + pages), for ANY real author count — a 2nd+ author is
+		// folded into fixedText as a correct, non-draggable continuation
+		// (person_parts()'s overflow), never "et al.".
 		check( "[$count author(s)] exactly 4 draggable Question Parts, for any author count", count( $candidate['questionParts'] ), 4 );
-		check( "[$count author(s)] Fixed Text matches the constant 4-placeholder template", $candidate['fixedText'], '| (||) ||, pp.||.' );
+		check( "[$count author(s)] the first Question Part is the first author individually, not a joined chip", $candidate['questionParts'][0], 'Mitchell, S.' );
 		check( "[$count author(s)] reconstructedReference contains \"et al.\"? (must not)", false !== stripos( $candidate['reconstructedReference'], 'et al' ), false );
 		check( "[$count author(s)] validates and enters the queue as 'passed'", $candidate['validationStatus'], 'passed' );
 	}
@@ -173,7 +174,8 @@ if ( ! is_wp_error( $result_initials ) ) {
 	$c = $result_initials[0];
 	check( '[6] initials correctly derived: "Sarah Mitchell" -> surname "Mitchell", initials "S."', $c['authors'][0]['surname'] . '|' . $c['authors'][0]['initials'], 'Mitchell|S.' );
 	check( '[6] second author too: "Daniel Evans" -> "Evans", "D."', $c['authors'][1]['surname'] . '|' . $c['authors'][1]['initials'], 'Evans|D.' );
-	check( '[6] Question Parts reflect the correctly-derived author list, joined into ONE compact chip', $c['questionParts'][0], 'Mitchell, S. and Evans, D.' );
+	check( '[6] Question Parts reflect the correctly-derived first author individually (never one joined multi-author chip)', $c['questionParts'][0], 'Mitchell, S.' );
+	check( '[6] the reconstructed reference still names the second author in full', false !== strpos( $c['reconstructedReference'], 'Evans, D.' ), true );
 }
 
 // ---------------------------------------------------------------------

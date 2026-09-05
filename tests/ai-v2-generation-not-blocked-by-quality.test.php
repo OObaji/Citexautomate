@@ -225,7 +225,7 @@ $wr_dragdrop = array(
 	'url'               => 'https://www.leeds.ac.uk/study-skills',
 	'confusingWords'    => array( '2024', 'London Metropolitan University', 'https://www.leeds.ac.uk/wrong-page' ),
 );
-$r7 = invoke_normalise( array( $wr_dragdrop ), array( 'WR01' ), 'medium', array( 'Exercise 1' ), 'DragDrop', $WR );
+$r7 = invoke_normalise( array( $wr_dragdrop ), array( 'WR01' ), 'medium', array( 'Exercise 1' ), 'DragDrop', $WR, null, '', '', 'author_year_title' );
 check( '[7] Website DragDrop: a distractor duplicating a correct part no longer blocks generation', is_wp_error( $r7 ), false );
 
 // =======================================================================

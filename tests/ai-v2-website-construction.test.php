@@ -74,8 +74,8 @@ function invoke_private( $method, $args ) {
 	return $reflection->invokeArgs( null, $args );
 }
 
-function invoke_normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count = null, $scenario_id = '', $rule_tested = '' ) {
-	return invoke_private( 'normalise', array( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested ) );
+function invoke_normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count = null, $scenario_id = '', $rule_tested = '', $exercise_design = 'author_year_title' ) {
+	return invoke_private( 'normalise', array( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested, $exercise_design ) );
 }
 
 $WR = Citex_Reference_Rules::CATEGORY_WEBSITE;
@@ -123,7 +123,7 @@ $dd_prompt = invoke_private( 'build_prompt_for', array( 'DragDrop', $WR, array( 
 check( '[dispatch] Website DragDrop prompt mentions "Website"', false !== strpos( $dd_prompt, 'Website' ), true );
 check( '[dispatch] Website DragDrop prompt mentions "authorType"', false !== strpos( $dd_prompt, 'authorType' ), true );
 check( '[dispatch] Website DragDrop prompt says NOT to provide an accessed date', false !== stripos( $dd_prompt, 'Do NOT provide an accessed date' ), true );
-check( 'Website DragDrop prompt includes the conciseness (mobile-readability) guidance', false !== strpos( $dd_prompt, 'PREFER CONCISE REAL NAMES WHEN POSSIBLE' ), true );
+check( 'Website DragDrop prompt includes the conciseness (mobile-readability) guidance', false !== strpos( $dd_prompt, 'PREFER CONCISE REAL PUBLISHER/JOURNAL NAMES WHEN POSSIBLE' ), true );
 
 $mcq_prompt = invoke_private( 'build_prompt_for', array( 'MCQ', $WR, array( 'WR01' ), 'medium', false, '' ) );
 check( '[dispatch] Website MCQ prompt mentions "Website"', false !== strpos( $mcq_prompt, 'Website' ), true );
@@ -152,7 +152,7 @@ if ( ! is_wp_error( $result1 ) ) {
 	check( '[1] category is "Website"', $c1['category'], 'Website' );
 	check( '[1] authorType is "individual"', $c1['authorType'], 'individual' );
 	check( '[1] initials correctly derived: "Sarah Mitchell" -> "Mitchell", "S."', $c1['authors'][0]['surname'] . '|' . $c1['authors'][0]['initials'], 'Mitchell|S.' );
-	check( '[17] Question Parts always contain exactly 6 items', count( $c1['questionParts'] ), 6 );
+	check( '[17] Question Parts contain exactly 3 or 4 items, per the assigned exercise design', in_array( count( $c1['questionParts'] ), array( 3, 4 ), true ), true );
 	check( '[14] Citex computed its own accessedDate (not empty, not Gemini\'s self-check copy)', '' !== trim( $c1['accessedDate'] ), true );
 	check( '[19][20] validates and enters the queue as "passed"', $c1['validationStatus'], 'passed' );
 }

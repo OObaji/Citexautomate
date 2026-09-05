@@ -262,7 +262,7 @@ class Citex_Importer {
 		$group       = $this->canonical_route_value( 'group', $this->text_or_default( $this->pick( $normal, array( 'group', 'referencegroup' ) ), 'ReferenceList' ) );
 		$category    = $this->canonical_route_value( 'category', $this->text_or_default( $this->pick( $normal, array( 'category', 'referencecategory' ) ), 'Book' ) );
 		$type        = $this->canonical_route_value( 'type', $this->text_or_default( $this->pick( $normal, array( 'type', 'questiontype' ) ), 'DragDrop' ) );
-		$institution = $this->text_or_default( $this->pick( $normal, array( 'institution', 'university', 'referencingrules' ) ), 'Liverpool Hope University' );
+		$institution = $this->text_or_default( $this->pick( $normal, array( 'institution', 'university', 'referencingrules' ) ), 'Harvard' );
 		$difficulty  = $this->text_or_default( $this->pick( $normal, array( 'difficulty', 'level' ) ), 'Medium' );
 		$scenario    = trim( (string) $this->pick( $normal, array( 'scenario', 'question', 'prompt' ) ) );
 
@@ -293,7 +293,7 @@ class Citex_Importer {
 		}
 
 		if ( '' === $scenario ) {
-			$scenario = 'Drag the correct items into the gaps to complete the Liverpool Hope Harvard book reference.';
+			$scenario = 'Drag the correct items into the gaps to complete the Harvard book reference.';
 		}
 		if ( '' === $reference ) {
 			$reference = $this->reconstruct_reference( $fixed_text, $parts );

@@ -103,11 +103,12 @@ check(
 $shape_one = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $one_editor );
 check( '[6] one-editor DragDrop shape has exactly 4 parts', count( $shape_one['parts'] ), 4 );
 check( '[6] one-editor DragDrop parts are [editorsJoined, designation, year, title]', $shape_one['parts'], array( 'Smith, J.', 'ed.', '2022', 'Digital media and society' ) );
-check( '[6] one-editor fixedText bakes in place/publisher, matches the reconstruction rules', $shape_one['fixedText'], '| (||) (||) ||. London: SAGE Publications.' );
+check( '[6] one-editor fixedText bakes in place/publisher, matches the reconstruction rules', $shape_one['fixedText'], '|| (||) (||) ||. London: SAGE Publications.' );
 
 $shape_two = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $two_editors );
 check( '[6] two-editor DragDrop shape uses "eds"', $shape_two['parts'][1], 'eds' );
-check( '[6] two-editor DragDrop shape joins both editors into the first part', $shape_two['parts'][0], 'Smith, J. and Jones, A.' );
+check( '[6] two-editor DragDrop shape draws only the first editor individually (never one joined chunk)', $shape_two['parts'][0], 'Smith, J.' );
+check( '[6] two-editor DragDrop fixedText folds the second editor in as a correct literal continuation', $shape_two['fixedText'], '|| and Jones, A. (||) (||) ||. London: SAGE Publications.' );
 
 // ---------------------------------------------------------------------
 // 7. The DragDrop shape reconstructs (by literal pipe substitution,

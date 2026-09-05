@@ -402,7 +402,7 @@ $long_name_shape = Citex_Reference_Rules::dragdrop_shape( $JA, array_merge( $bas
 check_true( 'a real 4-author list with longer surnames is accepted as a single compact chip', null === Citex_Reference_Rules::journal_article_mobile_suitability( $long_name_shape['parts'] ) );
 
 $long_title_not_author_list = 'International Multidisciplinary Journal of Advanced Interdisciplinary Educational Research and Practice Studies';
-check( 'a long title containing the word "and" is never misdetected as an author list', Citex_Reference_Rules::journal_article_mobile_suitability( array( 'Smith, A.', '2020', $long_title_not_author_list ) ), sprintf( 'A single draggable component is %1$d characters long ("%2$s…"), too large for a comfortable mobile DragDrop layout — prefer a shorter real source, or a smaller exercise design.', mb_strlen( $long_title_not_author_list ), mb_substr( $long_title_not_author_list, 0, 30 ) ) );
+check( 'a long title containing the word "and" is never misdetected as an author list', Citex_Reference_Rules::journal_article_mobile_suitability( array( 'Smith, A.', '2020', $long_title_not_author_list ) ), sprintf( 'A single draggable component is %1$d characters long ("%2$s…"), too large for a comfortable mobile DragDrop layout — invent or choose a shorter value, or a smaller exercise design.', mb_strlen( $long_title_not_author_list ), mb_substr( $long_title_not_author_list, 0, 30 ) ) );
 
 $item_long_authors = array_merge( $item_base, array(
 	'authorFullNames' => array( 'Nathalie Aelterman', 'Maarten Vansteenkiste', 'Leen Van den Berghe', 'Leen Haerens' ),

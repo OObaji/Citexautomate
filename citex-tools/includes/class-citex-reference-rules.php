@@ -251,6 +251,82 @@ class Citex_Reference_Rules {
 	}
 
 	/**
+	 * Breaks a list of people (authors/editors) into up to $max individual
+	 * draggable Question Parts — the mechanism that lets DragDrop show
+	 * "individual names ... as question parts" (never one joined
+	 * multi-person chunk) while every design still lands on exactly 3-4
+	 * total parts. Any person beyond $max is folded into $overflow, a
+	 * correctly-joined literal continuation meant to be appended into
+	 * fixedText as ordinary (non-draggable) text — so the reconstructed
+	 * reference still names every person in full (the "always list every
+	 * author, never et al." rule is fully preserved) even though only the
+	 * first $max are graded as draggable parts. $joiners are the literal
+	 * connector strings (", " or " and ") to place between consecutive
+	 * drawn parts in fixedText, chosen so concatenating
+	 * drawn[0] . joiners[0] . drawn[1] . ... . $overflow always reproduces
+	 * exactly what join_people() would return for the WHOLE list — see
+	 * name_template() for the fixedText-building counterpart.
+	 *
+	 * @param array $people array<{surname, initials}>, 1 or more.
+	 * @param int   $max
+	 * @return array{0: string[], 1: string[], 2: string} [drawn, joiners, overflow]
+	 */
+	public static function person_parts( array $people, $max = 2 ) {
+		$draw_count      = min( count( $people ), max( 1, (int) $max ) );
+		$drawn_people    = array_slice( $people, 0, $draw_count );
+		$overflow_people = array_slice( $people, $draw_count );
+
+		$drawn = array();
+		foreach ( $drawn_people as $person ) {
+			$drawn[] = sprintf( '%s, %s', $person['surname'], $person['initials'] );
+		}
+
+		$joiners = array();
+		for ( $i = 0; $i < $draw_count - 1; $i++ ) {
+			$is_last_pair = empty( $overflow_people ) && ( $draw_count - 2 === $i );
+			$joiners[]    = $is_last_pair ? ' and ' : ', ';
+		}
+
+		// The connector from the last DRAWN part into the overflow must
+		// itself follow the "comma throughout, 'and' only before the very
+		// last person" rule: when exactly one person overflows, that person
+		// IS the last person overall, so the connector is " and "; when 2+
+		// overflow, the "and" belongs INSIDE join_people($overflow_people)
+		// (between ITS last two), so the connector here is a plain ", ".
+		if ( empty( $overflow_people ) ) {
+			$overflow = '';
+		} elseif ( 1 === count( $overflow_people ) ) {
+			$overflow = ' and ' . self::join_people( $overflow_people );
+		} else {
+			$overflow = ', ' . self::join_people( $overflow_people );
+		}
+
+		return array( $drawn, $joiners, $overflow );
+	}
+
+	/**
+	 * Builds the fixedText fragment for a set of drawn person-parts (see
+	 * person_parts()) — a "||" placeholder token per drawn part, with each
+	 * $joiners entry as literal (non-draggable) text between consecutive
+	 * tokens. Callers append their own $overflow string (already correctly
+	 * formatted by person_parts()) immediately after this fragment.
+	 *
+	 * @param string[] $drawn
+	 * @param string[] $joiners
+	 * @return string
+	 */
+	public static function name_template( array $drawn, array $joiners ) {
+		$out = '';
+		foreach ( $drawn as $index => $unused_part ) {
+			$out .= '||';
+			if ( isset( $joiners[ $index ] ) ) {
+				$out .= $joiners[ $index ];
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * The DragDrop shape for this category: the ordered draggable Question
 	 * Parts, and the Fixed Text template (Citex's established |/|| pipe
 	 * grammar — see class-citex-populator.php's docblock) that the parts
@@ -262,14 +338,17 @@ class Citex_Reference_Rules {
 	 * Book branches on author count: a SINGLE author keeps the original
 	 * 4-part shape (surname and initials as two separate draggable parts —
 	 * every existing single-author question is completely unaffected). TWO
-	 * OR MORE authors use a 3-part shape (the whole author list, already
-	 * joined via join_people(), as ONE draggable part; year; title) —
-	 * exactly how Edited Book already treats its joined editor string as a
-	 * single draggable part, so a multi-author DragDrop question tests
-	 * "drag the correctly-joined author list into place," not "drag each of
-	 * N authors' 2N sub-parts," which would make the draggable-part count
-	 * (and therefore the UI) vary per question in a way the app was never
-	 * built to support.
+	 * OR MORE authors draw the FIRST TWO authors as individual parts (via
+	 * person_parts()) plus year and title — always exactly 4 parts, for any
+	 * author count; a 3rd+ author is folded into fixedText as a correct,
+	 * non-draggable continuation (person_parts()'s overflow), never lumped
+	 * together with the drawn authors into one joined chunk.
+	 *
+	 * Edited Book keeps its designation ("(ed.)"/"(eds)") as its own
+	 * dedicated part always, and draws only the FIRST editor as an
+	 * individual part (person_parts( $editors, 1 )) plus designation, year
+	 * and title — always exactly 4 parts, for any editor count; a 2nd+
+	 * editor is folded into fixedText the same way.
 	 *
 	 * @return array{parts: string[], fixedText: string}
 	 */
@@ -277,16 +356,17 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			$editors     = $fields['editors'];
 			$designation = self::designation_for_editor_count( count( $editors ) );
+			list( $drawn, $joiners, $overflow ) = self::person_parts( $editors, 1 );
 			return array(
-				'parts'     => array( self::join_people( $editors ), $designation, $fields['year'], $fields['title'] ),
-				'fixedText' => sprintf( '| (||) (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
+				'parts'     => array_merge( $drawn, array( $designation, $fields['year'], $fields['title'] ) ),
+				'fixedText' => sprintf( '%s%s (||) (||) ||. %s: %s.', self::name_template( $drawn, $joiners ), $overflow, $fields['place'], $fields['publisher'] ),
 			);
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return self::journal_article_dragdrop_shape( $fields, $design );
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
-			return self::website_dragdrop_shape( $fields );
+			return self::website_dragdrop_shape( $fields, $design );
 		}
 		$authors = $fields['authors'];
 		if ( 1 === count( $authors ) ) {
@@ -295,9 +375,10 @@ class Citex_Reference_Rules {
 				'fixedText' => sprintf( '|, || (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
 			);
 		}
+		list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 2 );
 		return array(
-			'parts'     => array( self::join_people( $authors ), $fields['year'], $fields['title'] ),
-			'fixedText' => sprintf( '| (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
+			'parts'     => array_merge( $drawn, array( $fields['year'], $fields['title'] ) ),
+			'fixedText' => sprintf( '%s%s (||) ||. %s: %s.', self::name_template( $drawn, $joiners ), $overflow, $fields['place'], $fields['publisher'] ),
 		);
 	}
 
@@ -432,12 +513,15 @@ class Citex_Reference_Rules {
 	 * design — this category has none.
 	 */
 	private static function journal_article_dragdrop_shape( array $fields, $design = null ) {
-		$design      = $design ?: 'full_reference';
-		$author_chip = self::join_people( $fields['authors'] );
+		$design  = $design ?: 'full_reference';
+		$authors = $fields['authors'];
 
 		if ( 'author_only' === $design ) {
+			// Always exactly 1 real author by construction (see
+			// journal_article_design_author_bounds()) — a single combined
+			// part, same as ever.
 			return array(
-				'parts'     => array( $author_chip ),
+				'parts'     => array( sprintf( '%s, %s', $authors[0]['surname'], $authors[0]['initials'] ) ),
 				'fixedText' => '|',
 			);
 		}
@@ -445,9 +529,15 @@ class Citex_Reference_Rules {
 			// "Author(s) (Year) Volume, pp.Start-End." — real Harvard
 			// punctuation throughout (parentheses for the year, "pp."
 			// prefix), just skipping the title/journal/issue segment.
+			// Exactly 3 OTHER fields already fill the 4-part budget, so
+			// only the FIRST author is ever an individual draggable part —
+			// any further authors are folded into fixedText as a correct,
+			// non-draggable continuation (person_parts()'s overflow) —
+			// this design produces exactly 4 parts for ANY author count.
+			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
 			return array(
-				'parts'     => array( $author_chip, $fields['year'], $fields['volume'], $fields['pages'] ),
-				'fixedText' => '| (||) ||, pp.||.',
+				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['volume'], $fields['pages'] ) ),
+				'fixedText' => sprintf( '%s%s (||) ||, pp.||.', self::name_template( $drawn, $joiners ), $overflow ),
 			);
 		}
 		if ( 'author_year_issue' === $design ) {
@@ -455,15 +545,20 @@ class Citex_Reference_Rules {
 			// like a real Harvard fragment (issue alone is never shown in
 			// its own parentheses immediately after the year in a real
 			// reference; doing so here would misteach that placement).
+			// Up to 2 authors are individual draggable parts (3 parts for
+			// 1 author, 4 for 2+ — 3rd+ authors fold into fixedText via
+			// person_parts()'s overflow) — always exactly 3 or 4 total.
+			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 2 );
 			return array(
-				'parts'     => array( $author_chip, $fields['year'], $fields['issue'] ),
-				'fixedText' => '|, ||, ||.',
+				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['issue'] ) ),
+				'fixedText' => sprintf( '%s%s, ||, ||.', self::name_template( $drawn, $joiners ), $overflow ),
 			);
 		}
 		if ( 'author_year_journal' === $design ) {
+			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 2 );
 			return array(
-				'parts'     => array( $author_chip, $fields['year'], $fields['journalTitle'] ),
-				'fixedText' => '|, ||, ||.',
+				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['journalTitle'] ) ),
+				'fixedText' => sprintf( '%s%s, ||, ||.', self::name_template( $drawn, $joiners ), $overflow ),
 			);
 		}
 		if ( 'volume_issue_pages' === $design ) {
@@ -484,9 +579,14 @@ class Citex_Reference_Rules {
 				'fixedText' => '|, ||, ||, ||.',
 			);
 		}
+		// full_reference (MCQ-only — see journal_article_dragdrop_designs()):
+		// no 3-4-part cap applies, since this is never shown as separate
+		// DragDrop chips; kept as a single joined author chip purely to
+		// compute the correct reconstructed STRING for MCQ option
+		// comparison.
 		return array(
 			'parts'     => array(
-				$author_chip,
+				self::join_people( $authors ),
 				$fields['year'],
 				$fields['articleTitle'],
 				$fields['journalTitle'],
@@ -537,34 +637,29 @@ class Citex_Reference_Rules {
 	 * entirely separate from Citex_Generated_Validator, which never judges
 	 * question size) assessing whether a set of draggable Question Parts
 	 * will comfortably fit the real Citex mobile DragDrop interface.
-	 * Deliberately not a single crude character cap: it checks each
-	 * component's own size against a generous per-component threshold
-	 * (catching one excessively long part, e.g. an unusually long journal
-	 * title or a 4-author joined block) AND the combined size of every
-	 * component together (catching "individually fine, but too many
-	 * large pieces at once"). Called from Citex_AI_V2's quality gate for
-	 * Journal Article DragDrop/MCQ candidates; feeds the existing
-	 * regenerate-with-feedback retry loop exactly like every other
-	 * validation failure.
+	 * Category-agnostic — used by every category's `normalise_*_item()`,
+	 * not just Journal Article's. Checks each component's own size (both
+	 * character length AND word count — a part over ~20 words is rejected
+	 * even if individual words are short) against a generous per-component
+	 * threshold, AND the combined size of every component together
+	 * (catching "individually fine, but too many large pieces at once").
+	 * Every category now builds Question Parts as individual person-names
+	 * (see person_parts()) rather than one large joined multi-person chip,
+	 * so a single, ordinary per-component threshold applies uniformly —
+	 * there is no special larger budget for any part shape. Feeds the
+	 * existing regenerate-with-feedback retry loop exactly like every
+	 * other validation failure (gated non-blocking via
+	 * Citex_AI_V2::quality_reject() — see that class).
 	 *
 	 * @return string|null A human-readable rejection reason, or null when suitable.
 	 */
-	public static function journal_article_mobile_suitability( array $parts ) {
-		// Generous enough that a genuinely typical real source is never
+	public static function part_suitability( array $parts ) {
+		// Generous enough that an ordinary invented-or-real part is never
 		// rejected — this is a backstop against genuinely excessive cases
-		// (an unusually long title, or many authors with long names), not a
-		// filter on ordinary variation. A joined multi-person author list
-		// (the whole author list is always ONE compact chip, any real
-		// count — see journal_article_dragdrop_shape()'s docblock) is
-		// structurally longer than any other single field by design, since
-		// Liverpool Hope's rule requires every author present in full, so it
-		// gets its own, larger budget instead of sharing the tight
-		// single-field cap — real academic author lists (4-6 authors,
-		// including longer surnames) routinely run 80-120 characters even
-		// though each individual name is perfectly reasonable.
-		$max_single_component       = 70;
-		$max_author_list_component  = 140;
-		$max_combined_total         = 260;
+		// (an unusually long title), not a filter on ordinary variation.
+		$max_single_component_chars = 70;
+		$max_single_component_words = 20;
+		$max_combined_total_chars   = 200;
 		$total                      = 0;
 		foreach ( $parts as $part ) {
 			$text = (string) $part;
@@ -580,33 +675,38 @@ class Citex_Reference_Rules {
 			}
 			$length = mb_strlen( $text );
 			$total += $length;
-			// Detect a join_people()-shaped multi-person list STRUCTURALLY
-			// (one or more "Surname, I." groups, comma-separated with a
-			// final "and") rather than merely checking for the substring
-			// " and " — a long article/journal title containing the
-			// ordinary English word "and" (e.g. "...Research and Practice
-			// Studies") must never be misclassified as an author list and
-			// given the larger budget it was never meant to have.
-			$is_author_list = 1 === preg_match(
-				'/^[^,]+,\s*(?:[A-Z]\.\s*)+(?:,\s*[^,]+,\s*(?:[A-Z]\.\s*)+)*(?:\s+and\s+[^,]+,\s*(?:[A-Z]\.\s*)+)?$/u',
-				$text
-			);
-			$limit = $is_author_list ? $max_author_list_component : $max_single_component;
-			if ( $length > $limit ) {
+			if ( $length > $max_single_component_chars ) {
 				return sprintf(
-					'A single draggable component is %1$d characters long ("%2$s…"), too large for a comfortable mobile DragDrop layout — prefer a shorter real source, or a smaller exercise design.',
+					'A single draggable component is %1$d characters long ("%2$s…"), too large for a comfortable mobile DragDrop layout — invent or choose a shorter value, or a smaller exercise design.',
 					$length,
 					mb_substr( $text, 0, 30 )
 				);
 			}
+			$word_count = str_word_count( $text );
+			if ( $word_count > $max_single_component_words ) {
+				return sprintf(
+					'A single draggable component is %1$d words long ("%2$s…"), too long — keep every field to about %3$d words or fewer.',
+					$word_count,
+					mb_substr( $text, 0, 30 ),
+					$max_single_component_words
+				);
+			}
 		}
-		if ( $total > $max_combined_total ) {
+		if ( $total > $max_combined_total_chars ) {
 			return sprintf(
-				'The combined length of all draggable components (%d characters) is too large for a comfortable mobile DragDrop layout — prefer a shorter real source, or a smaller exercise design.',
+				'The combined length of all draggable components (%d characters) is too large for a comfortable mobile DragDrop layout — invent or choose shorter values, or a smaller exercise design.',
 				$total
 			);
 		}
 		return null;
+	}
+
+	/**
+	 * @deprecated Use part_suitability() — kept only so any external
+	 * reference to the old Journal-Article-specific name keeps working.
+	 */
+	public static function journal_article_mobile_suitability( array $parts ) {
+		return self::part_suitability( $parts );
 	}
 
 	/**
@@ -620,18 +720,72 @@ class Citex_Reference_Rules {
 	 * this category — Liverpool Hope's website rule only ever has ONE
 	 * author-or-organisation.
 	 */
-	private static function website_dragdrop_shape( array $fields ) {
-		return array(
-			'parts'     => array(
-				self::format_website_author( $fields['author'] ),
-				$fields['year'],
-				$fields['title'],
-				$fields['publisher'],
-				$fields['url'],
-				$fields['accessedDate'],
-			),
-			'fixedText' => '| (||) || [online]. ||. Available from: <||> [accessed ||].',
+	/**
+	 * Website's DragDrop shape, per exercise design — mirrors Journal
+	 * Article's "named field-subset design" pattern (see
+	 * journal_article_dragdrop_designs()), generalised here to a
+	 * category with no multi-person joining concept at all. Every design
+	 * still reconstructs the SAME complete, correct 6-field reference
+	 * string (author, year, title, publisher, url, accessedDate, in the
+	 * fixed Harvard order) — the choice of design only changes WHICH 3-4
+	 * of those 6 fields are draggable Question Parts; the rest are baked
+	 * into fixedText as ordinary (non-draggable) literal text, exactly
+	 * like place/publisher have always been for Book. This means
+	 * format_regex()'s existing full-reference shape check keeps working
+	 * unchanged for every design — the reconstructed STRING never differs
+	 * in shape, only in which pieces are graded.
+	 */
+	private static function website_dragdrop_shape( array $fields, $design = null ) {
+		$design = $design ?: 'full_reference';
+		$values = array(
+			self::format_website_author( $fields['author'] ),
+			$fields['year'],
+			$fields['title'],
+			$fields['publisher'],
+			$fields['url'],
+			$fields['accessedDate'],
 		);
+		// Index map: 0=author, 1=year, 2=title, 3=publisher, 4=url, 5=accessedDate.
+		$draggable_map = array(
+			'author_year_title'           => array( 0, 1, 2 ),
+			'author_year_publisher'       => array( 0, 1, 3 ),
+			'title_publisher_url'         => array( 2, 3, 4 ),
+			'year_publisher_url_accessed' => array( 1, 3, 4, 5 ),
+			'full_reference'              => array( 0, 1, 2, 3, 4, 5 ),
+		);
+		$draggable = $draggable_map[ $design ] ?? $draggable_map['full_reference'];
+		// The literal connective text that always follows each of the 6
+		// positions, regardless of design — the same punctuation the
+		// original fixed 6-part template used.
+		$connectors = array( ' (', ') ', ' [online]. ', '. Available from: <', '> [accessed ', '].' );
+
+		$parts = array();
+		$fixed = '';
+		foreach ( $values as $index => $value ) {
+			if ( in_array( $index, $draggable, true ) ) {
+				$parts[] = $value;
+				$fixed  .= '||';
+			} else {
+				$fixed .= $value;
+			}
+			$fixed .= $connectors[ $index ];
+		}
+		return array(
+			'parts'     => $parts,
+			'fixedText' => $fixed,
+		);
+	}
+
+	/**
+	 * Design ids permitted for a Website DragDrop question — every design
+	 * except 'full_reference' (6 parts, MCQ-only — too large for the 3-4
+	 * part hard rule). Mirrors
+	 * Citex_Reference_Rules::journal_article_dragdrop_designs().
+	 *
+	 * @return string[]
+	 */
+	public static function website_dragdrop_designs() {
+		return array( 'author_year_title', 'author_year_publisher', 'title_publisher_url', 'year_publisher_url_accessed' );
 	}
 
 	/**

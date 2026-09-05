@@ -134,7 +134,7 @@ if ( ! is_wp_error( $result ) ) {
 	check( '[1] editors array carries the derived surname/initials', $candidate['editors'], array( array( 'fullName' => 'Vincent Miller', 'surname' => 'Miller', 'initials' => 'V.' ) ) );
 	check( '[1] exactly 4 Question Parts', count( $candidate['questionParts'] ), 4 );
 	check( '[1] Question Parts are [editor joined, designation, year, title]', $candidate['questionParts'], array( 'Miller, V.', 'ed.', '2020', 'Understanding digital culture' ) );
-	check( '[1] Fixed Text uses the 3-slot designation shape', $candidate['fixedText'], '| (||) (||) ||. London: SAGE Publications.' );
+	check( '[1] Fixed Text uses the 3-slot designation shape', $candidate['fixedText'], '|| (||) (||) ||. London: SAGE Publications.' );
 	check( '[1] reconstructedReference matches the spec\'s one-editor worked example', $candidate['reconstructedReference'], 'Miller, V. (ed.) (2020) Understanding digital culture. London: SAGE Publications.' );
 	check( '[1] validation passed (pre-queue quality gate)', $candidate['validationStatus'], 'passed' );
 }
@@ -218,7 +218,8 @@ $two_editor_result = invoke_normalise( array( $two_editor_item ), array( 'EB03' 
 check( '[3] normalise() succeeds for a valid two-editor Edited Book DragDrop item', is_wp_error( $two_editor_result ), false );
 if ( ! is_wp_error( $two_editor_result ) ) {
 	$two_editor_candidate = $two_editor_result[0];
-	check( '[3] two editors are joined with "and" and use "(eds)", never "(ed.)"', $two_editor_candidate['questionParts'], array( 'Smith, J. and Jones, A.', 'eds', '2020', 'Understanding digital culture' ) );
+	check( '[3] the first editor is drawn individually (never one joined chunk); designation is "(eds)", never "(ed.)"', $two_editor_candidate['questionParts'], array( 'Smith, J.', 'eds', '2020', 'Understanding digital culture' ) );
+	check( '[3] the second editor is folded into fixedText as a correct literal continuation', $two_editor_candidate['fixedText'], '|| and Jones, A. (||) (||) ||. London: SAGE Publications.' );
 	check( '[3] reconstructedReference uses "(eds)" for two editors', $two_editor_candidate['reconstructedReference'], 'Smith, J. and Jones, A. (eds) (2020) Understanding digital culture. London: SAGE Publications.' );
 	check( '[3] editors array carries both editors in order', $two_editor_candidate['editors'], array(
 		array( 'fullName' => 'John Smith', 'surname' => 'Smith', 'initials' => 'J.' ),

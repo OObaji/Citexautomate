@@ -19,7 +19,7 @@ class Citex_Generator {
 		$this->maybe_handle_submit();
 
 		$referencing_styles = array( 'harvard' => 'Harvard' );
-		$institutions       = array( 'liverpool_hope' => 'Liverpool Hope University' );
+		$institutions       = array( 'harvard' => 'Harvard (General)' );
 		$categories         = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 		$id_prefixes        = array(
 			'book'            => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
@@ -188,8 +188,8 @@ class Citex_Generator {
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 
 		$quantity = max( 1, min( 100, $quantity ) );
-		if ( 'harvard' !== $style || 'liverpool_hope' !== $institution || ! isset( $category_labels[ $category ] ) || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Liverpool Hope Harvard → Book, Edited Book, Journal Article or Website → DragDrop or MCQ.', 'citex-tools' ), 'error' );
+		if ( 'harvard' !== $style || 'harvard' !== $institution || ! isset( $category_labels[ $category ] ) || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
+			Citex_Admin::set_notice( __( 'The current AI generator supports Harvard → Book, Edited Book, Journal Article or Website → DragDrop or MCQ.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {

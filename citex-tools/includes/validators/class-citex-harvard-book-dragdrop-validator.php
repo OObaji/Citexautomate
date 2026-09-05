@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *    in tests/harvard-book-dragdrop-rules.test.js).
  *  - The two named punctuation checks (YEAR_TRAILING_PERIOD,
  *    MISSING_FINAL_PERIOD) and their exact messages.
- *  - The Liverpool Hope Book structural shape ("Author (Year) Title. Place:
+ *  - The Harvard Book structural shape ("Author (Year) Title. Place:
  *    Publisher.") for the format-mismatch check.
  *
  * One genuine gap remains and is NOT invented around: the exact HTML markup
