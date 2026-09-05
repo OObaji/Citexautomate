@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression tests for Citex_Book_Dragdrop_Parts — the dynamic 2-4-part
+ * Regression tests for Citex_Book_Dragdrop_Parts — the dynamic 3-4-part
  * Book DragDrop question builder that replaced the fixed 8-design catalogue
  * (Citex_Reference_Rules::book_dragdrop_designs() and friends, now removed).
  * Pure, no WordPress/ACF dependency — mirrors
@@ -104,7 +104,7 @@ for ( $i = 1; $i <= 40; $i++ ) {
 }
 
 // ---------------------------------------------------------------------
-// 3. select_parts(): across a wide seed sweep — part count always 2-4,
+// 3. select_parts(): across a wide seed sweep — part count always 3-4,
 // content floor always satisfied (at least one of author/year/title/
 // place/publisher is drawn), and "and" is never eligible/selected for a
 // single author.
@@ -129,7 +129,7 @@ for ( $i = 1; $i <= 60; $i++ ) {
 	$keys  = Citex_Book_Dragdrop_Parts::select_parts( $seed, $single_author );
 	$built = Citex_Book_Dragdrop_Parts::build( $keys, $single_author, $fields );
 	$part_count = count( $built['parts'] );
-	if ( $part_count < 2 || $part_count > 4 ) {
+	if ( $part_count < 3 || $part_count > 4 ) {
 		$count_within_bounds = false;
 	}
 	if ( ! has_content( $keys ) ) {
@@ -139,7 +139,7 @@ for ( $i = 1; $i <= 60; $i++ ) {
 		$and_ever_seen_single = true;
 	}
 }
-check( '[3] single-author: part count always within 2-4 across 60 seeds', $count_within_bounds, true );
+check( '[3] single-author: part count always within 3-4 across 60 seeds', $count_within_bounds, true );
 check( '[3] single-author: content floor always satisfied across 60 seeds', $content_floor_ok, true );
 check( '[3] single-author: "and" is never selected (not eligible with only 1 author)', $and_ever_seen_single, false );
 
@@ -157,7 +157,7 @@ check( '[3] multi-author (3): "and" is selected at least once across 60 seeds', 
 // 4. build(): exact output for hand-picked key sets, verified against the
 // user's own literal example (Clark, S., Davies, H. and Wilson, M. (2019)
 // Digital Media. London: Routledge.) — testing every author drawable in
-// turn, and every structural/punctuation candidate.
+// turn, and the structural "and" candidate.
 // ---------------------------------------------------------------------
 $three_named = array( author( 'Clark', 'S.', 'Simon Clark' ), author( 'Davies', 'H.', 'Helen Davies' ), author( 'Wilson', 'M.', 'Mark Wilson' ) );
 $digital_media_fields = array( 'year' => '2019', 'title' => 'Digital Media', 'place' => 'London', 'publisher' => 'Routledge' );
@@ -182,15 +182,10 @@ check( '[4] drawing "and": confusingWords is "&"', $built_and['confusingWords'],
 check( '[4] drawing "and": fixedText', $built_and['fixedText'], 'Clark, S., Davies, H. || Wilson, M. (2019) Digital Media. London: Routledge.' );
 check( '[4] drawing "and": reconstructs to the full reference', reconstruct( $built_and ), 'Clark, S., Davies, H. and Wilson, M. (2019) Digital Media. London: Routledge.' );
 
-$built_punct = Citex_Book_Dragdrop_Parts::build( array( 'paren_open', 'paren_close', 'colon' ), $three_named, $digital_media_fields );
-check( '[4] drawing punctuation: parts', $built_punct['parts'], array( '(', ')', ':' ) );
-check( '[4] drawing punctuation: confusingWords', $built_punct['confusingWords'], array( '[', ']', ';' ) );
-check( '[4] drawing punctuation: reconstructs to the full reference', reconstruct( $built_punct ), 'Clark, S., Davies, H. and Wilson, M. (2019) Digital Media. London: Routledge.' );
-
 // ---------------------------------------------------------------------
 // 5. Distractor rules: never equal to the correct value, for every kind.
 // ---------------------------------------------------------------------
-$all_keys_single = array( 'author_0_surname', 'author_0_initials', 'year', 'title', 'place', 'publisher', 'paren_open', 'paren_close', 'colon' );
+$all_keys_single = array( 'author_0_surname', 'author_0_initials', 'year', 'title', 'place', 'publisher' );
 $built_all = Citex_Book_Dragdrop_Parts::build( $all_keys_single, $single_author, $fields );
 foreach ( $built_all['parts'] as $index => $part ) {
 	check( "[5] distractor for part $index (\"$part\") is never equal to the correct value", $built_all['confusingWords'][ $index ] === $part, false );

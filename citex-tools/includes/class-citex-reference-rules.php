@@ -53,14 +53,14 @@ class Citex_Reference_Rules {
 
 	/**
 	 * HARD RULE for Book DragDrop questions (never MCQ): every generated
-	 * question must draw between 2 and 4 draggable Question Parts, no
+	 * question must draw between 3 and 4 draggable Question Parts, no
 	 * fewer, no more — Citex_Book_Dragdrop_Parts::select_parts() only ever
 	 * produces a selection within this range. Enforced independently at
 	 * validation time (Citex_Generated_Validator::validate_dragdrop()'s
 	 * Book-only block), mirroring JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/
 	 * MAX_PARTS's existing pattern.
 	 */
-	const BOOK_DRAGDROP_MIN_PARTS = 2;
+	const BOOK_DRAGDROP_MIN_PARTS = 3;
 	const BOOK_DRAGDROP_MAX_PARTS = 4;
 
 	public static function categories() {
@@ -362,7 +362,7 @@ class Citex_Reference_Rules {
 	 * slot into.
 	 *
 	 * Book is NOT handled here — its DragDrop shape is built dynamically,
-	 * per question, by Citex_Book_Dragdrop_Parts (a 2-4 part selection from
+	 * per question, by Citex_Book_Dragdrop_Parts (a 3-4 part selection from
 	 * a wider pool that includes the joining word "and" and punctuation,
 	 * not just whole bibliographic fields), replacing the fixed
 	 * catalogue this method used to serve for it.

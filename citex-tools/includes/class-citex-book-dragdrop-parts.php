@@ -4,21 +4,23 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Book DragDrop's dynamic 2-4-part question builder — replaces the fixed
+ * Book DragDrop's dynamic 3-4-part question builder — replaces the fixed
  * 8-design catalogue (Citex_Reference_Rules::book_dragdrop_designs() and
  * friends, now removed) with a genuinely dynamic system: every question
- * draws a random subset of 2-4 "parts" from a wider pool that includes not
+ * draws a random subset of 3-4 "parts" from a wider pool that includes not
  * just whole bibliographic fields (author name, year, title, place,
- * publisher) but also the joining word "and" and the punctuation marks
- * "(", ")", ":" — and every wrong "distractor" chip is authored
- * deterministically by Citex, never Gemini (mirrors the Book MCQ variant
- * overhaul's philosophy: Gemini supplies only the canonical record; Citex
- * authors the entire student-facing question from it).
+ * publisher) but also the joining word "and" — and every wrong
+ * "distractor" chip is authored deterministically by Citex, never Gemini
+ * (mirrors the Book MCQ variant overhaul's philosophy: Gemini supplies only
+ * the canonical record; Citex authors the entire student-facing question
+ * from it). Punctuation (the parentheses around the year, the colon before
+ * the publisher) was tried as a further candidate and dropped — always
+ * literal now, never draggable.
  *
  * The reference is modelled as an ordered TOKEN STREAM (see build_tokens())
  * alternating literal text (never draggable) and candidate slots (each with
- * a stable key, e.g. "author_1_surname", "and", "paren_open", "year" — a
- * "kind" for distractor generation, and its correct literal value).
+ * a stable key, e.g. "author_1_surname", "and", "year" — a "kind" for
+ * distractor generation, and its correct literal value).
  * select_parts() deterministically (crc32-seeded, same pattern as
  * Citex_Book_Mcq_Variants::variant_for()) decides which candidates get
  * drawn for one question; build() turns that decision plus the record's own
@@ -41,9 +43,9 @@ class Citex_Book_Dragdrop_Parts {
 	/**
 	 * The abstract "content" slots — each one, alone, satisfies the
 	 * requirement that every question draw at least one real bibliographic
-	 * field, not just structural chips (and/parens/colon). 'author_name'
-	 * costs 2 concrete parts (surname + initials together); every other
-	 * slot here costs 1.
+	 * field, not just the structural "and" chip. 'author_name' costs 2
+	 * concrete parts (surname + initials together); every other slot here
+	 * costs 1.
 	 *
 	 * @return string[]
 	 */
@@ -59,11 +61,7 @@ class Citex_Book_Dragdrop_Parts {
 	 * @return string[]
 	 */
 	private static function structural_slots( $author_count ) {
-		$slots = array( 'paren_open', 'paren_close', 'colon' );
-		if ( $author_count >= 2 ) {
-			$slots[] = 'and';
-		}
-		return $slots;
+		return $author_count >= 2 ? array( 'and' ) : array();
 	}
 
 	/**
@@ -105,16 +103,13 @@ class Citex_Book_Dragdrop_Parts {
 				}
 			}
 		}
-		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ' ', 'literal' => true );
-		$tokens[] = array( 'key' => 'paren_open', 'kind' => 'paren_open', 'value' => '(', 'literal' => false );
+		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ' (', 'literal' => true );
 		$tokens[] = array( 'key' => 'year', 'kind' => 'year', 'value' => (string) $fields['year'], 'literal' => false );
-		$tokens[] = array( 'key' => 'paren_close', 'kind' => 'paren_close', 'value' => ')', 'literal' => false );
-		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ' ', 'literal' => true );
+		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ') ', 'literal' => true );
 		$tokens[] = array( 'key' => 'title', 'kind' => 'title', 'value' => (string) $fields['title'], 'literal' => false );
 		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => '. ', 'literal' => true );
 		$tokens[] = array( 'key' => 'place', 'kind' => 'place', 'value' => (string) $fields['place'], 'literal' => false );
-		$tokens[] = array( 'key' => 'colon', 'kind' => 'colon', 'value' => ':', 'literal' => false );
-		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ' ', 'literal' => true );
+		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ': ', 'literal' => true );
 		$tokens[] = array( 'key' => 'publisher', 'kind' => 'publisher', 'value' => (string) $fields['publisher'], 'literal' => false );
 		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => '.', 'literal' => true );
 		return $tokens;
@@ -126,14 +121,14 @@ class Citex_Book_Dragdrop_Parts {
 	 * own id (same crc32-seeding pattern as
 	 * Citex_Book_Mcq_Variants::variant_for()):
 	 * 1. Pick a drawn author index (any of count($authors), uniformly).
-	 * 2. Pick a target part count, uniform in {2, 3, 4}.
+	 * 2. Pick a target part count, uniform in {3, 4}.
 	 * 3. Pick one "seed" content slot from {author_name, year, title,
 	 *    place, publisher} — guarantees the content floor (every question
 	 *    tests at least one real bibliographic field, never only
 	 *    structural chips). 'author_name' costs 2 parts; everything else
 	 *    costs 1.
 	 * 4. Fill the remaining budget from the other eligible cost-1 slots
-	 *    (the content slots not already used, plus 'and'/parens/colon),
+	 *    (the content slots not already used, plus 'and' when eligible),
 	 *    deterministically ordered and taking as many as fit exactly.
 	 *    'author_name' can never be picked twice — once decided as the
 	 *    seed (or not), it never re-enters selection — so at most one
@@ -149,7 +144,7 @@ class Citex_Book_Dragdrop_Parts {
 		$seed         = (string) $seed;
 		$author_count = count( $authors );
 		$drawn_index  = abs( crc32( 'book_dragdrop_author|' . $seed ) ) % max( 1, $author_count );
-		$target_count = 2 + ( abs( crc32( 'book_dragdrop_count|' . $seed ) ) % 3 );
+		$target_count = 3 + ( abs( crc32( 'book_dragdrop_count|' . $seed ) ) % 2 );
 
 		$content_slots = self::content_slots();
 		$seed_slot     = $content_slots[ abs( crc32( 'book_dragdrop_seed|' . $seed ) ) % count( $content_slots ) ];
@@ -267,12 +262,6 @@ class Citex_Book_Dragdrop_Parts {
 				return self::misspell_initials( $value );
 			case 'and':
 				return '&';
-			case 'paren_open':
-				return '[';
-			case 'paren_close':
-				return ']';
-			case 'colon':
-				return ';';
 			case 'year':
 				return (string) ( (int) $value + 1 );
 			default:

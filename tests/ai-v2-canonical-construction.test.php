@@ -219,7 +219,7 @@ check( '[author derivation] error code identifies the incomplete name', is_wp_er
 // Parts/Fixed Text are built dynamically per question by
 // Citex_Book_Dragdrop_Parts (see tests/ai-v2-book-dragdrop-wiring.test.php
 // for that mechanism's own dedicated coverage) — only the reconstructed
-// reference (unaffected by which 2-4 fields got drawn) is asserted here.
+// reference (unaffected by which 3-4 fields got drawn) is asserted here.
 // ---------------------------------------------------------------------
 $three_author_item = array(
 	'scenario'        => 'You are referencing a book titled Understanding digital culture by John Smith, Amy Jones and Tom Brown, published in London by SAGE Publications in 2020.',
@@ -234,7 +234,7 @@ $three_author_result = invoke_normalise( array( $three_author_item ), array( 'BK
 check( '[multi-author] normalise() succeeds for three authors', is_wp_error( $three_author_result ), false );
 if ( ! is_wp_error( $three_author_result ) ) {
 	$candidate = $three_author_result[0];
-	check( '[multi-author] Question Parts has between 2 and 4 entries', count( $candidate['questionParts'] ) >= 2 && count( $candidate['questionParts'] ) <= 4, true );
+	check( '[multi-author] Question Parts has between 3 and 4 entries', count( $candidate['questionParts'] ) >= 3 && count( $candidate['questionParts'] ) <= 4, true );
 	check( '[multi-author] the reconstructed reference joins all three authors, never "et al."', $candidate['reconstructedReference'], 'Smith, J., Jones, A. and Brown, T. (2020) Understanding digital culture. London: SAGE Publications.' );
 	check( '[multi-author] "et al." never appears in the reference', false !== strpos( $candidate['reconstructedReference'], 'et al' ), false );
 	check( '[multi-author] authorFullNames is carried through in order', $candidate['authorFullNames'], array( 'John Smith', 'Amy Jones', 'Tom Brown' ) );

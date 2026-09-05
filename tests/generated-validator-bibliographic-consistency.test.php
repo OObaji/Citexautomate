@@ -260,7 +260,7 @@ check( '[part-selection] reports BOOK_DRAGDROP_PARTS_UNKNOWN when no selection i
 // A DIFFERENT valid selection (fewer parts) for the same record also
 // passes — proving the check adapts to whichever selection was actually
 // recorded, not a single hardcoded shape.
-$alt_keys     = array( 'year', 'title' );
+$alt_keys     = array( 'year', 'title', 'place' );
 $alt_built    = Citex_Book_Dragdrop_Parts::build( $alt_keys, $three_authors, $urban_fields );
 $alt_question = $variety_design_question;
 $alt_question['dragdropPartKeys'] = $alt_keys;

@@ -1,7 +1,7 @@
 <?php
 /**
  * Regression tests for Citex_AI_V2's Book DragDrop generation path —
- * replaced entirely (per explicit user request) by a dynamic 2-4-part
+ * replaced entirely (per explicit user request) by a dynamic 3-4-part
  * selection (Citex_Book_Dragdrop_Parts), removing the original fixed
  * 8-design catalogue (Citex_Reference_Rules::book_dragdrop_designs() and
  * friends) and its Gemini-authored confusingWords list. Edited Book/Journal
@@ -11,7 +11,7 @@
  * (authorFullNames/year/bookTitle/place/publisher) and a non-leaking
  * scenario — no questionParts, no fixedText, no confusingWords.
  * normalise_book_dragdrop_item() picks a selection per QUESTION (seeded by
- * that question's own id) and builds the entire question — which 2-4 parts
+ * that question's own id) and builds the entire question — which 3-4 parts
  * are drawn, Fixed Text, and every wrong chip — deterministically via
  * Citex_Book_Dragdrop_Parts::select_parts()/build().
  *
@@ -112,7 +112,7 @@ check( '[1] normalise() succeeds for a single-author Book DragDrop item', is_wp_
 if ( ! is_wp_error( $single_result ) ) {
 	$candidate = $single_result[0];
 	check( '[1] dragdropPartKeys is a non-empty array', ! empty( $candidate['dragdropPartKeys'] ), true );
-	check( '[1] Question Parts count is between 2 and 4', count( $candidate['questionParts'] ) >= 2 && count( $candidate['questionParts'] ) <= 4, true );
+	check( '[1] Question Parts count is between 3 and 4', count( $candidate['questionParts'] ) >= 3 && count( $candidate['questionParts'] ) <= 4, true );
 	check( '[1] confusingWords count matches questionParts count', count( $candidate['confusingWords'] ), count( $candidate['questionParts'] ) );
 	check( '[1] no exerciseDesign field at all (that field belongs only to Edited Book/Journal Article/Website)', array_key_exists( 'exerciseDesign', $candidate ), false );
 

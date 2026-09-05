@@ -2,7 +2,7 @@
 /**
  * Regression tests for Citex_Generated_Validator::validate_dragdrop()'s
  * Book-only block — the exact-match check backing Citex_Book_Dragdrop_Parts'
- * dynamic 2-4-part selection (replaces the fixed 8-design catalogue).
+ * dynamic 3-4-part selection (replaces the fixed 8-design catalogue).
  * Exercises the validator directly against hand-built candidate fixtures,
  * the same style as generated-validator-book-mcq-variant.test.php.
  *
@@ -141,14 +141,14 @@ check( '[6] an out-of-range author index fails', $bad_author_index_result['statu
 check( '[6] reports BOOK_DRAGDROP_PARTS_UNKNOWN', has_error_code( $bad_author_index_result, 'book_dragdrop_parts_unknown' ), true );
 
 // ---------------------------------------------------------------------
-// 7. Part count outside 2-4 fails (built directly with an out-of-bounds
+// 7. Part count outside 3-4 fails (built directly with an out-of-bounds
 // key list, bypassing select_parts()'s own floor/ceiling).
 // ---------------------------------------------------------------------
 $one_part_keys = array( 'year' );
 $one_part_built = Citex_Book_Dragdrop_Parts::build( $one_part_keys, $authors, $fields );
 $one_part_question = book_dragdrop_question( $one_part_keys, $one_part_built, $authors, $fields );
 $one_part_result = Citex_Generated_Validator::validate( $one_part_question );
-check( '[7] a 1-part selection fails the 2-4 part-count bound', $one_part_result['status'], 'failed' );
+check( '[7] a 1-part selection fails the 3-4 part-count bound', $one_part_result['status'], 'failed' );
 check( '[7] reports BOOK_DRAGDROP_PART_COUNT_OUT_OF_RANGE', has_error_code( $one_part_result, 'book_dragdrop_part_count_out_of_range' ), true );
 
 // ---------------------------------------------------------------------
@@ -176,7 +176,7 @@ $two_authors = array(
 	array( 'surname' => 'Brown', 'initials' => 'A.', 'fullName' => 'Andrew Brown' ),
 	array( 'surname' => 'Smith', 'initials' => 'J.', 'fullName' => 'James Smith' ),
 );
-$two_author_keys  = array( 'and', 'year' );
+$two_author_keys  = array( 'and', 'year', 'title' );
 $two_author_built = Citex_Book_Dragdrop_Parts::build( $two_author_keys, $two_authors, $fields );
 $two_author_question = book_dragdrop_question( $two_author_keys, $two_author_built, $two_authors, $fields, array(
 	'scenario'               => 'You are referencing a book titled Digital Culture by Andrew Brown and James Smith, published in 2021 by Routledge in London.',

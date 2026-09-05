@@ -127,7 +127,7 @@ class Citex_Generated_Validator {
 			}
 		}
 
-		// HARD RULE, DragDrop-only, Book-only: EXACTLY 2-4 Question Parts
+		// HARD RULE, DragDrop-only, Book-only: EXACTLY 3-4 Question Parts
 		// (Citex_Reference_Rules::BOOK_DRAGDROP_MIN_PARTS/MAX_PARTS) — see
 		// validate_book_mcq_variant()'s own docblock for why this can go
 		// further than a mere plausibility check: every Book DragDrop part
