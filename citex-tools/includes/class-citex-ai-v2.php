@@ -5,6 +5,16 @@ class Citex_AI_V2 {
 	const OPTION_API_KEY = 'citex_gemini_api_key';
 	const OPTION_MODEL = 'citex_gemini_model';
 	const OPTION_WEB_VERIFY = 'citex_gemini_web_verify';
+	// Admin-configurable content-length knobs (see content_realism_guidance()
+	// and Citex_Reference_Rules::part_suitability()) — how many words an
+	// invented author name / book-or-journal title should be, since content
+	// no longer needs to be real and so is no longer naturally bounded by
+	// what a real source happens to be called. Bounded to a sane 1-20 word
+	// range on save; DEFAULT_* mirror this sprint's previous fixed values.
+	const OPTION_MAX_AUTHOR_WORDS = 'citex_gemini_max_author_words';
+	const OPTION_MAX_TITLE_WORDS  = 'citex_gemini_max_title_words';
+	const DEFAULT_MAX_AUTHOR_WORDS = 4;
+	const DEFAULT_MAX_TITLE_WORDS  = 12;
 	const DEFAULT_MODEL = 'gemini-3.7-flash';
 	const API_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 	// Genuine generation attempts (HTTP/API/parse/structural failures) — not
@@ -45,16 +55,62 @@ class Citex_AI_V2 {
 		return '' !== $model ? $model : self::DEFAULT_MODEL;
 	}
 	public static function web_verification_enabled() { return (bool) get_option( self::OPTION_WEB_VERIFY, false ); }
-	public static function save_settings( $api_key, $model, $web_verify ) {
+
+	/**
+	 * How many words an invented author full name should be (e.g. a first
+	 * and last name is 2) — admin-configurable via AI Settings, read by
+	 * content_realism_guidance() (steers Gemini directly) and
+	 * Citex_Reference_Rules::part_suitability() (the non-blocking backstop
+	 * check). Clamped to 1-20 so a mistaken value can never disable the
+	 * check entirely or produce an unusably tiny one.
+	 */
+	public static function max_author_words() {
+		return max( 1, min( 20, absint( get_option( self::OPTION_MAX_AUTHOR_WORDS, self::DEFAULT_MAX_AUTHOR_WORDS ) ) ) );
+	}
+
+	/**
+	 * How many words an invented book/article/webpage title should be —
+	 * same role as max_author_words() but for titles, which are naturally
+	 * longer than a name.
+	 */
+	public static function max_title_words() {
+		return max( 1, min( 20, absint( get_option( self::OPTION_MAX_TITLE_WORDS, self::DEFAULT_MAX_TITLE_WORDS ) ) ) );
+	}
+
+	/**
+	 * The single word-count backstop Citex_Reference_Rules::part_suitability()
+	 * checks a draggable Question Part against — since a part could be
+	 * either an author name or a title (or another field entirely),
+	 * whichever of the two configured limits is larger is used, so neither
+	 * one ever gets flagged as "too long" against the other's tighter
+	 * setting.
+	 */
+	private static function configured_part_word_limit() {
+		return max( self::max_author_words(), self::max_title_words() );
+	}
+
+	public static function save_settings( $api_key, $model, $web_verify, $max_author_words = null, $max_title_words = null ) {
 		if ( '' !== trim( (string) $api_key ) ) { update_option( self::OPTION_API_KEY, trim( (string) $api_key ), false ); }
 		update_option( self::OPTION_MODEL, '' !== trim( (string) $model ) ? sanitize_text_field( $model ) : self::DEFAULT_MODEL, false );
 		update_option( self::OPTION_WEB_VERIFY, ! empty( $web_verify ), false );
+		if ( null !== $max_author_words ) {
+			update_option( self::OPTION_MAX_AUTHOR_WORDS, max( 1, min( 20, absint( $max_author_words ) ) ), false );
+		}
+		if ( null !== $max_title_words ) {
+			update_option( self::OPTION_MAX_TITLE_WORDS, max( 1, min( 20, absint( $max_title_words ) ) ), false );
+		}
 	}
 	public static function maybe_handle_submit() {
 		if ( empty( $_POST['citex_ai_save_settings'] ) ) { return; }
 		if ( ! current_user_can( 'manage_options' ) ) { wp_die( esc_html__( 'You are not allowed to manage Citex AI settings.', 'citex-tools' ) ); }
 		check_admin_referer( 'citex_ai_settings', 'citex_ai_settings_nonce' );
-		self::save_settings( isset( $_POST['citex_gemini_api_key'] ) ? wp_unslash( $_POST['citex_gemini_api_key'] ) : '', isset( $_POST['citex_gemini_model'] ) ? wp_unslash( $_POST['citex_gemini_model'] ) : self::DEFAULT_MODEL, ! empty( $_POST['citex_gemini_web_verify'] ) );
+		self::save_settings(
+			isset( $_POST['citex_gemini_api_key'] ) ? wp_unslash( $_POST['citex_gemini_api_key'] ) : '',
+			isset( $_POST['citex_gemini_model'] ) ? wp_unslash( $_POST['citex_gemini_model'] ) : self::DEFAULT_MODEL,
+			! empty( $_POST['citex_gemini_web_verify'] ),
+			isset( $_POST['citex_max_author_words'] ) ? absint( $_POST['citex_max_author_words'] ) : self::DEFAULT_MAX_AUTHOR_WORDS,
+			isset( $_POST['citex_max_title_words'] ) ? absint( $_POST['citex_max_title_words'] ) : self::DEFAULT_MAX_TITLE_WORDS
+		);
 		Citex_Admin::set_notice( __( 'Gemini AI settings saved.', 'citex-tools' ), 'success' );
 		wp_safe_redirect( admin_url( 'admin.php?page=citex-ai' ) ); exit;
 	}
@@ -63,6 +119,7 @@ class Citex_AI_V2 {
 		if ( ! current_user_can( 'manage_options' ) ) { wp_die( esc_html__( 'You are not allowed to manage Citex AI settings.', 'citex-tools' ) ); }
 		self::maybe_handle_submit();
 		$has_key = '' !== self::get_api_key(); $model = self::get_model(); $web_verify = self::web_verification_enabled();
+		$max_author_words = self::max_author_words(); $max_title_words = self::max_title_words();
 		require CITEX_TOOLS_PATH . 'admin/views/ai-settings.php';
 	}
 
@@ -391,26 +448,33 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Content realism guidance — this sprint's core change. Author names,
-	 * book/article/webpage titles, and organisation names no longer need to
-	 * correspond to a real, findable source: this tool is for learning
-	 * Harvard-referencing MECHANICS (formatting, punctuation, ordering),
-	 * not bibliographic research, so an invented-but-plausible source is
-	 * fine. The one deliberate exception is the publisher (Book/Edited
-	 * Book/Website) or journal name (Journal Article) — each
-	 * category's own prompt still separately states which field this is —
-	 * which must always be a REAL, currently-existing, well-known
-	 * publisher/journal, so students learn to recognise real ones even
-	 * when the rest of the source is invented. Appended to every prompt
+	 * Content realism guidance. Author names, book/article/webpage titles,
+	 * and organisation names no longer need to correspond to a real,
+	 * findable source: this tool is for learning Harvard-referencing
+	 * MECHANICS (formatting, punctuation, ordering), not bibliographic
+	 * research, so an invented-but-plausible source is fine. The one
+	 * deliberate exception is the publisher (Book/Edited Book/Website) or
+	 * journal name (Journal Article) — each category's own prompt still
+	 * separately states which field this is — which must always be a REAL,
+	 * currently-existing, well-known publisher/journal, so students learn
+	 * to recognise real ones even when the rest of the source is invented.
+	 * Author-name and title word limits are admin-configurable (AI
+	 * Settings — see Citex_AI_V2::max_author_words()/max_title_words()),
+	 * since content is invented and so is no longer naturally bounded by
+	 * what a real source happens to be called. Appended to every prompt
 	 * builder that carries bibliographic data, exactly like
 	 * conciseness_guidance().
 	 */
 	private static function content_realism_guidance() {
+		$max_author_words = self::max_author_words();
+		$max_title_words  = self::max_title_words();
 		return "INVENTED CONTENT IS FINE — THIS IS FOR LEARNING PURPOSES:\n"
 			. "- Author names, the book/article/webpage title, and organisation names do NOT need to be real or belong to a genuinely published/existing source — you may invent them, as long as the whole record is internally consistent (the same invented author/title/year/etc. throughout one question). This tool teaches Harvard formatting mechanics, not bibliographic research.\n"
 			. "- Invented author names must read as ordinary, plausible personal names — NEVER reuse the name of a real, identifiable, notable person (e.g. a well-known author, academic, or public figure) as an invented author, so no question ever misattributes invented work to someone real.\n"
 			. "- The one exception: the publisher (or journal name — see this category's own instructions above for which field that is) must always be a REAL, currently-existing, well-known academic or trade publisher/journal, even though the rest of the record may be invented. Never invent a publisher/journal name.\n"
-			. "- Keep every field concise: no more than about 20 words each, and short enough to sit comfortably on a mobile screen — invent short values directly rather than a long one you then shorten.";
+			. sprintf( "- Invent each author's full name as EXACTLY %d word(s) — not more, not fewer (e.g. a single given name and surname for 2 words).\n", $max_author_words )
+			. sprintf( "- Invent the book/article/webpage title as NO MORE THAN %d word(s), and short enough to sit comfortably on a mobile screen — invent a short title directly rather than a long one you then shorten.\n", $max_title_words )
+			. "- Keep every other field concise too, short enough to sit comfortably on a mobile screen.";
 	}
 
 	private static function build_prompt( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
@@ -1218,7 +1282,7 @@ class Citex_AI_V2 {
 			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
 			$seen[ $normal ] = true;
 		}
-		$suitability_reason = Citex_Reference_Rules::part_suitability( $parts );
+		$suitability_reason = Citex_Reference_Rules::part_suitability( $parts, self::configured_part_word_limit() );
 		if ( null !== $suitability_reason ) {
 			$rejection = self::quality_reject( 'citex_ai_part_too_long', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $suitability_reason ) );
 			if ( $rejection ) { return $rejection; }
@@ -1574,7 +1638,7 @@ class Citex_AI_V2 {
 			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
 			$seen[ $normal ] = true;
 		}
-		$suitability_reason = Citex_Reference_Rules::part_suitability( $parts );
+		$suitability_reason = Citex_Reference_Rules::part_suitability( $parts, self::configured_part_word_limit() );
 		if ( null !== $suitability_reason ) {
 			$rejection = self::quality_reject( 'citex_ai_part_too_long', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $suitability_reason ) );
 			if ( $rejection ) { return $rejection; }
@@ -1719,7 +1783,7 @@ class Citex_AI_V2 {
 		// journal_article_mobile_suitability()'s docblock): fed into the
 		// existing regenerate-with-feedback retry loop exactly like every
 		// other check here, never stored as a "known-bad" candidate.
-		$mobile_reason = Citex_Reference_Rules::part_suitability( $parts );
+		$mobile_reason = Citex_Reference_Rules::part_suitability( $parts, self::configured_part_word_limit() );
 		if ( null !== $mobile_reason ) {
 			$rejection = self::quality_reject( 'citex_ai_journal_article_mobile_unsuitable', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $mobile_reason ) );
 			if ( $rejection ) { return $rejection; }
@@ -1775,7 +1839,7 @@ class Citex_AI_V2 {
 		// would reject every one of them; their conciseness is instead
 		// steered at the source-selection stage by conciseness_guidance().
 		if ( 'full_reference' !== $exercise_design ) {
-			$mobile_reason = Citex_Reference_Rules::part_suitability( array_merge( array( $reference ), $incorrect ) );
+			$mobile_reason = Citex_Reference_Rules::part_suitability( array_merge( array( $reference ), $incorrect ), self::configured_part_word_limit() );
 			if ( null !== $mobile_reason ) {
 				$rejection = self::quality_reject( 'citex_ai_journal_article_mobile_unsuitable', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $mobile_reason ) );
 				if ( $rejection ) { return $rejection; }
@@ -1865,7 +1929,7 @@ class Citex_AI_V2 {
 		}
 		// PART SUITABILITY — mobile-length/word-count backstop, shared with
 		// every other category (see Citex_Reference_Rules::part_suitability()).
-		$suitability_reason = Citex_Reference_Rules::part_suitability( $parts );
+		$suitability_reason = Citex_Reference_Rules::part_suitability( $parts, self::configured_part_word_limit() );
 		if ( null !== $suitability_reason ) {
 			$rejection = self::quality_reject( 'citex_ai_part_too_long', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $suitability_reason ) );
 			if ( $rejection ) { return $rejection; }

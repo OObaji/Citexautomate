@@ -34,6 +34,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 					<p class="description"><?php esc_html_e( 'Recommended when generating real questions. The generator can still override this per batch.', 'citex-tools' ); ?></p>
 				</td>
 			</tr>
+			<tr>
+				<th scope="row"><label for="citex_max_author_words"><?php esc_html_e( 'Max author name length', 'citex-tools' ); ?></label></th>
+				<td>
+					<input type="number" id="citex_max_author_words" name="citex_max_author_words" value="<?php echo esc_attr( $max_author_words ); ?>" min="1" max="20" step="1" class="small-text" /> <?php esc_html_e( 'words', 'citex-tools' ); ?>
+					<p class="description"><?php esc_html_e( 'Author names are invented for learning purposes and no longer need to belong to a real person — this sets how many words Gemini should invent (e.g. 2 for a plain first + last name).', 'citex-tools' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="citex_max_title_words"><?php esc_html_e( 'Max title length', 'citex-tools' ); ?></label></th>
+				<td>
+					<input type="number" id="citex_max_title_words" name="citex_max_title_words" value="<?php echo esc_attr( $max_title_words ); ?>" min="1" max="20" step="1" class="small-text" /> <?php esc_html_e( 'words', 'citex-tools' ); ?>
+					<p class="description"><?php esc_html_e( 'Book/article/webpage titles are likewise invented and no longer need to belong to a real publication — this sets how many words Gemini should invent the title to be.', 'citex-tools' ); ?></p>
+				</td>
+			</tr>
 		</table>
 		<p class="submit"><button type="submit" name="citex_ai_save_settings" value="1" class="button button-primary"><?php esc_html_e( 'Save AI Settings', 'citex-tools' ); ?></button> <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-generate' ) ); ?>"><?php esc_html_e( 'Back to Generate Questions', 'citex-tools' ); ?></a></p>
 	</form>
@@ -44,6 +58,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<tr><td><strong><?php esc_html_e( 'API key', 'citex-tools' ); ?></strong></td><td><?php echo $has_key ? esc_html__( 'Configured', 'citex-tools' ) : esc_html__( 'Not configured', 'citex-tools' ); ?></td></tr>
 			<tr><td><strong><?php esc_html_e( 'Model', 'citex-tools' ); ?></strong></td><td><code><?php echo esc_html( $model ); ?></code></td></tr>
 			<tr><td><strong><?php esc_html_e( 'Default web verification', 'citex-tools' ); ?></strong></td><td><?php echo $web_verify ? esc_html__( 'Enabled', 'citex-tools' ) : esc_html__( 'Disabled', 'citex-tools' ); ?></td></tr>
+			<tr><td><strong><?php esc_html_e( 'Max author name length', 'citex-tools' ); ?></strong></td><td><?php echo esc_html( sprintf( _n( '%d word', '%d words', $max_author_words, 'citex-tools' ), $max_author_words ) ); ?></td></tr>
+			<tr><td><strong><?php esc_html_e( 'Max title length', 'citex-tools' ); ?></strong></td><td><?php echo esc_html( sprintf( _n( '%d word', '%d words', $max_title_words, 'citex-tools' ), $max_title_words ) ); ?></td></tr>
 		</tbody>
 	</table>
 </div>

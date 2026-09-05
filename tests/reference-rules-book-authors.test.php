@@ -92,8 +92,8 @@ check( '[3] one author: exactly 4 parts (unchanged shape)', $shape_one['parts'],
 check( '[3] one author: fixedText is the original 4-placeholder template', $shape_one['fixedText'], '|, || (||) ||. London: SAGE Publications.' );
 
 $shape_three = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, array_merge( $base_fields, array( 'authors' => $three ) ) );
-check( '[3] three authors: exactly 4 parts (first two authors individually, year, title)', $shape_three['parts'], array( 'Smith, J.', 'Jones, P.', '2020', 'Understanding digital culture' ) );
-check( '[3] three authors: fixedText folds the third author in as a correct literal continuation', $shape_three['fixedText'], '||, || and Brown, T. (||) ||. London: SAGE Publications.' );
+check( '[3] three authors: exactly 3 parts (only the first author individually, year, title)', $shape_three['parts'], array( 'Smith, J.', '2020', 'Understanding digital culture' ) );
+check( '[3] three authors: fixedText folds the 2nd and 3rd authors in as a correct literal continuation', $shape_three['fixedText'], '||, Jones, P. and Brown, T. (||) ||. London: SAGE Publications.' );
 
 // The reconstructed reference from EITHER shape must exactly match
 // build_reference()'s own output — DragDrop and the correct MCQ answer can

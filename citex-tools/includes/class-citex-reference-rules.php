@@ -267,11 +267,17 @@ class Citex_Reference_Rules {
 	 * exactly what join_people() would return for the WHOLE list — see
 	 * name_template() for the fixedText-building counterpart.
 	 *
+	 * $max is 1 at every call site in this class — only ever the FIRST
+	 * author/editor becomes an individual draggable Question Part, so a
+	 * part is never lengthened by joining multiple people's names
+	 * together; the parameter stays general (rather than hardcoding 1
+	 * internally) purely so a future design can deliberately ask for more.
+	 *
 	 * @param array $people array<{surname, initials}>, 1 or more.
 	 * @param int   $max
 	 * @return array{0: string[], 1: string[], 2: string} [drawn, joiners, overflow]
 	 */
-	public static function person_parts( array $people, $max = 2 ) {
+	public static function person_parts( array $people, $max = 1 ) {
 		$draw_count      = min( count( $people ), max( 1, (int) $max ) );
 		$drawn_people    = array_slice( $people, 0, $draw_count );
 		$overflow_people = array_slice( $people, $draw_count );
@@ -338,14 +344,15 @@ class Citex_Reference_Rules {
 	 * Book branches on author count: a SINGLE author keeps the original
 	 * 4-part shape (surname and initials as two separate draggable parts —
 	 * every existing single-author question is completely unaffected). TWO
-	 * OR MORE authors draw the FIRST TWO authors as individual parts (via
-	 * person_parts()) plus year and title — always exactly 4 parts, for any
-	 * author count; a 3rd+ author is folded into fixedText as a correct,
-	 * non-draggable continuation (person_parts()'s overflow), never lumped
-	 * together with the drawn authors into one joined chunk.
+	 * OR MORE authors draw only the FIRST author as an individual part (via
+	 * person_parts( $authors, 1 )) plus year and title — 3 parts total; a
+	 * 2nd+ author is folded into fixedText as a correct, non-draggable
+	 * continuation (person_parts()'s overflow), never lumped together with
+	 * the drawn author, and never adding a second author as its own part —
+	 * a Question Part is never lengthened by joining multiple author names.
 	 *
 	 * Edited Book keeps its designation ("(ed.)"/"(eds)") as its own
-	 * dedicated part always, and draws only the FIRST editor as an
+	 * dedicated part always, and likewise draws only the FIRST editor as an
 	 * individual part (person_parts( $editors, 1 )) plus designation, year
 	 * and title — always exactly 4 parts, for any editor count; a 2nd+
 	 * editor is folded into fixedText the same way.
@@ -375,7 +382,12 @@ class Citex_Reference_Rules {
 				'fixedText' => sprintf( '|, || (||) ||. %s: %s.', $fields['place'], $fields['publisher'] ),
 			);
 		}
-		list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 2 );
+		// Only the FIRST author is ever an individual draggable part — any
+		// further authors are folded into fixedText as a correct,
+		// non-draggable continuation (person_parts()'s overflow), so a
+		// Question Part is never lengthened by joining multiple author
+		// names together. See person_parts()'s docblock.
+		list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
 		return array(
 			'parts'     => array_merge( $drawn, array( $fields['year'], $fields['title'] ) ),
 			'fixedText' => sprintf( '%s%s (||) ||. %s: %s.', self::name_template( $drawn, $joiners ), $overflow, $fields['place'], $fields['publisher'] ),
@@ -545,17 +557,18 @@ class Citex_Reference_Rules {
 			// like a real Harvard fragment (issue alone is never shown in
 			// its own parentheses immediately after the year in a real
 			// reference; doing so here would misteach that placement).
-			// Up to 2 authors are individual draggable parts (3 parts for
-			// 1 author, 4 for 2+ — 3rd+ authors fold into fixedText via
-			// person_parts()'s overflow) — always exactly 3 or 4 total.
-			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 2 );
+			// Only the FIRST author is ever an individual draggable part
+			// (always exactly 3 parts) — any further authors fold into
+			// fixedText via person_parts()'s overflow, so a Question Part
+			// is never lengthened by joining multiple author names together.
+			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
 			return array(
 				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['issue'] ) ),
 				'fixedText' => sprintf( '%s%s, ||, ||.', self::name_template( $drawn, $joiners ), $overflow ),
 			);
 		}
 		if ( 'author_year_journal' === $design ) {
-			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 2 );
+			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
 			return array(
 				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['journalTitle'] ) ),
 				'fixedText' => sprintf( '%s%s, ||, ||.', self::name_template( $drawn, $joiners ), $overflow ),
@@ -651,14 +664,22 @@ class Citex_Reference_Rules {
 	 * other validation failure (gated non-blocking via
 	 * Citex_AI_V2::quality_reject() — see that class).
 	 *
+	 * $max_words is the word-count backstop for a SINGLE component — callers
+	 * pass the admin-configured limit that actually applies (see
+	 * Citex_AI_V2::max_author_words()/max_title_words()); defaults to 20 for
+	 * any caller (or test) that doesn't have a more specific limit to hand.
+	 * This is a backstop only: the real steering happens in the prompt (see
+	 * Citex_AI_V2::content_realism_guidance()) — Gemini is asked for the
+	 * exact configured length directly, this just catches it not listening.
+	 *
 	 * @return string|null A human-readable rejection reason, or null when suitable.
 	 */
-	public static function part_suitability( array $parts ) {
+	public static function part_suitability( array $parts, $max_words = 20 ) {
 		// Generous enough that an ordinary invented-or-real part is never
 		// rejected — this is a backstop against genuinely excessive cases
 		// (an unusually long title), not a filter on ordinary variation.
 		$max_single_component_chars = 70;
-		$max_single_component_words = 20;
+		$max_single_component_words = max( 1, (int) $max_words );
 		$max_combined_total_chars   = 200;
 		$total                      = 0;
 		foreach ( $parts as $part ) {

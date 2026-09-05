@@ -38,6 +38,9 @@ function sanitize_key( $v ) {
 function sanitize_text_field( $v ) {
 	return trim( (string) $v );
 }
+function absint( $v ) {
+	return abs( intval( $v ) );
+}
 function sanitize_textarea_field( $v ) {
 	return trim( (string) $v );
 }
