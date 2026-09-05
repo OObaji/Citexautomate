@@ -245,6 +245,19 @@ class Citex_AI_V2 {
 	 * $existing_references) or an earlier candidate within this same batch
 	 * — null when there is no duplicate at all.
 	 *
+	 * 'choose_treatment' and 'identify_error' candidates are skipped
+	 * entirely: their `reconstructedReference` field never holds an actual
+	 * bibliographic reference at all — for choose_treatment it is Citex's
+	 * own FIXED, bucket-level rule statement (see
+	 * normalise_choose_treatment_item()), identical by design for every
+	 * question testing the same rule, and for identify_error it is
+	 * Gemini's free-form errorReason text. Treating either as "the real
+	 * book/edited book this question is about" caused a real reported bug:
+	 * a second choose_treatment question for a bucket that already had one
+	 * pending (or two in the same batch) always failed with a spurious
+	 * "duplicates one already in the pending queue" error, since the
+	 * correct rule statement is deliberately the same text every time.
+	 *
 	 * @param array    $candidates
 	 * @param string[] $existing_references
 	 * @return string|null
@@ -252,6 +265,9 @@ class Citex_AI_V2 {
 	private static function find_duplicate_reference( $candidates, array $existing_references ) {
 		$seen_in_batch = array();
 		foreach ( $candidates as $candidate ) {
+			if ( in_array( $candidate['mcqPattern'] ?? '', array( 'choose_treatment', 'identify_error' ), true ) ) {
+				continue;
+			}
 			$reference = (string) ( $candidate['reconstructedReference'] ?? '' );
 			if ( Citex_Question_Diversity::is_duplicate_reference( $reference, $existing_references ) || Citex_Question_Diversity::is_duplicate_reference( $reference, $seen_in_batch ) ) {
 				return $reference;

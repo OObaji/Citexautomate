@@ -337,6 +337,16 @@ class Citex_Generator {
 			if ( $category_label !== (string) ( $question['category'] ?? '' ) ) {
 				continue;
 			}
+			// 'choose_treatment'/'identify_error' MCQ questions never store an
+			// actual bibliographic reference in this field (see
+			// Citex_AI_V2::find_duplicate_reference()'s identical exclusion) —
+			// for choose_treatment it is Citex's own fixed, bucket-level rule
+			// statement, deliberately identical across every question testing
+			// that rule; including it here would make every subsequent batch
+			// think that rule's text is "a real book already used".
+			if ( in_array( $question['mcqPattern'] ?? '', array( 'choose_treatment', 'identify_error' ), true ) ) {
+				continue;
+			}
 			$reference = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
 			if ( '' !== $reference ) {
 				$references[] = $reference;

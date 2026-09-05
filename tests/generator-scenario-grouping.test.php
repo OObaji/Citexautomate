@@ -204,5 +204,33 @@ queue_response( array( book_mcq_question( 'BK02', array( 'John Smith', 'Amy Jone
 $duplicate_result = invoke_generate_via_scenarios( 'Book', 'book', 'MCQ', 'mcq', 2, 'BK01', 'medium', false, array(), $existing_pending );
 check( '[3] a group that would duplicate an existing pending reference fails', is_wp_error( $duplicate_result ), true );
 
+// ---------------------------------------------------------------------
+// 4. Regression for a real reported bug: collect_existing_references()
+// must never pull a 'choose_treatment'/'identify_error' MCQ question's
+// reconstructedReference into the list of "real books already used" —
+// that field holds a fixed, deliberately-repeated rule statement (or
+// Gemini's free-form errorReason) for those patterns, never an actual
+// book reference. Including it made every subsequent choose_treatment
+// question for the same rule bucket look like a duplicate of a pending
+// question that was never actually about the same book at all.
+// ---------------------------------------------------------------------
+function invoke_collect_existing_references( $pending, $category_label ) {
+	$generator  = new Citex_Generator();
+	$reflection = new ReflectionMethod( 'Citex_Generator', 'collect_existing_references' );
+	$reflection->setAccessible( true );
+	return $reflection->invoke( $generator, $pending, $category_label );
+}
+
+$mixed_pending = array(
+	array( 'category' => 'Book', 'mcqPattern' => 'choose_treatment', 'reconstructedReference' => 'Both authors are included, joined by "and" — e.g. Smith, J. and Jones, A.' ),
+	array( 'category' => 'Book', 'mcqPattern' => 'identify_error', 'reconstructedReference' => 'Missing the final full stop.' ),
+	array( 'category' => 'Book', 'reconstructedReference' => 'Cottrell, S. (2019) Critical Thinking Skills. London: Red Globe Press.' ),
+);
+check(
+	'[4] collect_existing_references() excludes choose_treatment/identify_error, keeps a real reference',
+	invoke_collect_existing_references( $mixed_pending, 'Book' ),
+	array( 'Cottrell, S. (2019) Critical Thinking Skills. London: Red Globe Press.' )
+);
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
