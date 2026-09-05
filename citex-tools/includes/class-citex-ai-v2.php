@@ -311,7 +311,7 @@ class Citex_AI_V2 {
 				: self::build_prompt_website( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 		}
 		return 'MCQ' === $type
-			? self::build_prompt_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+			? self::build_prompt_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
 			: self::build_prompt( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 	}
 
@@ -393,7 +393,7 @@ class Citex_AI_V2 {
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			return 'MCQ' === $type ? self::schema_website_mcq() : self::schema_website();
 		}
-		return 'MCQ' === $type ? self::schema_mcq() : self::schema();
+		return 'MCQ' === $type ? self::schema_book_mcq_variant() : self::schema();
 	}
 
 	private static function system_instruction_for( $type, $category, $scenario_id = '' ) {
@@ -419,7 +419,7 @@ class Citex_AI_V2 {
 
 	private static function system_instruction_for_book( $type ) {
 		return 'MCQ' === $type
-			? 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Book multiple-choice questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book — never a different edition or a different book, and never a different number of authors than the real book actually has. You are NOT asked for a scenario or question text at all; Citex supplies the entire student-facing question itself (a fixed "Which of the following is the correct Harvard reference for a book?" stem), so there is nothing for you to write and nothing for you to leak the answer through. Citex constructs the single correctly-formatted Harvard reference itself from authorFullNames/year/bookTitle/place/publisher — including how multiple authors are joined (Harvard\'s reference-list rule: EVERY author is always listed in full, comma-separated with a final "and" before the last one, for any author count — "et al." is NEVER used in a reference-list entry; that abbreviation is only Harvard\'s separate in-text-citation convention, which this question never generates) — you only ever provide THREE plausible but incorrectly-formatted `distractors`, each as {reference, errorReason} naming the SPECIFIC Harvard rule it breaks, never the correct one itself. Your goal is never "make four references that look different" — it is "one correct reference, three references each with one deliberate, identifiable Harvard error." For every distractor, re-read it end-to-end against the full correct format before returning it: a distractor that is wrong in your head but technically satisfies every Harvard rule when read literally must be rebuilt, since Citex independently re-validates every option and rejects the whole question if more than one is fully valid. Before returning each question, perform a strict self-check: authorFullNames, year, bookTitle, place and publisher all describe the same book with no contradictions; and all three distractors are clearly wrong (a formatting, punctuation, ordering, or — when there is more than one author — author-joining mistake) with a specific errorReason each, mutually distinct from each other, and distinct from the correct reference you did not provide. Return only the requested JSON.'
+			? 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Book bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book — never a different edition or a different book, and never a different number of authors than the real book actually has. You are NOT asked for a scenario, question text, options, or a correct answer of any kind; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, drawing on a fixed catalogue of Harvard book-formatting rules (author joining and ordering, publication year formatting, place/publisher ordering, overall reference structure, and more) that varies from question to question. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: authorFullNames, year, bookTitle, place and publisher all describe the same book with no contradictions, and the real author count. Return only the requested JSON.'
 			: 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Book DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book, and the scenario text must explicitly name that same title, EVERY author\'s full name, the same year, place and publisher — never a different edition, a different book, or a different number of authors than the real book actually has. Citex derives each author\'s surname and initials itself from authorFullNames — you never provide them separately — and constructs Question Parts and Fixed Text itself (including how multiple authors are joined: Harvard always lists every author in full, joined with "and"/commas, never "et al." in the reference list), so your questionParts and fixedText values are for your own self-check only and are not read as authoritative. CRITICAL — the scenario must state every author\'s full real name naturally (for example "Alan Bryman" or "Alan Bryman and Jo Martin") and must NEVER state, label, or abbreviate any author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference (never write anything like "Bryman, A." or "Bryman et al."), and must NEVER use the words "initial" or "surname" — the student must derive the initials and the Harvard format themselves from the full name(s) you provide. Before returning each question, perform a strict self-check: scenario, authorFullNames, year, bookTitle, place and publisher must all describe the same book with no contradictions; the scenario must not reveal any answer value by labelling it as a surname, initial, year blank, title blank, or reference component; and every confusing word must be unique and different from every correct Question Part. Return only the requested JSON.';
 	}
 
@@ -511,15 +511,18 @@ class Citex_AI_V2 {
 		return $prompt;
 	}
 
-	private static function build_prompt_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
-		$difficulty_guidance = array(
-			'easy'   => "Easy: the 3 distractors should each contain one obvious, easy-to-spot mistake (e.g. missing punctuation, no parentheses around the year) — testing basic recognition of the Harvard Book structure.",
-			'medium' => "Medium: the 3 distractors should each contain one specific, realistic mistake a student could plausibly make (e.g. author's full first name instead of initials, or place/publisher in the wrong order) — testing the ability to spot ONE particular error type per option.",
-			'hard'   => "Hard: the 3 distractors should be very close to correctly formatted, differing from the correct one by only a small, easy-to-miss detail (e.g. a single misplaced space, comma, or full stop) — testing careful side-by-side comparison of near-identical references.",
-		);
-		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Book multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n" . ( $verify ? 'Use Google Search to verify the publisher/journal is real.' : 'Invent a plausible, internally consistent record if needed — the publisher/journal must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Bryman\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Use the book's true author count. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name and constructs the one correct Harvard reference from them (joining multiple authors per Harvard's reference-list rule: every author listed in full, comma-separated with a final \"and\", for any count — never \"et al.\", which is only Harvard's separate in-text-citation convention); you never provide the correct reference yourself.\n- You are NOT asked for a scenario or question text — Citex supplies the entire student-facing question itself (a fixed \"Which of the following is the correct Harvard reference for a book?\" stem), so there is nothing for you to write and nothing for you to leak the answer through."
-			. self::distractor_prompt_section( Citex_Reference_Rules::CATEGORY_BOOK, 'Surname, I. (YYYY) Book Title. Place: Publisher. — or, for two or more authors, Surname, I. and Surname, I. (YYYY) Book Title. Place: Publisher., extending with commas and a final "and" for 3+, never "et al."' )
-			. "\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. Exactly 3 distractors are provided, each with a non-empty, specific errorReason naming the Harvard rule it breaks.\n3. Every distractor, re-read end-to-end against the full correct format, genuinely still breaks the rule named in its errorReason — none of them accidentally also satisfies every Harvard rule.\n4. All 3 distractors are mutually distinct from each other and from the correct reference, and exactly one reference overall (the one Citex will construct) is fully correct.\n5. None of the distractors uses \"et al.\" as if it were valid in the reference list — that abbreviation is never correct here.\n6. Only return questions that pass all six checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+	/**
+	 * Book MCQ prompt — unlike every prior Book MCQ mechanic (and unlike
+	 * every OTHER category's MCQ prompt), this asks Gemini for NOTHING
+	 * beyond the canonical book record: no distractors, no error reasons.
+	 * Citex_Book_Mcq_Variants::build() constructs the entire question
+	 * (stem, all 4 options, and the answer) deterministically from that
+	 * record alone, covering the user's own fixed 16-variant catalogue —
+	 * which variant is used is decided after Gemini responds, so this one
+	 * prompt/schema covers all 16 uniformly.
+	 */
+	private static function build_prompt_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Book bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Bryman\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Use the book's true author count. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself (the stem and all 4 options) from this canonical record alone, covering a range of different Harvard book-formatting rules across the batch. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
@@ -571,7 +574,7 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Journal Article MCQ prompt — modelled directly on build_prompt_mcq()
+	 * Journal Article MCQ prompt — modelled directly on build_prompt_book_mcq_variant()
 	 * (Book MCQ), reusing distractor_prompt_section() with this category's
 	 * own mcq_distractor_patterns() catalogue and correct-format description.
 	 */
@@ -610,7 +613,7 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Website MCQ prompt — modelled on build_prompt_mcq()/build_prompt_journal_article_mcq(),
+	 * Website MCQ prompt — modelled on build_prompt_book_mcq_variant()/build_prompt_journal_article_mcq(),
 	 * reusing distractor_prompt_section() with this category's own
 	 * mcq_distractor_patterns() catalogue and correct-format description.
 	 */
@@ -819,24 +822,19 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * MCQ schema: Gemini supplies the same canonical bibliographic fields as
-	 * DragDrop, plus exactly THREE plausible-but-incorrect Harvard reference
-	 * strings — never the correct one. Citex constructs the single correct
-	 * option itself (see normalise_mcq_item()), the same "Citex is the sole
-	 * authority for the correct answer" principle already used for DragDrop's
-	 * Question Parts/Fixed Text.
-	 *
-	 * No `scenario` — Citex authors the entire student-facing question text
-	 * itself (a fixed, category-specific, non-revealing stem — see
-	 * Citex_Reference_Rules::mcq_question_stem()), so Gemini is never asked
-	 * for one and has nothing to leak the answer through.
+	 * Book MCQ schema — Gemini supplies ONLY the canonical bibliographic
+	 * record, the same fields DragDrop already asks for. Unlike every other
+	 * category's MCQ schema (and unlike this schema before the user's own
+	 * 16-variant catalogue replaced the prior Book MCQ mechanic), there is
+	 * no `distractors` property at all: Citex_Book_Mcq_Variants::build()
+	 * constructs the entire question — stem, all 4 options, and the
+	 * answer — deterministically from this record alone.
 	 */
-	private static function schema_mcq() {
+	private static function schema_book_mcq_variant() {
 		$s = array( 'type' => 'string' );
 		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
 			'questionId' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'place' => $s, 'publisher' => $s,
-			'distractors' => self::distractor_schema()
-		), 'required' => array( 'questionId','authorFullNames','year','bookTitle','place','publisher','distractors' ) ) ) ), 'required' => array( 'questions' ) );
+		), 'required' => array( 'questionId','authorFullNames','year','bookTitle','place','publisher' ) ) ) ), 'required' => array( 'questions' ) );
 	}
 
 	/**
@@ -855,7 +853,7 @@ class Citex_AI_V2 {
 
 	/**
 	 * Journal Article MCQ schema — no `scenario`, same "Citex authors the
-	 * fixed stem" principle as schema_mcq()/schema_edited_book_mcq().
+	 * fixed stem" principle as schema_book_mcq_variant()/schema_edited_book_mcq().
 	 */
 	private static function schema_journal_article_mcq() {
 		$s = array( 'type' => 'string' );
@@ -903,7 +901,7 @@ class Citex_AI_V2 {
 	 * Citex constructs the student-facing question text itself from
 	 * brokenReference (see normalise_identify_error_item()), the same
 	 * "Citex authors the fixed stem" principle already used for
-	 * schema_mcq()/schema_edited_book_mcq().
+	 * schema_book_mcq_variant()/schema_edited_book_mcq().
 	 */
 	private static function schema_identify_error( $category ) {
 		$s = array( 'type' => 'string' );
@@ -925,17 +923,20 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Shared shape for one MCQ distractor, used by every category's MCQ
-	 * schema: the wrong reference text PLUS the single, specific Harvard
-	 * rule it deliberately breaks (errorReason). Forcing Gemini to name the
-	 * rule for every distractor — rather than just asking for "a wrong
-	 * reference" — is what makes it actually reason about which rule it is
-	 * violating instead of inventing a superficially-different reference
-	 * that can accidentally still be fully valid (see
-	 * normalise_mcq_item()/normalise_edited_book_mcq_item(), which reject
-	 * any distractor missing this reason). errorReason is for Citex's own
-	 * quality control only — it is never shown to the student and is not
-	 * one of the real WordPress ACF fields.
+	 * Shared shape for one MCQ distractor, used by Edited Book/Journal
+	 * Article/Website's MCQ schema (Book no longer uses this at all — its
+	 * MCQ questions are built entirely by Citex_Book_Mcq_Variants from the
+	 * canonical record, with no Gemini-authored distractors): the wrong
+	 * reference text PLUS the single, specific Harvard rule it deliberately
+	 * breaks (errorReason). Forcing Gemini to name the rule for every
+	 * distractor — rather than just asking for "a wrong reference" — is
+	 * what makes it actually reason about which rule it is violating
+	 * instead of inventing a superficially-different reference that can
+	 * accidentally still be fully valid (see
+	 * normalise_edited_book_mcq_item(), which rejects any distractor
+	 * missing this reason). errorReason is for Citex's own quality control
+	 * only — it is never shown to the student and is not one of the real
+	 * WordPress ACF fields.
 	 */
 	private static function distractor_schema() {
 		return array(
@@ -952,9 +953,9 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Shared MCQ distractor instructions for every category: reused by
-	 * build_prompt_mcq() (Book) and build_prompt_edited_book_mcq() (Edited
-	 * Book), driven by Citex_Reference_Rules::mcq_distractor_patterns( $category )
+	 * Shared MCQ distractor instructions for Edited Book/Journal Article/
+	 * Website (Book no longer uses this — see schema_book_mcq_variant()'s
+	 * docblock), driven by Citex_Reference_Rules::mcq_distractor_patterns( $category )
 	 * — the category's own catalogue of named, realistic Harvard mistakes —
 	 * so a future category only has to supply its own pattern list and
 	 * correct-format description here, never rewrite this instruction text.
@@ -1226,7 +1227,7 @@ class Citex_AI_V2 {
 				}
 
 				$candidate = 'MCQ' === $type
-					? self::normalise_mcq_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty )
+					? self::normalise_book_mcq_variant_item( $item, $id, $authors, $year, $title, $place, $publisher, $exercise, $difficulty )
 					: self::normalise_dragdrop_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design );
 			}
 			if ( is_wp_error( $candidate ) ) { return $candidate; }
@@ -1330,79 +1331,55 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Citex — not Gemini — constructs the single correctly-formatted Harvard
-	 * reference via Citex_Reference_Rules::build_reference() (the same
-	 * construction used for DragDrop's reconstructedReference, joining
-	 * multiple authors per Harvard's reference-list rule) and is the
-	 * sole authority for the correct answer. Gemini only ever supplies
-	 * THREE incorrect options; it never sees or chooses the correct one, so
-	 * there is no correct-answer value for it to leak.
+	 * Citex — not Gemini — authors the ENTIRE Book MCQ question: the stem,
+	 * all 4 options, and the answer, via Citex_Book_Mcq_Variants::build(),
+	 * from the user's own fixed 16-variant catalogue (replaces the original
+	 * "select the correct full reference" mechanic, "Identify the error",
+	 * and "Choose the correct rule/treatment" for Book — all three stay in
+	 * place for Edited Book/Journal Article/Website). Gemini supplies
+	 * nothing beyond the canonical book record ($authors/$year/$title/
+	 * $place/$publisher) — no distractor text, no error reasons, nothing
+	 * that needs its own plausibility check, since every option is a
+	 * deterministic transformation of that one record.
+	 *
+	 * The variant is picked per QUESTION (seeded by this question's own
+	 * id, via Citex_Book_Mcq_Variants::variant_for()), filtered to those
+	 * compatible with this record's real author count — so a batch is not
+	 * all the same variant, and an author-count-specific variant (e.g.
+	 * "two_authors") is never picked for a record with the wrong count.
 	 *
 	 * The correct answer is never placed into, or duplicated into, any of
-	 * the 4 option slots — see the "Option 1-3 hold the 3 distractors"
-	 * comment below and Citex_Generated_Validator::validate_mcq().
+	 * the 4 option slots — same "never duplicate the answer into an
+	 * option" contract as every other MCQ mechanic (see
+	 * Citex_Generated_Validator::validate_book_mcq_variant()).
 	 *
 	 * @param array $authors array<{fullName, surname, initials}>, 1 or more.
 	 * @return array|WP_Error
 	 */
-	private static function normalise_mcq_item( $item, $id, $authors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty ) {
-		$distractors = self::extract_mcq_distractors( $item, $id );
-		if ( is_wp_error( $distractors ) ) {
-			return $distractors;
-		}
-		$incorrect = array_column( $distractors, 'reference' );
-
+	private static function normalise_book_mcq_variant_item( $item, $id, $authors, $year, $title, $place, $publisher, $exercise, $difficulty ) {
 		$fields = array( 'authors' => $authors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
-		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, $fields );
-		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $reference ) ) );
-		$seen = array( $correct_normal => true );
-		foreach ( $incorrect as $option ) {
-			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $option ) ) );
-			if ( $normal === $correct_normal ) {
-				$rejection = self::quality_reject( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
-				if ( $rejection ) { return $rejection; }
-			}
-			if ( isset( $seen[ $normal ] ) ) {
-				$rejection = self::quality_reject( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
-				if ( $rejection ) { return $rejection; }
-			}
-			$seen[ $normal ] = true;
+		$variant = Citex_Book_Mcq_Variants::variant_for( $id, count( $authors ) );
+		$built   = Citex_Book_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_book_mcq_variant_unknown', sprintf( __( 'Question %1$s: unrecognised Book MCQ variant "%2$s".', 'citex-tools' ), $id, $variant ) );
 		}
 
-		// Option 1-3 hold the 3 distractors, in the order Gemini supplied
-		// them; Option 4 is ALWAYS left blank. The correct answer lives only
-		// in the Answer field (reconstructedReference, below) — it is never
-		// placed into, or duplicated into, any option slot. This is the
-		// direct fix for a real reported bug: the previous design placed the
-		// correct reference into a random option slot AND into the Answer
-		// field, and the student app rendered the two copies as separate,
-		// simultaneously-"selected" choices.
-		$options = $incorrect;
+		// Option 1-3 hold the 3 Citex-authored wrong options; Option 4 is
+		// ALWAYS left blank — the correct answer lives only in the Answer
+		// field (reconstructedReference, below), matching the same
+		// "never duplicate the answer into an option slot" contract every
+		// other MCQ mechanic in this plugin already follows.
+		$options = $built['wrongOptions'];
 		$options[] = '';
-		$option_reasons = array_map( 'sanitize_text_field', array_column( $distractors, 'errorReason' ) );
-		$option_reasons[] = null;
 
 		// Citex — not Gemini — writes the hint too, deterministically from
-		// the category's own fixed, non-revealing clue (see
-		// Citex_Reference_Rules::mcq_hint()) rather than naming which option
-		// is correct. This is the real site's "Hint" field content (there
-		// is no separate "explanation" field — see
-		// class-citex-populator.php's FIELD_HINT), and it is shown to the
-		// student BEFORE they answer, so it must never identify the correct
-		// answer — see Citex_Generated_Validator::validate_mcq_hint_safety().
+		// the category's own fixed, non-revealing clue (unchanged from the
+		// mechanic this replaces).
 		$hint = Citex_Reference_Rules::mcq_hint( Citex_Reference_Rules::CATEGORY_BOOK );
-
-		// The revealing counterpart — internal/admin-only, never written to
-		// WordPress (no such field exists on the real site) and never read
-		// by validation. Kept purely so an admin reviewing the pending
-		// queue can see WHY the Answer field's value is correct, matching
-		// the "hint never reveals, explanation may (once shown post-answer)"
-		// distinction even though only the non-revealing hint currently has
-		// a real field to live in.
-		$answer_explanation = 'The correct reference follows the required Harvard reference structure: Surname, Initials. (Year) Title. Place: Publisher. — with every author listed in full and joined with "and"/commas when there is more than one.';
+		$answer_explanation = sprintf( 'This question tests the "%s" Harvard formatting rule.', $variant );
 
 		$author_full_names = array_column( $authors, 'fullName' );
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'optionErrorReasons' => $option_reasons, 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'book_mcq_variant', 'bookMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**
@@ -1688,7 +1665,7 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Edited Book counterpart to normalise_mcq_item(): same "Citex builds
+	 * Edited Book counterpart to normalise_book_mcq_variant_item(): same "Citex builds
 	 * the one correct option, Gemini only ever supplies 3 incorrect ones"
 	 * principle, using Citex_Reference_Rules::build_reference() so the
 	 * correct option always carries the right "(ed.)"/"(eds)" designation
@@ -1724,7 +1701,7 @@ class Citex_AI_V2 {
 		// them; Option 4 is ALWAYS left blank. The correct answer lives only
 		// in the Answer field (reconstructedReference, below) — never placed
 		// into, or duplicated into, any option slot. See
-		// normalise_mcq_item()'s matching comment for the full rationale.
+		// normalise_book_mcq_variant_item()'s matching comment for the full rationale.
 		$options = $incorrect;
 		$options[] = '';
 		$option_reasons = array_map( 'sanitize_text_field', array_column( $distractors, 'errorReason' ) );
@@ -1734,7 +1711,7 @@ class Citex_AI_V2 {
 
 		// Citex — not Gemini — writes the hint too, from the category's own
 		// fixed, non-revealing clue (never named to which option it points)
-		// — see normalise_mcq_item()'s matching comment for the full
+		// — see normalise_book_mcq_variant_item()'s matching comment for the full
 		// hint-vs-explanation rationale.
 		$hint = Citex_Reference_Rules::mcq_hint( Citex_Reference_Rules::CATEGORY_EDITED_BOOK );
 
@@ -1844,7 +1821,7 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Journal Article counterpart to normalise_mcq_item(): same "Citex
+	 * Journal Article counterpart to normalise_book_mcq_variant_item(): same "Citex
 	 * builds the one correct option, Gemini only ever supplies 3 incorrect
 	 * ones" principle, using Citex_Reference_Rules::build_reference() for
 	 * this category's format.
@@ -1901,7 +1878,7 @@ class Citex_AI_V2 {
 
 		// Option 1-3 hold the 3 distractors; Option 4 is ALWAYS blank. The
 		// correct answer lives only in the Answer field (reconstructedReference,
-		// below) — see normalise_mcq_item()'s matching comment for the full
+		// below) — see normalise_book_mcq_variant_item()'s matching comment for the full
 		// rationale.
 		$options = $incorrect;
 		$options[] = '';
@@ -1990,7 +1967,7 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Website counterpart to normalise_mcq_item()/normalise_journal_article_mcq_item():
+	 * Website counterpart to normalise_book_mcq_variant_item()/normalise_journal_article_mcq_item():
 	 * same "Citex builds the one correct option, Gemini only ever supplies 3
 	 * incorrect ones" principle, using Citex_Reference_Rules::build_reference()
 	 * for this category's format.
@@ -2022,7 +1999,7 @@ class Citex_AI_V2 {
 		}
 
 		// Option 1-3 hold the 3 distractors; Option 4 is ALWAYS blank — see
-		// normalise_mcq_item()'s matching comment for the full rationale.
+		// normalise_book_mcq_variant_item()'s matching comment for the full rationale.
 		$options = $incorrect;
 		$options[] = '';
 		$option_reasons = array_map( 'sanitize_text_field', array_column( $distractors, 'errorReason' ) );

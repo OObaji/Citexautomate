@@ -61,6 +61,16 @@ class Citex_Generated_Validator {
 			if ( 'choose_treatment' === (string) ( $question['mcqPattern'] ?? '' ) ) {
 				return self::validate_choose_treatment( $question );
 			}
+			// Book's own fixed 16-variant MCQ catalogue (see
+			// Citex_Book_Mcq_Variants) — replaces the original "select the
+			// correct reference" mechanic for Book entirely. Every option is
+			// Citex-authored, deterministically, from the canonical record —
+			// see validate_book_mcq_variant()'s own docblock for why this can
+			// check for an EXACT match rather than validate_mcq()'s
+			// reference-format sanity checks.
+			if ( 'book_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_book_mcq_variant( $question );
+			}
 			return self::validate_mcq( $question );
 		}
 
@@ -659,6 +669,115 @@ class Citex_Generated_Validator {
 		}
 
 		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $true_statement );
+	}
+
+	/**
+	 * Validates a Book MCQ question built from the user's own fixed
+	 * 16-variant catalogue (Citex_Book_Mcq_Variants) — replaces the
+	 * original "select the correct reference" mechanic for Book entirely
+	 * (Edited Book/Journal Article/Website still use validate_mcq()).
+	 *
+	 * Unlike validate_mcq()/validate_choose_treatment() (which can only
+	 * sanity-check Gemini-authored option/answer text), every option here —
+	 * not just the stem/answer — is Citex-authored, deterministically, from
+	 * the record's own canonical fields. So rather than checking the
+	 * content is merely plausible, this recomputes the exact expected
+	 * {stem, wrongOptions, correctAnswer} via Citex_Book_Mcq_Variants::build()
+	 * from those same canonical fields and the record's own recorded
+	 * `bookMcqVariant`, and requires an exact match against what is stored —
+	 * any mismatch means the record was corrupted, hand-edited, or predates
+	 * a Citex_Book_Mcq_Variants change, not a Gemini quality problem.
+	 */
+	private static function validate_book_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$variant = (string) ( $question['bookMcqVariant'] ?? '' );
+		$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		if ( empty( $authors ) ) {
+			$fallback_surname  = trim( (string) ( $question['authorSurname'] ?? '' ) );
+			$fallback_initials = trim( (string) ( $question['authorInitials'] ?? '' ) );
+			if ( '' !== $fallback_surname || '' !== $fallback_initials ) {
+				$authors = array( array( 'surname' => $fallback_surname, 'initials' => $fallback_initials, 'fullName' => (string) ( $question['authorFullName'] ?? '' ) ) );
+			}
+		}
+		$fields = array(
+			'authors'   => $authors,
+			'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+			'title'     => trim( (string) ( $question['bookTitle'] ?? '' ) ),
+			'place'     => trim( (string) ( $question['place'] ?? '' ) ),
+			'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+		);
+		$expected = empty( $authors ) ? null : Citex_Book_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'BOOK_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised Book MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'BOOK_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'BOOK_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'BOOK_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
 	}
 
 	/**

@@ -79,6 +79,7 @@ function wp_remote_retrieve_body( $response ) {
 }
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
@@ -150,7 +151,13 @@ if ( ! is_wp_error( $result ) ) {
 	check( '[1] blueprint scenario is two_authors', $candidate['blueprint']['scenario'], 'two_authors' );
 	check( '[1] blueprint ruleTested is author_joining', $candidate['blueprint']['ruleTested'], 'author_joining' );
 	check( '[1] blueprint difficulty is Medium', $candidate['blueprint']['difficulty'], 'Medium' );
-	check( '[1] the reconstructed reference joins both authors correctly', $candidate['reconstructedReference'], 'Smith, J. and Jones, A. (2020) Understanding digital culture. London: SAGE Publications.' );
+	// Which of the 16 Book MCQ variants is used varies per question (seeded
+	// by its own id) — recompute the expected answer for whichever variant
+	// was actually assigned, rather than assuming a fixed full-reference
+	// shape (see Citex_Book_Mcq_Variants).
+	$expected_fields = array( 'authors' => array( array( 'surname' => 'Smith', 'initials' => 'J.', 'fullName' => 'John Smith' ), array( 'surname' => 'Jones', 'initials' => 'A.', 'fullName' => 'Amy Jones' ) ), 'year' => '2020', 'title' => 'Understanding digital culture', 'place' => 'London', 'publisher' => 'SAGE Publications' );
+	$expected_built = Citex_Book_Mcq_Variants::build( $candidate['bookMcqVariant'], $expected_fields );
+	check( '[1] the reconstructed reference is exactly the assigned variant\'s own correct answer', $candidate['reconstructedReference'], $expected_built['correctAnswer'] );
 }
 
 // ---------------------------------------------------------------------
@@ -200,13 +207,22 @@ if ( ! is_wp_error( $no_scenario ) ) {
 // ---------------------------------------------------------------------
 reset_environment();
 $GLOBALS['__next_response'] = gemini_response_for( array( book_mcq_question( 4, array( 'John Smith' ), 'Already Used Book' ) ) );
+// Which of the 16 Book MCQ variants BK04 resolves to (seeded by its own id)
+// determines the SHAPE of its correct answer — precompute it here so the
+// "already pending" reference genuinely matches whatever normalise() will
+// build, rather than assuming a fixed full-reference shape.
+$duplicate_variant = Citex_Book_Mcq_Variants::variant_for( 'BK04', 1 );
+$duplicate_expected = Citex_Book_Mcq_Variants::build(
+	$duplicate_variant,
+	array( 'authors' => array( array( 'surname' => 'Smith', 'initials' => 'J.', 'fullName' => 'John Smith' ) ), 'year' => '2020', 'title' => 'Already Used Book', 'place' => 'London', 'publisher' => 'SAGE Publications' )
+);
 $duplicate = Citex_AI_V2::generate_questions( array(
 	'quantity'             => 1,
 	'starting_id'          => 'BK04',
 	'difficulty'           => 'medium',
 	'type'                 => 'mcq',
 	'category'             => 'book',
-	'existing_references'  => array( 'Smith, J. (2020) Already Used Book. London: SAGE Publications.' ),
+	'existing_references'  => array( $duplicate_expected['correctAnswer'] ),
 ) );
 check( '[4] a reference duplicating an existing pending question is rejected', is_wp_error( $duplicate ), true );
 check( '[4] error names the generation failure', is_wp_error( $duplicate ) ? $duplicate->get_error_code() : null, 'citex_ai_generation_failed' );

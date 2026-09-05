@@ -47,14 +47,17 @@ $book = Citex_Reference_Rules::CATEGORY_BOOK;
 // ---------------------------------------------------------------------
 reset_options();
 check( '[1] no history recorded yet', Citex_Question_Diversity::get_history( $book ), array() );
-// Book MCQ has 8 scenarios: the 4 author-count buckets, identify_error,
-// and 3 choose_treatment buckets.
-$book_mcq_scenario_ids = array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors', 'identify_error', 'choose_treatment_two_authors', 'choose_treatment_three_authors', 'choose_treatment_four_or_more_authors' );
+// Book MCQ has only the 4 author-count buckets now — identify_error and
+// choose_treatment_* were removed for Book entirely, replaced by the
+// user's own fixed 16-variant catalogue (Citex_Book_Mcq_Variants), picked
+// per question directly from the author count these same 4 buckets
+// already assign.
+$book_mcq_scenario_ids = array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors' );
 $assignment_8 = Citex_Question_Diversity::assign_scenarios( $book, 'MCQ', 8 );
-check( '[1] an 8-slot batch covers all 8 Book MCQ scenarios, each exactly once', $assignment_8, $book_mcq_scenario_ids );
+check( '[1] an 8-slot batch cycles through all 4 Book MCQ scenarios exactly twice each', array_count_values( $assignment_8 ), array_fill_keys( $book_mcq_scenario_ids, 2 ) );
 
 $assignment_16 = Citex_Question_Diversity::assign_scenarios( $book, 'MCQ', 16 );
-check( '[1] a 16-slot batch cycles through all 8 scenarios exactly twice each', array_count_values( $assignment_16 ), array_fill_keys( $book_mcq_scenario_ids, 2 ) );
+check( '[1] a 16-slot batch cycles through all 4 scenarios exactly four times each', array_count_values( $assignment_16 ), array_fill_keys( $book_mcq_scenario_ids, 4 ) );
 
 // DragDrop has no identify_error mechanic, so a 4-slot DragDrop batch still
 // covers exactly the 4 count buckets, each once.

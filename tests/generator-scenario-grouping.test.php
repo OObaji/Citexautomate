@@ -92,6 +92,7 @@ class Citex_Populator {
 }
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
@@ -191,12 +192,27 @@ check( '[2] a later group\'s failure fails the whole call', is_wp_error( $atomic
 // ---------------------------------------------------------------------
 reset_environment();
 queue_response( array( book_mcq_question( 'BK01', array( 'John Smith' ), 'Repeated Book' ) ) );
-// Group 2 (two_authors) tries to reuse the exact same title/author combo
-// group 1 already produced (as a 1-author reference) — not literally
-// possible to collide byte-for-byte here since author counts differ, so
-// instead prove the mechanism directly: pre-seed $pending with a reference
-// group 2's own attempt will exactly match.
-$existing_pending = array( array( 'category' => 'Book', 'reconstructedReference' => 'Smith, J. and Jones, A. (2020) Repeated Book. London: SAGE Publications.' ) );
+// Group 2 (two_authors) will be assigned question id 'BK02' and produces a
+// record with 2 authors — normalise_book_mcq_variant_item() then picks a
+// variant deterministically from that id + author count
+// (Citex_Book_Mcq_Variants::variant_for()) and its correct answer is that
+// variant's own build() output, not always a full formatted reference (that
+// was only true under the old, now-removed mechanic). Pre-seed $pending
+// with the EXACT correct answer group 2's own attempt will produce, to
+// prove the duplicate guard fires regardless of which variant gets picked.
+$duplicate_variant = Citex_Book_Mcq_Variants::variant_for( 'BK02', 2 );
+$duplicate_fields  = array(
+	'authors'   => array(
+		array( 'surname' => 'Smith', 'initials' => 'J.', 'fullName' => 'John Smith' ),
+		array( 'surname' => 'Jones', 'initials' => 'A.', 'fullName' => 'Amy Jones' ),
+	),
+	'year'      => '2020',
+	'title'     => 'Repeated Book',
+	'place'     => 'London',
+	'publisher' => 'SAGE Publications',
+);
+$duplicate_built  = Citex_Book_Mcq_Variants::build( $duplicate_variant, $duplicate_fields );
+$existing_pending = array( array( 'category' => 'Book', 'reconstructedReference' => $duplicate_built['correctAnswer'] ) );
 queue_response( array( book_mcq_question( 'BK02', array( 'John Smith', 'Amy Jones' ), 'Repeated Book' ) ) );
 queue_response( array( book_mcq_question( 'BK02', array( 'John Smith', 'Amy Jones' ), 'Repeated Book' ) ) );
 queue_response( array( book_mcq_question( 'BK02', array( 'John Smith', 'Amy Jones' ), 'Repeated Book' ) ) );

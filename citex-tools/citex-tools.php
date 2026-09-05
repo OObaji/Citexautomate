@@ -16,6 +16,7 @@ require_once CITEX_TOOLS_PATH . 'includes/class-citex-scanner.php';
 require_once CITEX_TOOLS_PATH . 'includes/validators/class-citex-harvard-book-dragdrop-validator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-validator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-reference-rules.php';
+require_once CITEX_TOOLS_PATH . 'includes/class-citex-book-mcq-variants.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-question-scenarios.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-question-diversity.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-generated-validator.php';

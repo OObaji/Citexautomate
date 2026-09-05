@@ -128,18 +128,21 @@ class Citex_Question_Scenarios {
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			return array();
 		}
-		$scenarios = array(
-			array( 'id' => 'identify_error', 'ruleTested' => 'error_identification', 'targetCounts' => array( 1 ), 'label' => 'Identify the error' ),
-		);
-		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
-			$scenarios[] = array( 'id' => 'choose_treatment_two_editors', 'ruleTested' => 'editor_designation', 'targetCounts' => array( 2 ), 'label' => 'Choose the correct treatment (two editors)' );
-			$scenarios[] = array( 'id' => 'choose_treatment_three_or_more_editors', 'ruleTested' => 'editor_joining', 'targetCounts' => array( 3 ), 'label' => 'Choose the correct treatment (three or more editors)' );
-		} else {
-			$scenarios[] = array( 'id' => 'choose_treatment_two_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Choose the correct treatment (two authors)' );
-			$scenarios[] = array( 'id' => 'choose_treatment_three_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 3 ), 'label' => 'Choose the correct treatment (three authors)' );
-			$scenarios[] = array( 'id' => 'choose_treatment_four_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4 ), 'label' => 'Choose the correct treatment (four or more authors)' );
+		// Book's MCQ questions no longer use identify_error/choose_treatment
+		// at all — replaced entirely by the user's own fixed 16-variant
+		// catalogue (see Citex_Book_Mcq_Variants), selected per question by
+		// Citex_AI_V2::normalise_book_mcq_variant_item() directly from the
+		// author count book_buckets() already assigns, not via an
+		// mcq-only scenario entry. identify_error/choose_treatment remain
+		// fully intact and in use for Edited Book.
+		if ( Citex_Reference_Rules::CATEGORY_BOOK === $category ) {
+			return array();
 		}
-		return $scenarios;
+		return array(
+			array( 'id' => 'identify_error', 'ruleTested' => 'error_identification', 'targetCounts' => array( 1 ), 'label' => 'Identify the error' ),
+			array( 'id' => 'choose_treatment_two_editors', 'ruleTested' => 'editor_designation', 'targetCounts' => array( 2 ), 'label' => 'Choose the correct treatment (two editors)' ),
+			array( 'id' => 'choose_treatment_three_or_more_editors', 'ruleTested' => 'editor_joining', 'targetCounts' => array( 3 ), 'label' => 'Choose the correct treatment (three or more editors)' ),
+		);
 	}
 
 	/**

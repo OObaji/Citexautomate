@@ -79,6 +79,7 @@ function wp_remote_retrieve_body( $response ) {
 }
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';

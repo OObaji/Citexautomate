@@ -26,17 +26,22 @@ function check( $description, $actual, $expected ) {
 }
 
 // ---------------------------------------------------------------------
-// 1. Book MCQ catalogue: the four author-count buckets, the MCQ-only
-// "identify_error" mechanic, and three "choose_treatment_*" buckets
-// (8 total), each carrying the ruleTested the user specified.
+// 1. Book MCQ catalogue: only the four author-count buckets now —
+// identify_error/choose_treatment_* were removed for Book entirely (per
+// explicit user request), replaced by the user's own fixed 16-variant
+// catalogue (Citex_Book_Mcq_Variants), selected per question directly by
+// Citex_AI_V2::normalise_book_mcq_variant_item() from the author count
+// these same 4 buckets already assign — not via an mcq-only scenario
+// entry. identify_error/choose_treatment_* remain fully intact for
+// Edited Book (see section 3 below).
 // ---------------------------------------------------------------------
 $book_mcq = Citex_Question_Scenarios::catalog( Citex_Reference_Rules::CATEGORY_BOOK, 'MCQ' );
-check( '[1] Book MCQ has exactly 8 scenarios (4 count buckets + identify_error + 3 choose_treatment)', count( $book_mcq ), 8 );
+check( '[1] Book MCQ has exactly 4 scenarios (only the 4 count buckets; no identify_error/choose_treatment)', count( $book_mcq ), 4 );
 $book_mcq_ids = array_column( $book_mcq, 'id' );
 check(
-	'[1] Book MCQ scenario ids are the 4 author-count buckets plus identify_error plus 3 choose_treatment buckets',
+	'[1] Book MCQ scenario ids are exactly the 4 author-count buckets',
 	$book_mcq_ids,
-	array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors', 'identify_error', 'choose_treatment_two_authors', 'choose_treatment_three_authors', 'choose_treatment_four_or_more_authors' )
+	array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors' )
 );
 foreach ( $book_mcq as $entry ) {
 	check( '[1] every Book MCQ scenario is tagged questionType MCQ: ' . $entry['id'], $entry['questionType'], 'MCQ' );
@@ -46,10 +51,6 @@ check( '[1] one_author -> author_formatting', $book_rule_by_id['one_author'], 'a
 check( '[1] two_authors -> author_joining', $book_rule_by_id['two_authors'], 'author_joining' );
 check( '[1] three_authors -> author_joining', $book_rule_by_id['three_authors'], 'author_joining' );
 check( '[1] four_or_more_authors -> reference_list_all_authors', $book_rule_by_id['four_or_more_authors'], 'reference_list_all_authors' );
-check( '[1] identify_error -> error_identification', $book_rule_by_id['identify_error'], 'error_identification' );
-check( '[1] choose_treatment_two_authors -> author_joining', $book_rule_by_id['choose_treatment_two_authors'], 'author_joining' );
-check( '[1] choose_treatment_three_authors -> author_joining', $book_rule_by_id['choose_treatment_three_authors'], 'author_joining' );
-check( '[1] choose_treatment_four_or_more_authors -> reference_list_all_authors', $book_rule_by_id['choose_treatment_four_or_more_authors'], 'reference_list_all_authors' );
 
 // ---------------------------------------------------------------------
 // 2. Book DragDrop catalogue: only the 4 count-bucket scenario ids —

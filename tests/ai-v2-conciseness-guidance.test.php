@@ -63,6 +63,7 @@ function get_option( $key, $default = null ) {
 }
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
@@ -97,7 +98,7 @@ $never_shorten_marker = 'NEVER abbreviate, shorten, truncate, or otherwise alter
 $book_dragdrop_prompt = invoke_private( 'build_prompt', array( $ids, 'medium', false ) );
 check( '[1] Book DragDrop prompt includes the conciseness guidance', false !== strpos( $book_dragdrop_prompt, $marker ), true );
 
-$book_mcq_prompt = invoke_private( 'build_prompt_mcq', array( $ids, 'medium', false ) );
+$book_mcq_prompt = invoke_private( 'build_prompt_book_mcq_variant', array( $ids, 'medium', false ) );
 check( '[1] Book MCQ prompt includes the conciseness guidance', false !== strpos( $book_mcq_prompt, $marker ), true );
 
 $edited_book_dragdrop_prompt = invoke_private( 'build_prompt_edited_book', array( $ids, 'medium', false ) );
@@ -135,7 +136,7 @@ check( '[3] the guidance also covers content_realism_guidance() (invented conten
 // in the expected relative order (guidance before scenario_instruction
 // before quality_feedback, matching the source order).
 // ---------------------------------------------------------------------
-$full_prompt = invoke_private( 'build_prompt_mcq', array( $ids, 'medium', false, 'Some quality feedback here.', 'AUTHOR/EDITOR COUNT FOR THIS BATCH — CRITICAL:' ) );
+$full_prompt = invoke_private( 'build_prompt_book_mcq_variant', array( $ids, 'medium', false, 'Some quality feedback here.', 'AUTHOR/EDITOR COUNT FOR THIS BATCH — CRITICAL:' ) );
 $guidance_pos  = strpos( $full_prompt, $marker );
 $scenario_pos  = strpos( $full_prompt, 'AUTHOR/EDITOR COUNT FOR THIS BATCH' );
 $feedback_pos  = strpos( $full_prompt, 'Some quality feedback here.' );
