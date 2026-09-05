@@ -200,5 +200,67 @@ $no_canonical = Citex_Generated_Validator::validate(
 );
 check( '[no canonical record] a record without authorSurname/bookTitle is unaffected by the new check', $no_canonical['status'], 'passed' );
 
+// ---------------------------------------------------------------------
+// 11. Regression for a real reported bug: a Book DragDrop candidate built
+// with one of the new field-variety exercise designs (see
+// Citex_Reference_Rules::book_dragdrop_designs()) was being validated as
+// if it always used the plain author/year/title baseline shape — this
+// check never read the record's own `exerciseDesign` field, so any
+// question that instead drew place or publisher as a Question Part
+// failed with a spurious BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH even
+// though its Question Parts were exactly correct for the design it was
+// actually built with.
+// ---------------------------------------------------------------------
+$three_authors = array(
+	array( 'surname' => 'Bennett', 'initials' => 'L.' ),
+	array( 'surname' => 'Harper', 'initials' => 'C.' ),
+	array( 'surname' => 'Foster', 'initials' => 'F.' ),
+);
+$variety_design_question = array(
+	'source'                 => 'Harvard',
+	'group'                  => 'ReferenceList',
+	'category'               => 'Book',
+	'type'                   => 'DragDrop',
+	'scenario'               => 'You are referencing a book titled Urban Design by Lucas Bennett, Chloe Harper and Felix Foster, published in 2021 by Routledge in London.',
+	'authors'                => $three_authors,
+	'year'                   => '2021',
+	'bookTitle'              => 'Urban Design',
+	'place'                  => 'London',
+	'publisher'              => 'Routledge',
+	'exerciseDesign'         => 'author_year_title_place',
+	'fixedText'              => '|, Harper, C. and Foster, F. (||) ||. ||: Routledge.',
+	'questionParts'          => array( 'Bennett, L.', '2021', 'Urban Design', 'London' ),
+	'confusingWords'         => array( 'Bennett, L, Harper, C & Foster, F.', 'Bennett et al.', '2019 Urban Planning' ),
+	'reconstructedReference' => 'Bennett, L., Harper, C. and Foster, F. (2021) Urban Design. London: Routledge.',
+);
+$variety_result = Citex_Generated_Validator::validate( $variety_design_question );
+check( '[field-variety design] a correctly-built author_year_title_place question PASSES (not judged against the plain baseline shape)', $variety_result['status'], 'passed' );
+check( '[field-variety design] no BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH', has_error_code( $variety_result, 'bibliographic_consistency_parts_mismatch' ), false );
+
+// The SAME Question Parts, but with no exerciseDesign field at all (an
+// older record predating this feature, or one Gemini/Citex built as the
+// plain baseline) — this one legitimately SHOULD fail, since it really
+// doesn't match the baseline (author/year/title) shape it claims to be.
+$missing_design_question = $variety_design_question;
+unset( $missing_design_question['exerciseDesign'] );
+$missing_design_result = Citex_Generated_Validator::validate( $missing_design_question );
+check( '[field-variety design] the identical Question Parts WITHOUT exerciseDesign correctly FAILS against the baseline shape', $missing_design_result['status'], 'failed' );
+check( '[field-variety design] reports BIBLIOGRAPHIC_CONSISTENCY_PARTS_MISMATCH when no design is recorded', has_error_code( $missing_design_result, 'bibliographic_consistency_parts_mismatch' ), true );
+
+// A publisher-testing variant passes too, and a place-testing candidate
+// mislabelled with the publisher design correctly fails (wrong shape for
+// the design actually named).
+$publisher_variant = $variety_design_question;
+$publisher_variant['exerciseDesign'] = 'author_year_title_publisher';
+$publisher_variant['fixedText']      = '|, Harper, C. and Foster, F. (||) ||. London: ||.';
+$publisher_variant['questionParts']  = array( 'Bennett, L.', '2021', 'Urban Design', 'Routledge' );
+check( '[field-variety design] author_year_title_publisher with matching parts PASSES', Citex_Generated_Validator::validate( $publisher_variant )['status'], 'passed' );
+
+$mislabelled_variant = $variety_design_question;
+$mislabelled_variant['exerciseDesign'] = 'author_year_title_publisher';
+// Parts/fixedText left as the PLACE-testing shape — wrong for the
+// publisher design named here.
+check( '[field-variety design] place-shaped parts mislabelled as author_year_title_publisher correctly FAILS', Citex_Generated_Validator::validate( $mislabelled_variant )['status'], 'failed' );
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

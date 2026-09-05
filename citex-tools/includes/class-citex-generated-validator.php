@@ -1001,14 +1001,22 @@ class Citex_Generated_Validator {
 		$publisher = trim( (string) ( $question['publisher'] ?? '' ) );
 
 		// Question Parts must be EXACTLY the shape Citex_Reference_Rules::
-		// dragdrop_shape() would build for these canonical authors — reusing
-		// that same method (rather than re-deriving the branching logic
-		// here) is what makes this check meaningful for any author count: 4
-		// parts (surname, initials, year, title) for one author, or 3 parts
-		// (joined author list, year, title) for two or more.
+		// dragdrop_shape() would build for these canonical authors, for
+		// WHICHEVER exercise design this record was generated with (see
+		// Citex_Reference_Rules::book_dragdrop_designs()'s docblock) —
+		// mirrors how validate_journal_article_consistency()/
+		// validate_website_consistency() read their own exerciseDesign
+		// field. Defaults to 'full_reference' (not one of Book's own design
+		// ids, so dragdrop_shape() falls back to the original baseline
+		// shape) for any pre-existing record with no exerciseDesign field
+		// at all — reusing dragdrop_shape() itself (rather than
+		// re-deriving its branching logic here) is what makes this check
+		// meaningful for any author count and any design.
+		$design         = trim( (string) ( $question['exerciseDesign'] ?? 'full_reference' ) );
 		$expected_shape = Citex_Reference_Rules::dragdrop_shape(
 			Citex_Reference_Rules::CATEGORY_BOOK,
-			array( 'authors' => $authors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher )
+			array( 'authors' => $authors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher ),
+			$design
 		);
 		$expected_parts = array_map( 'trim', $expected_shape['parts'] );
 		$actual_parts   = array_map( 'trim', (array) $question_parts );
