@@ -110,13 +110,20 @@ class Citex_Populator {
 
 	// Shared fields visible on the real "Add New Reference" edit screen for
 	// EVERY question (both DragDrop and MCQ) — Question Class and Hint —
-	// also confirmed via Citex Diagnostics. Only MCQ writes these today
-	// (see write_mcq_acf_values()): DragDrop already works without Citex
-	// setting them explicitly (Question Class already carries an ACF
-	// default of "Harvard" on new posts), so they are left untouched there
-	// per "do not change working DragDrop behaviour" — MCQ has no such
-	// track record yet, so it sets both explicitly rather than relying on
-	// the same default holding.
+	// also confirmed via Citex Diagnostics. Both write_mcq_acf_values() and
+	// write_dragdrop_acf_values() set Question Class explicitly (fixed
+	// "Harvard"). DragDrop was previously left to rely on Question Class's
+	// ACF default instead of writing it — reported live (student app never
+	// showed a newly-populated DragDrop question as "Harvard" until an
+	// admin opened it in wp-admin and clicked Update): an ACF field's
+	// "default value" is only ever applied when the field is RENDERED in
+	// the edit-screen form and that form is then submitted — it is never
+	// written to post meta by wp_insert_post()/update_field() alone, so a
+	// programmatically-created post has no Question Class value at all
+	// until someone opens and re-saves it. Hint has no such default and no
+	// DragDrop content to write (DragDrop candidates carry no hint text at
+	// all — see Citex_AI_V2's DragDrop normalisers), so it is correctly
+	// left untouched for DragDrop.
 	const FIELD_QUESTION_CLASS = 'field_59e09466a6813';
 	const FIELD_HINT           = 'field_59c2476bc879d';
 
@@ -454,10 +461,10 @@ class Citex_Populator {
 
 	/**
 	 * Write DragDrop's ACF fields (Fixed Text, Question Parts, Confusing
-	 * Words, Scenario). Throws on any write-shape failure; returns the
-	 * discovered repeater shapes so verify_dragdrop_acf_values() (called
-	 * after the save-lifecycle finalisation) can read the same rows back
-	 * without re-discovering the shape a second time.
+	 * Words, Scenario, Question Class). Throws on any write-shape failure;
+	 * returns the discovered repeater shapes so verify_dragdrop_acf_values()
+	 * (called after the save-lifecycle finalisation) can read the same rows
+	 * back without re-discovering the shape a second time.
 	 */
 	private function write_dragdrop_acf_values( $new_id, $field_map, $question, $expected_parts, $expected_confusing ) {
 		$this->write_acf_value( $new_id, $field_map['fixedText'], (string) ( $question['fixedText'] ?? '' ) );
@@ -473,6 +480,7 @@ class Citex_Populator {
 		}
 
 		$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
+		$this->write_acf_value( $new_id, $field_map['questionClass'], 'Harvard' );
 
 		return array( 'partsShape' => $parts_shape, 'confusingShape' => $confusing_shape );
 	}
@@ -490,6 +498,12 @@ class Citex_Populator {
 			$diagnostics['scenarioVerified'] = trim( (string) $stored_scenario ) === trim( (string) ( $question['scenario'] ?? '' ) );
 			if ( ! $diagnostics['scenarioVerified'] ) {
 				throw new Exception( 'Scenario did not persist to the new Reference List record.' );
+			}
+
+			$stored_question_class = get_field( $field_map['questionClass'], $new_id, false );
+			$diagnostics['questionClassVerified'] = 'Harvard' === trim( (string) $stored_question_class );
+			if ( ! $diagnostics['questionClassVerified'] ) {
+				throw new Exception( 'Question Class did not persist to the new Reference List record.' );
 			}
 		}
 
@@ -515,9 +529,9 @@ class Citex_Populator {
 	 * no separate "explanation" field on this site; Hint is the real,
 	 * confirmed field, and it is shown to the student BEFORE they answer,
 	 * so it must never identify the correct option), Question Class (fixed
-	 * "Harvard" — DragDrop already works without Citex setting this
-	 * explicitly via its own ACF default, but MCQ sets it directly since it
-	 * has no such track record yet), and the Answer field.
+	 * "Harvard" — see FIELD_QUESTION_CLASS's own docblock for why this must
+	 * be written explicitly rather than left to an ACF default), and the
+	 * Answer field.
 	 *
 	 * Option 1-3 hold the 3 distractors; Option 4 is ALWAYS blank. The
 	 * Answer field holds the FULL TEXT of the correct reference — never a
@@ -685,13 +699,14 @@ class Citex_Populator {
 			'questionParts'  => self::FIELD_QUESTION_PARTS,
 			'confusingWords' => self::FIELD_CONFUSING_WORDS,
 			'scenario'       => $scenario_key,
+			'questionClass'  => self::FIELD_QUESTION_CLASS,
 		);
 	}
 
 	private function assert_known_acf_fields_registered( $type = 'DragDrop' ) {
 		$required = 'MCQ' === $type
 			? array( self::FIELD_OPTION_1, self::FIELD_OPTION_2, self::FIELD_OPTION_3, self::FIELD_OPTION_4, self::FIELD_ANSWER, self::FIELD_HINT, self::FIELD_QUESTION_CLASS )
-			: array( self::FIELD_FIXED_TEXT, self::FIELD_QUESTION_PARTS, self::FIELD_CONFUSING_WORDS );
+			: array( self::FIELD_FIXED_TEXT, self::FIELD_QUESTION_PARTS, self::FIELD_CONFUSING_WORDS, self::FIELD_QUESTION_CLASS );
 		foreach ( $required as $field_key ) {
 			if ( function_exists( 'acf_get_field' ) && ! acf_get_field( $field_key ) ) {
 				return new WP_Error( 'citex_missing_acf_field', 'Required ACF field is not registered: ' . $field_key );

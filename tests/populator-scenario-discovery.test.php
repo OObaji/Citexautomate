@@ -283,6 +283,7 @@ function reset_environment() {
 		Citex_Populator::FIELD_FIXED_TEXT      => array( 'key' => Citex_Populator::FIELD_FIXED_TEXT, 'type' => 'text' ),
 		Citex_Populator::FIELD_QUESTION_PARTS  => array( 'key' => Citex_Populator::FIELD_QUESTION_PARTS, 'type' => 'repeater' ),
 		Citex_Populator::FIELD_CONFUSING_WORDS => array( 'key' => Citex_Populator::FIELD_CONFUSING_WORDS, 'type' => 'repeater' ),
+		Citex_Populator::FIELD_QUESTION_CLASS  => array( 'key' => Citex_Populator::FIELD_QUESTION_CLASS, 'type' => 'text' ),
 	);
 
 	// Default Reference Category taxonomy (Book, with Exercise 1-5 as

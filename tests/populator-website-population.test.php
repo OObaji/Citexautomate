@@ -176,6 +176,7 @@ $GLOBALS['__acf_fields']              = array(
 	Citex_Populator::FIELD_FIXED_TEXT      => array( 'key' => Citex_Populator::FIELD_FIXED_TEXT, 'type' => 'text' ),
 	Citex_Populator::FIELD_QUESTION_PARTS  => array( 'key' => Citex_Populator::FIELD_QUESTION_PARTS, 'type' => 'repeater' ),
 	Citex_Populator::FIELD_CONFUSING_WORDS => array( 'key' => Citex_Populator::FIELD_CONFUSING_WORDS, 'type' => 'repeater' ),
+	Citex_Populator::FIELD_QUESTION_CLASS  => array( 'key' => Citex_Populator::FIELD_QUESTION_CLASS, 'type' => 'text' ),
 );
 $GLOBALS['__taxonomies_by_post_type']['question'] = array( 'reference_category' );
 // Website (id 30) with its own Exercise 1-5 children (ids 31-35) — a real
@@ -196,6 +197,7 @@ $field_map = array(
 	'questionParts'  => Citex_Populator::FIELD_QUESTION_PARTS,
 	'confusingWords' => Citex_Populator::FIELD_CONFUSING_WORDS,
 	'scenario'       => 'field_scenario',
+	'questionClass'  => Citex_Populator::FIELD_QUESTION_CLASS,
 );
 
 $question = array(

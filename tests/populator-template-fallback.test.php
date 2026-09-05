@@ -338,6 +338,7 @@ function reset_environment() {
 	$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_FIXED_TEXT ]      = array( 'key' => Citex_Populator::FIELD_FIXED_TEXT, 'type' => 'text' );
 	$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_QUESTION_PARTS ]  = array( 'key' => Citex_Populator::FIELD_QUESTION_PARTS, 'type' => 'repeater' );
 	$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_CONFUSING_WORDS ] = array( 'key' => Citex_Populator::FIELD_CONFUSING_WORDS, 'type' => 'repeater' );
+	$GLOBALS['__acf_fields'][ Citex_Populator::FIELD_QUESTION_CLASS ]  = array( 'key' => Citex_Populator::FIELD_QUESTION_CLASS, 'type' => 'text' );
 
 	// Default Reference Category taxonomy: Book (top-level) with Exercise
 	// 1-5 as child terms, mirroring the real site's "Reference Categories"

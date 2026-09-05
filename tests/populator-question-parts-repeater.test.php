@@ -278,6 +278,7 @@ function reset_environment() {
 		Citex_Populator::FIELD_FIXED_TEXT      => array( 'key' => Citex_Populator::FIELD_FIXED_TEXT, 'type' => 'text' ),
 		Citex_Populator::FIELD_QUESTION_PARTS  => question_parts_repeater_definition(),
 		Citex_Populator::FIELD_CONFUSING_WORDS => question_parts_repeater_definition(), // same reported shape
+		Citex_Populator::FIELD_QUESTION_CLASS  => array( 'key' => Citex_Populator::FIELD_QUESTION_CLASS, 'type' => 'text' ),
 	);
 
 	$GLOBALS['__taxonomies_by_post_type']['question'] = array( 'reference_category' );
@@ -302,6 +303,7 @@ $field_map = array(
 	'questionParts'  => Citex_Populator::FIELD_QUESTION_PARTS,
 	'confusingWords' => Citex_Populator::FIELD_CONFUSING_WORDS,
 	'scenario'       => 'field_scenario',
+	'questionClass'  => Citex_Populator::FIELD_QUESTION_CLASS,
 );
 
 // The Geertz example from the bug report.
@@ -404,6 +406,17 @@ $final_rows = $GLOBALS['__acf_values'][ $new_id ][ Citex_Populator::FIELD_QUESTI
 check( '[end-to-end] the four correct draggable values are stored, in order', array_column( $final_rows, 'field_text_value' ), $canonical_parts );
 check( '[end-to-end] every row is correctly typed as Text', array_column( $final_rows, 'field_select_element' ), array_fill( 0, 4, 'text' ) );
 check( '[end-to-end] result reports Question Parts verified 4/4', $result['questionPartsVerified'] ?? null, '4/4' );
+
+// ---------------------------------------------------------------------
+// Reported bug: a programmatically-created DragDrop question's Question
+// Class field never persisted (it relied on an ACF form default that is
+// only ever applied when the edit screen is rendered and saved by hand)
+// — the student app never showed it as "Harvard" until an admin opened
+// and re-saved the post in wp-admin. write_dragdrop_acf_values() now
+// writes it explicitly, exactly like write_mcq_acf_values() already did.
+// ---------------------------------------------------------------------
+check( '[question class] "Harvard" is written explicitly for a DragDrop question, not left to an ACF default', $GLOBALS['__acf_values'][ $new_id ][ Citex_Populator::FIELD_QUESTION_CLASS ] ?? null, 'Harvard' );
+check( '[question class] result reports it verified', $result['questionClassVerified'] ?? null, true );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
