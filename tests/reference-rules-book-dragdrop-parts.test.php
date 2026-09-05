@@ -162,9 +162,10 @@ check( '[3] multi-author (3): "and" is selected at least once across 60 seeds', 
 $three_named = array( author( 'Clark', 'S.', 'Simon Clark' ), author( 'Davies', 'H.', 'Helen Davies' ), author( 'Wilson', 'M.', 'Mark Wilson' ) );
 $digital_media_fields = array( 'year' => '2019', 'title' => 'Digital Media', 'place' => 'London', 'publisher' => 'Routledge' );
 
-$built_author0 = Citex_Book_Dragdrop_Parts::build( array( 'author_0_surname', 'author_0_initials', 'year', 'title' ), $three_named, $digital_media_fields );
-check( '[4] drawing author 0 (Clark): parts', $built_author0['parts'], array( 'Clark', 'S.', '2019', 'Digital Media' ) );
-check( '[4] drawing author 0 (Clark): fixedText', $built_author0['fixedText'], '||, ||, Davies, H. and Wilson, M. (||) ||. London: Routledge.' );
+$built_author0 = Citex_Book_Dragdrop_Parts::build( array( 'author_0_surname', 'author_0_initials', 'year', 'place' ), $three_named, $digital_media_fields );
+check( '[4] drawing author 0 (Clark): parts', $built_author0['parts'], array( 'Clark', 'S.', '2019', 'London' ) );
+check( '[4] drawing author 0 (Clark): fixedText', $built_author0['fixedText'], '||, ||, Davies, H. and Wilson, M. (||) Digital Media. ||: Routledge.' );
+check( '[4] drawing author 0 (Clark): confusingWords are genuine knowledge tests, not spelling', $built_author0['confusingWords'], array( 'Simon', 'S', '2019.', 'Routledge' ) );
 check( '[4] drawing author 0 (Clark): reconstructs to the full reference', reconstruct( $built_author0 ), 'Clark, S., Davies, H. and Wilson, M. (2019) Digital Media. London: Routledge.' );
 
 $built_author1 = Citex_Book_Dragdrop_Parts::build( array( 'author_1_surname', 'author_1_initials' ), $three_named, $digital_media_fields );
@@ -185,7 +186,7 @@ check( '[4] drawing "and": reconstructs to the full reference', reconstruct( $bu
 // ---------------------------------------------------------------------
 // 5. Distractor rules: never equal to the correct value, for every kind.
 // ---------------------------------------------------------------------
-$all_keys_single = array( 'author_0_surname', 'author_0_initials', 'year', 'title', 'place', 'publisher' );
+$all_keys_single = array( 'author_0_surname', 'author_0_initials', 'year', 'place', 'publisher' );
 $built_all = Citex_Book_Dragdrop_Parts::build( $all_keys_single, $single_author, $fields );
 foreach ( $built_all['parts'] as $index => $part ) {
 	check( "[5] distractor for part $index (\"$part\") is never equal to the correct value", $built_all['confusingWords'][ $index ] === $part, false );

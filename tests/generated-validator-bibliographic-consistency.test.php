@@ -69,12 +69,13 @@ function has_error_code( $result, $code ) {
 function canonical_question( $overrides = array() ) {
 	$authors = array( array( 'surname' => 'Cottrell', 'initials' => 'S.', 'fullName' => 'Stella Cottrell' ) );
 	$fields  = array( 'year' => '2019', 'title' => 'Critical Thinking Skills', 'place' => 'London', 'publisher' => 'Red Globe Press' );
-	// Explicit keys (surname, initials, year, title), not select_parts()'s own
+	// Explicit keys (surname, initials, year, place), not select_parts()'s own
 	// seeded random pick — this fixture needs a fixed, predictable 4-part
 	// shape so the below sections' Question-Parts overrides stay meaningful
-	// (a mismatched surname/year/title) regardless of which fields the real
-	// per-question seeding would otherwise have drawn.
-	$keys  = array( 'author_0_surname', 'author_0_initials', 'year', 'title' );
+	// (a mismatched surname/year/place) regardless of which fields the real
+	// per-question seeding would otherwise have drawn. Title is never
+	// drawable at all (see Citex_Book_Dragdrop_Parts's own docblock).
+	$keys  = array( 'author_0_surname', 'author_0_initials', 'year', 'place' );
 	$built = Citex_Book_Dragdrop_Parts::build( $keys, $authors, $fields );
 	$base = array(
 		'source'                 => 'Harvard',
@@ -83,6 +84,7 @@ function canonical_question( $overrides = array() ) {
 		'type'                   => 'DragDrop',
 		'authorSurname'          => 'Cottrell',
 		'authorInitials'         => 'S.',
+		'authorFullName'         => 'Stella Cottrell',
 		'year'                   => '2019',
 		'bookTitle'              => 'Critical Thinking Skills',
 		'place'                  => 'London',
@@ -105,8 +107,8 @@ function canonical_question( $overrides = array() ) {
 // ---------------------------------------------------------------------
 $bug_repro = canonical_question(
 	array(
-		'questionParts'          => array( 'Cottrell', 'M.', '2016', 'Skills for Success' ),
-		'reconstructedReference' => 'Cottrell, M. (2016) Skills for Success. London: Red Globe Press.',
+		'questionParts'          => array( 'Cottrell', 'M.', '2016', 'Oxford' ),
+		'reconstructedReference' => 'Cottrell, M. (2016) Critical Thinking Skills. Oxford: Red Globe Press.',
 	)
 );
 $result = Citex_Generated_Validator::validate( $bug_repro );
@@ -164,7 +166,7 @@ check( '[scenario place wrong] reports BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMAT
 $wrong_parts = Citex_Generated_Validator::validate(
 	canonical_question(
 		array(
-			'questionParts'          => array( 'Smith', 'J.', '2019', 'Critical Thinking Skills' ),
+			'questionParts'          => array( 'Smith', 'J.', '2019', 'London' ),
 			'reconstructedReference' => 'Smith, J. (2019) Critical Thinking Skills. London: Red Globe Press.',
 		)
 	)
@@ -260,7 +262,7 @@ check( '[part-selection] reports BOOK_DRAGDROP_PARTS_UNKNOWN when no selection i
 // A DIFFERENT valid selection (fewer parts) for the same record also
 // passes — proving the check adapts to whichever selection was actually
 // recorded, not a single hardcoded shape.
-$alt_keys     = array( 'year', 'title', 'place' );
+$alt_keys     = array( 'year', 'place', 'publisher' );
 $alt_built    = Citex_Book_Dragdrop_Parts::build( $alt_keys, $three_authors, $urban_fields );
 $alt_question = $variety_design_question;
 $alt_question['dragdropPartKeys'] = $alt_keys;

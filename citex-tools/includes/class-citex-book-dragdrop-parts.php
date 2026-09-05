@@ -7,15 +7,36 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Book DragDrop's dynamic 3-4-part question builder — replaces the fixed
  * 8-design catalogue (Citex_Reference_Rules::book_dragdrop_designs() and
  * friends, now removed) with a genuinely dynamic system: every question
- * draws a random subset of 3-4 "parts" from a wider pool that includes not
- * just whole bibliographic fields (author name, year, title, place,
- * publisher) but also the joining word "and" — and every wrong
+ * draws a random subset of 3-4 "parts" from a pool of author name, year,
+ * place, publisher, and the joining word "and" — and every wrong
  * "distractor" chip is authored deterministically by Citex, never Gemini
  * (mirrors the Book MCQ variant overhaul's philosophy: Gemini supplies only
  * the canonical record; Citex authors the entire student-facing question
- * from it). Punctuation (the parentheses around the year, the colon before
- * the publisher) was tried as a further candidate and dropped — always
- * literal now, never draggable.
+ * from it).
+ *
+ * Every distractor is a genuine HARVARD-FORMATTING mistake — never a
+ * cosmetically "wrong-looking" value (a misspelling, a different case, a
+ * different fact) that a student could spot by eye alone without any
+ * referencing knowledge, and never a value that could collide with another
+ * correct part drawn in the same question:
+ * - author surname  -> the SAME author's own given name (tests surname vs.
+ *   given-name confusion — only the surname belongs in a reference).
+ * - author initials -> the same initials with their full stops removed
+ *   (tests the "initials need full stops" punctuation rule).
+ * - "and"           -> "&" (tests "and", never "&", in a reference list).
+ * - year            -> the year with a trailing full stop appended (tests
+ *   "no full stop after the year in its parentheses").
+ * - place           -> the record's own publisher name, UNLESS publisher is
+ *   also drawn in this question (in which case "n.p." — a real "place not
+ *   identified" notation — is used instead, so it can never duplicate a
+ *   correct part). Tests place-vs-publisher confusion.
+ * - publisher       -> the mirror image of place's rule, using "n.pub."
+ *   when place is also drawn.
+ * Title and punctuation (parentheses, colon) were tried as further
+ * candidates and dropped — a wrong title or a wrong punctuation mark is
+ * trivially spotted by comparing it to the scenario text, without needing
+ * any actual referencing knowledge, so both are always literal now, never
+ * draggable.
  *
  * The reference is modelled as an ordered TOKEN STREAM (see build_tokens())
  * alternating literal text (never draggable) and candidate slots (each with
@@ -45,12 +66,12 @@ class Citex_Book_Dragdrop_Parts {
 	 * requirement that every question draw at least one real bibliographic
 	 * field, not just the structural "and" chip. 'author_name' costs 2
 	 * concrete parts (surname + initials together); every other slot here
-	 * costs 1.
+	 * costs 1. Title is deliberately absent — see the class docblock.
 	 *
 	 * @return string[]
 	 */
 	private static function content_slots() {
-		return array( 'author_name', 'year', 'title', 'place', 'publisher' );
+		return array( 'author_name', 'year', 'place', 'publisher' );
 	}
 
 	/**
@@ -105,9 +126,7 @@ class Citex_Book_Dragdrop_Parts {
 		}
 		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ' (', 'literal' => true );
 		$tokens[] = array( 'key' => 'year', 'kind' => 'year', 'value' => (string) $fields['year'], 'literal' => false );
-		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ') ', 'literal' => true );
-		$tokens[] = array( 'key' => 'title', 'kind' => 'title', 'value' => (string) $fields['title'], 'literal' => false );
-		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => '. ', 'literal' => true );
+		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ') ' . $fields['title'] . '. ', 'literal' => true );
 		$tokens[] = array( 'key' => 'place', 'kind' => 'place', 'value' => (string) $fields['place'], 'literal' => false );
 		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ': ', 'literal' => true );
 		$tokens[] = array( 'key' => 'publisher', 'kind' => 'publisher', 'value' => (string) $fields['publisher'], 'literal' => false );
@@ -122,17 +141,20 @@ class Citex_Book_Dragdrop_Parts {
 	 * Citex_Book_Mcq_Variants::variant_for()):
 	 * 1. Pick a drawn author index (any of count($authors), uniformly).
 	 * 2. Pick a target part count, uniform in {3, 4}.
-	 * 3. Pick one "seed" content slot from {author_name, year, title,
-	 *    place, publisher} — guarantees the content floor (every question
-	 *    tests at least one real bibliographic field, never only
-	 *    structural chips). 'author_name' costs 2 parts; everything else
-	 *    costs 1.
+	 * 3. Pick one "seed" content slot from {author_name, year, place,
+	 *    publisher} — guarantees the content floor (every question tests
+	 *    at least one real bibliographic field, never only the structural
+	 *    "and" chip). 'author_name' costs 2 parts; everything else costs 1.
 	 * 4. Fill the remaining budget from the other eligible cost-1 slots
 	 *    (the content slots not already used, plus 'and' when eligible),
 	 *    deterministically ordered and taking as many as fit exactly.
 	 *    'author_name' can never be picked twice — once decided as the
 	 *    seed (or not), it never re-enters selection — so at most one
-	 *    author's name is ever drawn per question.
+	 *    author's name is ever drawn per question. With only 3 other cost-1
+	 *    slots available (4 for a multi-author record, since 'and' also
+	 *    becomes eligible), a single-author record whose seed is NOT
+	 *    'author_name' cannot reach a 4th part at all — that batch simply
+	 *    settles at 3, rather than forcing a duplicate or invalid selection.
 	 * 5. Returns the selected keys in REFERENCE order (not selection
 	 *    order), by walking build_tokens()'s own output.
 	 *
@@ -202,7 +224,7 @@ class Citex_Book_Dragdrop_Parts {
 	 * string; "||" is valid in every position, so it is used uniformly.
 	 *
 	 * @param string[] $selected_keys
-	 * @param array    $authors array<{surname, initials}>, 1 or more.
+	 * @param array    $authors array<{surname, initials, fullName}>, 1 or more.
 	 * @param array    $fields  {year, title, place, publisher}.
 	 * @return array{parts: string[], fixedText: string, confusingWords: string[]}|null
 	 *         null when $selected_keys names an author index out of range
@@ -222,6 +244,7 @@ class Citex_Book_Dragdrop_Parts {
 
 		$selected_set = array_fill_keys( array_map( 'strval', $selected_keys ), true );
 		$tokens       = self::build_tokens( $authors, $fields, $drawn_index );
+		$full_name    = isset( $authors[ $drawn_index ]['fullName'] ) ? (string) $authors[ $drawn_index ]['fullName'] : '';
 
 		$parts     = array();
 		$confusing = array();
@@ -234,7 +257,7 @@ class Citex_Book_Dragdrop_Parts {
 			if ( isset( $selected_set[ $token['key'] ] ) ) {
 				$fixed      .= '||';
 				$parts[]     = $token['value'];
-				$confusing[] = self::distractor_for( $token['kind'], $token['value'] );
+				$confusing[] = self::distractor_for( $token['kind'], $token['value'], $full_name, $fields, $selected_set );
 			} else {
 				$fixed .= $token['value'];
 			}
@@ -250,45 +273,65 @@ class Citex_Book_Dragdrop_Parts {
 	 * "kind" — never Gemini-authored, so there is nothing left for a
 	 * quality gate to sanity-check; the validator can recompute and
 	 * exact-match these exactly like every other part of the question.
+	 * Every case here is a genuine Harvard-formatting mistake, never a
+	 * cosmetically different value (see the class docblock) — see the
+	 * case comments for the specific rule each one tests.
 	 */
-	private static function distractor_for( $kind, $value ) {
+	private static function distractor_for( $kind, $value, $full_name, array $fields, array $selected_set ) {
 		switch ( $kind ) {
 			case 'author_surname':
-			case 'title':
-			case 'place':
-			case 'publisher':
-				return self::misspell( $value );
+				// Tests surname-vs-given-name confusion: only the surname
+				// belongs in a Harvard reference. Falls back to a synthetic
+				// marker (never real generated data lacks a full name — see
+				// Citex_AI_V2::derive_author_parts()'s own requirement for
+				// one) rather than silently matching the correct surname.
+				$given = self::given_name_portion( $full_name, $value );
+				return ( '' !== $given && $given !== $value ) ? $given : $value . "'s";
 			case 'author_initials':
-				return self::misspell_initials( $value );
+				// Tests "initials must carry a full stop after each letter".
+				$stripped = str_replace( '.', '', $value );
+				return ( '' !== $stripped && $stripped !== $value ) ? $stripped : $value . "'";
 			case 'and':
+				// Tests "authors are joined with 'and', never '&'".
 				return '&';
 			case 'year':
-				return (string) ( (int) $value + 1 );
+				// Tests "no full stop after the year inside its parentheses".
+				return $value . '.';
+			case 'place':
+				// Tests place-vs-publisher confusion — falls back to a real
+				// "place not identified" notation instead when publisher is
+				// ALSO drawn in this question, so it can never duplicate
+				// that correct part.
+				return isset( $selected_set['publisher'] ) ? 'n.p.' : (string) $fields['publisher'];
+			case 'publisher':
+				// Mirror image of 'place', using "publisher not identified".
+				return isset( $selected_set['place'] ) ? 'n.pub.' : (string) $fields['place'];
 			default:
 				return $value . '?';
 		}
 	}
 
-	/** Last-vowel swap — same technique as Citex_Book_Mcq_Variants::misspell(), e.g. "London" -> "Londan". */
-	private static function misspell( $word ) {
-		$word = (string) $word;
-		for ( $i = strlen( $word ) - 1; $i >= 0; $i-- ) {
-			if ( false !== stripos( 'aeiou', $word[ $i ] ) ) {
-				$replacement = ( 'a' === strtolower( $word[ $i ] ) ) ? 'e' : 'a';
-				return substr( $word, 0, $i ) . $replacement . substr( $word, $i + 1 );
-			}
+	/**
+	 * Extracts the given-name portion of a full name once its surname is
+	 * known — e.g. ("Andrew Brown", "Brown") -> "Andrew" — same technique as
+	 * Citex_Book_Mcq_Variants::given_name_portion(), duplicated here to keep
+	 * this file self-contained. Every author full name reaching this method
+	 * is guaranteed by Citex_AI_V2::derive_author_parts() to contain a real
+	 * given name (a surname-only name is rejected at generation time), so
+	 * this never degrades to returning the surname itself.
+	 */
+	private static function given_name_portion( $full_name, $surname ) {
+		$full_name = trim( (string) $full_name );
+		$surname   = trim( (string) $surname );
+		if ( '' !== $surname && '' !== $full_name && strlen( $full_name ) > strlen( $surname )
+			&& 0 === strcasecmp( substr( $full_name, -strlen( $surname ) ), $surname ) ) {
+			return trim( substr( $full_name, 0, strlen( $full_name ) - strlen( $surname ) ) );
 		}
-		return $word . 'a';
-	}
-
-	/** Shifts only the leading letter to the next one alphabetically (wrapping Z to A), e.g. "S." -> "T.", "J.M." -> "K.M.". */
-	private static function misspell_initials( $initials ) {
-		$initials = (string) $initials;
-		if ( '' === $initials || ! ctype_alpha( $initials[0] ) ) {
-			return 'X.';
+		$words = preg_split( '/\s+/', $full_name );
+		if ( count( $words ) > 1 ) {
+			array_pop( $words );
+			return implode( ' ', $words );
 		}
-		$letter = strtoupper( $initials[0] );
-		$next   = ( 'Z' === $letter ) ? 'A' : chr( ord( $letter ) + 1 );
-		return $next . substr( $initials, 1 );
+		return '' !== $full_name ? $full_name : $surname;
 	}
 }

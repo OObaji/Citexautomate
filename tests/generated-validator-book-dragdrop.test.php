@@ -61,7 +61,7 @@ function has_error_code( $result, $code ) {
 
 $authors = array( array( 'surname' => 'Brown', 'initials' => 'A.', 'fullName' => 'Andrew Brown' ) );
 $fields  = array( 'year' => '2021', 'title' => 'Digital Culture', 'place' => 'London', 'publisher' => 'Routledge' );
-$keys    = array( 'author_0_surname', 'author_0_initials', 'year', 'title' );
+$keys    = array( 'author_0_surname', 'author_0_initials', 'year', 'place' );
 $built   = Citex_Book_Dragdrop_Parts::build( $keys, $authors, $fields );
 
 function book_dragdrop_question( $keys, $built, $authors, $fields, $overrides = array() ) {
@@ -108,7 +108,7 @@ check( '[2] reports BOOK_DRAGDROP_PARTS_MISMATCH', has_error_code( $tampered_res
 // 3. A tampered Fixed Text fails.
 // ---------------------------------------------------------------------
 $tampered_fixed = book_dragdrop_question( $keys, $built, $authors, $fields, array(
-	'fixedText' => str_replace( 'London', 'Oxford', $built['fixedText'] ),
+	'fixedText' => str_replace( 'Routledge', 'Oxford University Press', $built['fixedText'] ),
 ) );
 $tampered_fixed_result = Citex_Generated_Validator::validate( $tampered_fixed );
 check( '[3] a tampered Fixed Text fails', $tampered_fixed_result['status'], 'failed' );
@@ -176,7 +176,7 @@ $two_authors = array(
 	array( 'surname' => 'Brown', 'initials' => 'A.', 'fullName' => 'Andrew Brown' ),
 	array( 'surname' => 'Smith', 'initials' => 'J.', 'fullName' => 'James Smith' ),
 );
-$two_author_keys  = array( 'and', 'year', 'title' );
+$two_author_keys  = array( 'and', 'year', 'place' );
 $two_author_built = Citex_Book_Dragdrop_Parts::build( $two_author_keys, $two_authors, $fields );
 $two_author_question = book_dragdrop_question( $two_author_keys, $two_author_built, $two_authors, $fields, array(
 	'scenario'               => 'You are referencing a book titled Digital Culture by Andrew Brown and James Smith, published in 2021 by Routledge in London.',
