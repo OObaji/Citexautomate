@@ -362,7 +362,7 @@ if ( ! is_wp_error( $result ) ) {
 	check( '[1] option 4 persisted blank', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_OPTION_4 ], '' );
 	check( '[1] scenario persisted', $GLOBALS['__acf_values'][ $post_id ]['field_scenario'], $question['scenario'] );
 	check( '[1] Hint persisted with the generated non-revealing hint (there is no separate "explanation" field on this site)', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_HINT ], $question['hint'] );
-	check( '[1] Question Class is set to Harvard', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_QUESTION_CLASS ], 'Harvard' );
+	check( '[1] Question Class is set to harvard', $GLOBALS['__acf_values'][ $post_id ][ Citex_Populator::FIELD_QUESTION_CLASS ], 'harvard' );
 	// CRITICAL — the Answer field holds the FULL TEXT of the correct
 	// reference (reconstructedReference), never a bare letter, and it is
 	// NEVER also duplicated into one of the 4 option slots. This is the

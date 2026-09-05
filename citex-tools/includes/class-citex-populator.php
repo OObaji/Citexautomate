@@ -111,11 +111,14 @@ class Citex_Populator {
 	// Shared fields visible on the real "Add New Reference" edit screen for
 	// EVERY question (both DragDrop and MCQ) — Question Class and Hint —
 	// also confirmed via Citex Diagnostics. Both write_mcq_acf_values() and
-	// write_dragdrop_acf_values() set Question Class explicitly (fixed
-	// "Harvard"). DragDrop was previously left to rely on Question Class's
-	// ACF default instead of writing it — reported live (student app never
-	// showed a newly-populated DragDrop question as "Harvard" until an
-	// admin opened it in wp-admin and clicked Update): an ACF field's
+	// write_dragdrop_acf_values() set Question Class explicitly (fixed,
+	// lowercase "harvard" — matches the site's own convention, confirmed
+	// live: the field's ACF default renders as "Harvard" with a capital H,
+	// but every already-published record uses lowercase). DragDrop was
+	// previously left to rely on Question Class's ACF default instead of
+	// writing it — reported live (student app never showed a newly-populated
+	// DragDrop question as "harvard" until an admin opened it in wp-admin
+	// and clicked Update): an ACF field's
 	// "default value" is only ever applied when the field is RENDERED in
 	// the edit-screen form and that form is then submitted — it is never
 	// written to post meta by wp_insert_post()/update_field() alone, so a
@@ -480,7 +483,7 @@ class Citex_Populator {
 		}
 
 		$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
-		$this->write_acf_value( $new_id, $field_map['questionClass'], 'Harvard' );
+		$this->write_acf_value( $new_id, $field_map['questionClass'], 'harvard' );
 
 		return array( 'partsShape' => $parts_shape, 'confusingShape' => $confusing_shape );
 	}
@@ -501,7 +504,7 @@ class Citex_Populator {
 			}
 
 			$stored_question_class = get_field( $field_map['questionClass'], $new_id, false );
-			$diagnostics['questionClassVerified'] = 'Harvard' === trim( (string) $stored_question_class );
+			$diagnostics['questionClassVerified'] = 'harvard' === trim( (string) $stored_question_class );
 			if ( ! $diagnostics['questionClassVerified'] ) {
 				throw new Exception( 'Question Class did not persist to the new Reference List record.' );
 			}
@@ -529,8 +532,9 @@ class Citex_Populator {
 	 * no separate "explanation" field on this site; Hint is the real,
 	 * confirmed field, and it is shown to the student BEFORE they answer,
 	 * so it must never identify the correct option), Question Class (fixed
-	 * "Harvard" — see FIELD_QUESTION_CLASS's own docblock for why this must
-	 * be written explicitly rather than left to an ACF default), and the
+	 * lowercase "harvard" — see FIELD_QUESTION_CLASS's own docblock for why
+	 * this must be written explicitly rather than left to an ACF default),
+	 * and the
 	 * Answer field.
 	 *
 	 * Option 1-3 hold the 3 distractors; Option 4 is ALWAYS blank. The
@@ -570,7 +574,7 @@ class Citex_Populator {
 
 		$hint = (string) ( $question['hint'] ?? '' );
 		$this->write_acf_value( $new_id, $field_map['hint'], $hint );
-		$this->write_acf_value( $new_id, $field_map['questionClass'], 'Harvard' );
+		$this->write_acf_value( $new_id, $field_map['questionClass'], 'harvard' );
 
 		$this->write_acf_value( $new_id, $field_map['answer'], $answer_value );
 

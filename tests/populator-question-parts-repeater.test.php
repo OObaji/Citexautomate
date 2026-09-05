@@ -415,7 +415,7 @@ check( '[end-to-end] result reports Question Parts verified 4/4', $result['quest
 // and re-saved the post in wp-admin. write_dragdrop_acf_values() now
 // writes it explicitly, exactly like write_mcq_acf_values() already did.
 // ---------------------------------------------------------------------
-check( '[question class] "Harvard" is written explicitly for a DragDrop question, not left to an ACF default', $GLOBALS['__acf_values'][ $new_id ][ Citex_Populator::FIELD_QUESTION_CLASS ] ?? null, 'Harvard' );
+check( '[question class] "harvard" is written explicitly for a DragDrop question, not left to an ACF default', $GLOBALS['__acf_values'][ $new_id ][ Citex_Populator::FIELD_QUESTION_CLASS ] ?? null, 'harvard' );
 check( '[question class] result reports it verified', $result['questionClassVerified'] ?? null, true );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
