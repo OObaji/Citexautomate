@@ -1401,7 +1401,7 @@ class Citex_Reference_Rules {
 	 *
 	 * Wording for "four_or_more_authors" matches the user's own confirmed
 	 * example exactly (including naming the "et al." misconception this
-	 * bucket exists to test — the exact confusion between Liverpool Hope's
+	 * bucket exists to test — the exact confusion between Harvard's
 	 * reference-list rule, which never uses "et al.", and its separate
 	 * in-text-citation convention, which does).
 	 *
@@ -1412,11 +1412,11 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			$catalogue = array(
 				'two_editors'            => array(
-					'stem'             => 'Which of the following statements is correct about referencing a book edited by two people in the Liverpool Hope Harvard reference list?',
+					'stem'             => 'Which of the following statements is correct about referencing a book edited by two people in the Harvard reference list?',
 					'correctStatement' => 'Both editors are included, joined by "and", followed by the designation "(eds)" — e.g. Smith, J. and Jones, A. (eds).',
 				),
 				'three_or_more_editors'  => array(
-					'stem'             => 'Which of the following statements is correct about referencing a book edited by three or more people in the Liverpool Hope Harvard reference list?',
+					'stem'             => 'Which of the following statements is correct about referencing a book edited by three or more people in the Harvard reference list?',
 					'correctStatement' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)" — e.g. Smith, J., Jones, A. and Brown, T. (eds).',
 				),
 			);
@@ -1424,15 +1424,15 @@ class Citex_Reference_Rules {
 		}
 		$catalogue = array(
 			'two_authors'            => array(
-				'stem'             => 'Which of the following statements is correct about referencing a book written by two authors in the Liverpool Hope Harvard reference list?',
+				'stem'             => 'Which of the following statements is correct about referencing a book written by two authors in the Harvard reference list?',
 				'correctStatement' => 'Both authors are included, joined by "and" — e.g. Smith, J. and Jones, A.',
 			),
 			'three_authors'          => array(
-				'stem'             => 'Which of the following statements is correct about referencing a book written by three authors in the Liverpool Hope Harvard reference list?',
+				'stem'             => 'Which of the following statements is correct about referencing a book written by three authors in the Harvard reference list?',
 				'correctStatement' => 'All three authors are included, separated by commas with "and" before the final author — e.g. Smith, J., Jones, A. and Brown, T.',
 			),
 			'four_or_more_authors'   => array(
-				'stem'             => 'Which statement is correct about a book with four or more authors in the Liverpool Hope Harvard reference list?',
+				'stem'             => 'Which statement is correct about a book with four or more authors in the Harvard reference list?',
 				'correctStatement' => 'All authors should be included; et al. is not used in the reference list.',
 			),
 		);

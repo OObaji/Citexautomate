@@ -50,7 +50,7 @@ function treatment_question( $overrides = array() ) {
 			'type'            => 'MCQ',
 			'mcqPattern'      => 'choose_treatment',
 			'treatmentBucket' => 'four_or_more_authors',
-			'scenario'        => 'Which statement is correct about a book with four or more authors in the Liverpool Hope Harvard reference list?',
+			'scenario'        => 'Which statement is correct about a book with four or more authors in the Harvard reference list?',
 			'options'         => array(
 				'The first author is listed and the rest are shortened to et al.',
 				'Only the first three authors are listed; the rest are omitted.',
@@ -173,7 +173,7 @@ function edited_treatment_question( $overrides = array() ) {
 			'type'            => 'MCQ',
 			'mcqPattern'      => 'choose_treatment',
 			'treatmentBucket' => 'two_editors',
-			'scenario'        => 'Which of the following statements is correct about referencing a book edited by two people in the Liverpool Hope Harvard reference list?',
+			'scenario'        => 'Which of the following statements is correct about referencing a book edited by two people in the Harvard reference list?',
 			'options'         => array(
 				'Both editors are joined with an ampersand and the designation is "(ed.)".',
 				'Only the first editor is listed, followed by "(eds)".',
@@ -192,7 +192,7 @@ check( '[13] no errors reported', $eb_result['errors'], array() );
 
 $eb_three_or_more = Citex_Generated_Validator::validate( edited_treatment_question( array(
 	'treatmentBucket' => 'three_or_more_editors',
-	'scenario'         => 'Which of the following statements is correct about referencing a book edited by three or more people in the Liverpool Hope Harvard reference list?',
+	'scenario'         => 'Which of the following statements is correct about referencing a book edited by three or more people in the Harvard reference list?',
 	'reconstructedReference' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)" — e.g. Smith, J., Jones, A. and Brown, T. (eds).',
 ) ) );
 check( '[13] Edited Book three_or_more_editors: a correct question passes', $eb_three_or_more['status'], 'passed' );

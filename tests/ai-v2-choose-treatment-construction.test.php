@@ -109,7 +109,7 @@ if ( ! is_wp_error( $result ) ) {
 	check( '[1] candidate type is MCQ', $candidate['type'], 'MCQ' );
 	check( '[1] mcqPattern is choose_treatment', $candidate['mcqPattern'], 'choose_treatment' );
 	check( '[1] treatmentBucket is four_or_more_authors', $candidate['treatmentBucket'], 'four_or_more_authors' );
-	check( '[1] the stem matches the user\'s own confirmed wording', $candidate['scenario'], 'Which statement is correct about a book with four or more authors in the Liverpool Hope Harvard reference list?' );
+	check( '[1] the stem matches the user\'s own confirmed wording', $candidate['scenario'], 'Which statement is correct about a book with four or more authors in the Harvard reference list?' );
 	check( '[1] the Answer field is exactly the confirmed correct statement', $candidate['reconstructedReference'], 'All authors should be included; et al. is not used in the reference list.' );
 	check( '[1] exactly 4 option slots', count( $candidate['options'] ), 4 );
 	check( '[1] options 1-3 are exactly the wrongStatements, in order', array_slice( $candidate['options'], 0, 3 ), four_or_more_authors_item()['wrongStatements'] );
