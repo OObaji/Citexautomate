@@ -111,6 +111,39 @@ check(
 );
 
 // ---------------------------------------------------------------------
+// 2b. The "split" designs: the drawn author's surname and initials are
+// two SEPARATE draggable parts (per the user's own request — "initials
+// can be a question part too on some questions, not all"), not the
+// combined "Surname, I." chip the other variety designs use.
+// ---------------------------------------------------------------------
+check(
+	'[2b] author_split_year_title (1 author): surname/initials split, matches the classic 1-author baseline shape exactly',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, $book_fields_one, 'author_split_year_title' ),
+	array( 'parts' => array( 'Vance', 'C.', '2019', 'Urban Ecology' ), 'fixedText' => '|, || (||) ||. Cambridge: Polity.' )
+);
+check(
+	'[2b] author_split_title_place (1 author): surname/initials split, year baked, place drawn, publisher baked',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, $book_fields_one, 'author_split_title_place' ),
+	array( 'parts' => array( 'Vance', 'C.', 'Urban Ecology', 'Cambridge' ), 'fixedText' => '|, || (2019) ||. ||: Polity.' )
+);
+check(
+	'[2b] author_split_title_publisher (1 author): surname/initials split, year baked, publisher drawn, place baked',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, $book_fields_one, 'author_split_title_publisher' ),
+	array( 'parts' => array( 'Vance', 'C.', 'Urban Ecology', 'Polity' ), 'fixedText' => '|, || (2019) ||. Cambridge: ||.' )
+);
+check(
+	'[2b] author_split_year_title (2 authors): first author split, 2nd folds in as a literal continuation exactly like the non-split designs',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, $book_fields_two, 'author_split_year_title' ),
+	array( 'parts' => array( 'Vance', 'C.', '2019', 'Urban Ecology' ), 'fixedText' => '|, || and Shaw, D. (||) ||. Cambridge: Polity.' )
+);
+$expected_split_reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, $book_fields_two );
+foreach ( array( 'author_split_year_title', 'author_split_title_place', 'author_split_title_publisher' ) as $split_design ) {
+	$split_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, $book_fields_two, $split_design );
+	check( "[2b] $split_design (2 authors) produces exactly 4 parts", count( $split_shape['parts'] ), 4 );
+	check( "[2b] $split_design (2 authors) reconstructs to the exact same reference as the baseline", reconstruct_from_shape( $split_shape ), $expected_split_reference );
+}
+
+// ---------------------------------------------------------------------
 // 3. book_dragdrop_design_for() always returns a real, known design id,
 // is reproducible for the same seed, and (property test) produces more
 // than one distinct design across many different seeds — proving it is
@@ -157,6 +190,16 @@ check(
 	'[4] editor_designation_title_publisher (1 editor): year baked, publisher drawn, place baked',
 	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_title_publisher' ),
 	array( 'parts' => array( 'Vance, C.', 'ed.', 'Urban Ecology', 'Polity' ), 'fixedText' => '| (||) (2019) ||. Cambridge: ||.' )
+);
+check(
+	'[4] editor_split_designation_title (1 editor): surname/initials split, designation always drawn, year/place/publisher baked',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_split_designation_title' ),
+	array( 'parts' => array( 'Vance', 'C.', 'ed.', 'Urban Ecology' ), 'fixedText' => '|, || (||) (2019) ||. Cambridge: Polity.' )
+);
+check(
+	'[4] editor_split_designation_title (2 editors): first editor split, 2nd folds in as a literal continuation, designation still for the whole pair',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_two, 'editor_split_designation_title' ),
+	array( 'parts' => array( 'Vance', 'C.', 'eds', 'Urban Ecology' ), 'fixedText' => '|, || and Shaw, D. (||) (2019) ||. Cambridge: Polity.' )
 );
 
 $known_eb_designs = Citex_Reference_Rules::edited_book_dragdrop_designs();

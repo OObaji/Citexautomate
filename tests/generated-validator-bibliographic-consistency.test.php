@@ -262,5 +262,28 @@ $mislabelled_variant['exerciseDesign'] = 'author_year_title_publisher';
 // publisher design named here.
 check( '[field-variety design] place-shaped parts mislabelled as author_year_title_publisher correctly FAILS', Citex_Generated_Validator::validate( $mislabelled_variant )['status'], 'failed' );
 
+// The "split" designs (surname/initials as two separate parts) validate
+// correctly too — built via dragdrop_shape() itself so the check can
+// never silently disagree with what Citex actually generates.
+$split_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_BOOK, array( 'authors' => $three_authors, 'year' => '2021', 'title' => 'Urban Design', 'place' => 'London', 'publisher' => 'Routledge' ), 'author_split_title_place' );
+$split_design_question = array(
+	'source'                 => 'Harvard',
+	'group'                  => 'ReferenceList',
+	'category'               => 'Book',
+	'type'                   => 'DragDrop',
+	'scenario'               => 'You are referencing a book titled Urban Design by Lucas Bennett, Chloe Harper and Felix Foster, published in 2021 by Routledge in London.',
+	'authors'                => $three_authors,
+	'year'                   => '2021',
+	'bookTitle'              => 'Urban Design',
+	'place'                  => 'London',
+	'publisher'              => 'Routledge',
+	'exerciseDesign'         => 'author_split_title_place',
+	'fixedText'              => $split_shape['fixedText'],
+	'questionParts'          => $split_shape['parts'],
+	'confusingWords'         => array( 'Bennett, L, Harper, C & Foster, F.', 'Bennett et al.', '2019 Urban Planning' ),
+	'reconstructedReference' => 'Bennett, L., Harper, C. and Foster, F. (2021) Urban Design. London: Routledge.',
+);
+check( '[field-variety design] a correctly-built author_split_title_place question PASSES', Citex_Generated_Validator::validate( $split_design_question )['status'], 'passed' );
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
