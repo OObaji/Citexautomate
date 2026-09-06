@@ -8,40 +8,52 @@ if ( ! defined( 'ABSPATH' ) ) {
  * 8-design catalogue (Citex_Reference_Rules::book_dragdrop_designs() and
  * friends, now removed) with a genuinely dynamic system: every question
  * draws a random subset of 3-4 "parts" from a pool of author name, year,
- * place, publisher, and the joining word "and" — and every wrong
+ * title, place, publisher, and the joining word "and" — and every wrong
  * "distractor" chip is authored deterministically by Citex, never Gemini
  * (mirrors the Book MCQ variant overhaul's philosophy: Gemini supplies only
  * the canonical record; Citex authors the entire student-facing question
  * from it).
  *
- * Every distractor is a genuine HARVARD-FORMATTING mistake — never a
- * cosmetically "wrong-looking" value (a misspelling, a different case, a
- * different fact) that a student could spot by eye alone without any
- * referencing knowledge, and never a value that could collide with another
- * correct part drawn in the same question:
- * - author surname  -> the SAME author's own given name (tests surname vs.
- *   given-name confusion — only the surname belongs in a reference).
- * - author initials -> the same initials with their full stops removed
- *   (tests the "initials need full stops" punctuation rule).
+ * Every distractor tests genuine HARVARD-REFERENCING knowledge — never a
+ * cosmetic, trivially-spotted difference (a random misspelling, a different
+ * case, an unrelated fact) — and never a value that could collide with
+ * another correct part drawn in the same question:
+ * - author surname  -> either the SAME author's own given name (surname vs.
+ *   given-name confusion), or — when a second author exists — that OTHER
+ *   author's surname (tests "which author does this name belong to"),
+ *   rotating deterministically per record.
+ * - author initials -> either the same initials with their full stops
+ *   removed (tests "initials need full stops"), or — when a second author
+ *   exists — that OTHER author's initials (correct format, wrong author),
+ *   rotating deterministically per record.
  * - "and"           -> "&" (tests "and", never "&", in a reference list).
- * - year            -> the year with a trailing full stop appended (tests
- *   "no full stop after the year in its parentheses").
- * - place           -> the record's own publisher name, UNLESS publisher is
- *   also drawn in this question (in which case "n.p." — a real "place not
- *   identified" notation — is used instead, so it can never duplicate a
- *   correct part). Tests place-vs-publisher confusion.
- * - publisher       -> the mirror image of place's rule, using "n.pub."
- *   when place is also drawn.
- * Title and punctuation (parentheses, colon) were tried as further
- * candidates and dropped — a wrong title or a wrong punctuation mark is
- * trivially spotted by comparing it to the scenario text, without needing
- * any actual referencing knowledge, so both are always literal now, never
- * draggable.
+ * - year            -> either a nearby wrong year (tests the student
+ *   actually knows the real year, not just its shape), or the year with a
+ *   punctuation mistake (a stray full stop or parenthesis attached to the
+ *   bare year — tests that the surrounding parentheses are FIXED text, not
+ *   part of the draggable year itself), rotating deterministically per
+ *   record.
+ * - title           -> a genuine title-boundary or title-content mistake:
+ *   trailing punctuation wrongly attached, the year wrongly folded into the
+ *   title, or a subtle wording alteration — never a random misspelling.
+ * - place           -> a real, globally recognised place of publication
+ *   drawn from a fixed pool spanning multiple countries (never limited to
+ *   the UK), excluding the record's own place and, when publisher is also
+ *   drawn, the record's own publisher too.
+ * - publisher       -> the mirror image of place's rule: a real, globally
+ *   recognised academic publisher drawn from a fixed pool, excluding the
+ *   record's own publisher and, when place is also drawn, the record's own
+ *   place too.
+ * Punctuation characters themselves ( `(` `)` `:` ) are never draggable —
+ * they always stay literal/fixed text, per the class's own established
+ * convention; a "punctuation mistake" distractor (year's flavour above)
+ * is a self-contained wrong STRING occupying the year's own blank, not a
+ * change to the surrounding fixed literal punctuation.
  *
  * The reference is modelled as an ordered TOKEN STREAM (see build_tokens())
  * alternating literal text (never draggable) and candidate slots (each with
- * a stable key, e.g. "author_1_surname", "and", "year" — a "kind" for
- * distractor generation, and its correct literal value).
+ * a stable key, e.g. "author_1_surname", "and", "year", "title" — a "kind"
+ * for distractor generation, and its correct literal value).
  * select_parts() deterministically (crc32-seeded, same pattern as
  * Citex_Book_Mcq_Variants::variant_for()) decides which candidates get
  * drawn for one question; build() turns that decision plus the record's own
@@ -49,6 +61,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * validator from the STORED selection (dragdropPartKeys) to recompute and
  * exactly compare the whole question, exactly like
  * Citex_Generated_Validator::validate_book_mcq_variant() does for MCQ.
+ * Every distractor flavour rotation is itself derived purely from the
+ * record's own fields (never from an external seed build() doesn't
+ * receive), so the validator's recomputation always matches exactly.
  *
  * Only one author's name is ever split into parts per question (surname and
  * initials ALWAYS as two separate parts, never combined into one "Surname,
@@ -66,12 +81,12 @@ class Citex_Book_Dragdrop_Parts {
 	 * requirement that every question draw at least one real bibliographic
 	 * field, not just the structural "and" chip. 'author_name' costs 2
 	 * concrete parts (surname + initials together); every other slot here
-	 * costs 1. Title is deliberately absent — see the class docblock.
+	 * costs 1.
 	 *
 	 * @return string[]
 	 */
 	private static function content_slots() {
-		return array( 'author_name', 'year', 'place', 'publisher' );
+		return array( 'author_name', 'year', 'title', 'place', 'publisher' );
 	}
 
 	/**
@@ -83,6 +98,39 @@ class Citex_Book_Dragdrop_Parts {
 	 */
 	private static function structural_slots( $author_count ) {
 		return $author_count >= 2 ? array( 'and' ) : array();
+	}
+
+	/**
+	 * A fixed pool of real, globally recognised places of publication —
+	 * deliberately spanning multiple countries/continents, not just the
+	 * UK, so a place distractor is always a genuinely plausible city a
+	 * student might mistake for the real one.
+	 *
+	 * @return string[]
+	 */
+	private static function place_pool() {
+		return array(
+			'London', 'Oxford', 'Cambridge', 'Manchester', 'Edinburgh', 'Dublin',
+			'New York', 'Boston', 'Chicago', 'San Francisco', 'Toronto', 'Vancouver',
+			'Sydney', 'Melbourne', 'Singapore', 'Delhi', 'Mumbai', 'Tokyo',
+			'Paris', 'Berlin', 'Amsterdam', 'Cape Town',
+		);
+	}
+
+	/**
+	 * A fixed pool of real, globally recognised academic publishers — used
+	 * for the publisher distractor the same way place_pool() is used for
+	 * place.
+	 *
+	 * @return string[]
+	 */
+	private static function publisher_pool() {
+		return array(
+			'Routledge', 'Pearson', 'SAGE', 'Palgrave Macmillan', 'Oxford University Press',
+			'Cambridge University Press', 'Wiley', 'Wiley-Blackwell', 'Springer', 'Elsevier',
+			'Taylor & Francis', 'Bloomsbury', 'McGraw-Hill', 'Harvard University Press',
+			'Yale University Press', 'University of Chicago Press',
+		);
 	}
 
 	/**
@@ -126,7 +174,9 @@ class Citex_Book_Dragdrop_Parts {
 		}
 		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ' (', 'literal' => true );
 		$tokens[] = array( 'key' => 'year', 'kind' => 'year', 'value' => (string) $fields['year'], 'literal' => false );
-		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ') ' . $fields['title'] . '. ', 'literal' => true );
+		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ') ', 'literal' => true );
+		$tokens[] = array( 'key' => 'title', 'kind' => 'title', 'value' => (string) $fields['title'], 'literal' => false );
+		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => '. ', 'literal' => true );
 		$tokens[] = array( 'key' => 'place', 'kind' => 'place', 'value' => (string) $fields['place'], 'literal' => false );
 		$tokens[] = array( 'key' => null, 'kind' => 'literal', 'value' => ': ', 'literal' => true );
 		$tokens[] = array( 'key' => 'publisher', 'kind' => 'publisher', 'value' => (string) $fields['publisher'], 'literal' => false );
@@ -141,20 +191,17 @@ class Citex_Book_Dragdrop_Parts {
 	 * Citex_Book_Mcq_Variants::variant_for()):
 	 * 1. Pick a drawn author index (any of count($authors), uniformly).
 	 * 2. Pick a target part count, uniform in {3, 4}.
-	 * 3. Pick one "seed" content slot from {author_name, year, place,
-	 *    publisher} — guarantees the content floor (every question tests
-	 *    at least one real bibliographic field, never only the structural
-	 *    "and" chip). 'author_name' costs 2 parts; everything else costs 1.
+	 * 3. Pick one "seed" content slot from {author_name, year, title,
+	 *    place, publisher} — guarantees the content floor (every question
+	 *    tests at least one real bibliographic field, never only the
+	 *    structural "and" chip). 'author_name' costs 2 parts; everything
+	 *    else costs 1.
 	 * 4. Fill the remaining budget from the other eligible cost-1 slots
 	 *    (the content slots not already used, plus 'and' when eligible),
 	 *    deterministically ordered and taking as many as fit exactly.
 	 *    'author_name' can never be picked twice — once decided as the
 	 *    seed (or not), it never re-enters selection — so at most one
-	 *    author's name is ever drawn per question. With only 3 other cost-1
-	 *    slots available (4 for a multi-author record, since 'and' also
-	 *    becomes eligible), a single-author record whose seed is NOT
-	 *    'author_name' cannot reach a 4th part at all — that batch simply
-	 *    settles at 3, rather than forcing a duplicate or invalid selection.
+	 *    author's name is ever drawn per question.
 	 * 5. Returns the selected keys in REFERENCE order (not selection
 	 *    order), by walking build_tokens()'s own output.
 	 *
@@ -228,6 +275,12 @@ class Citex_Book_Dragdrop_Parts {
 	 * always follows the last selected candidate — the "end" case is
 	 * checked for correctness/symmetry but structurally can never fire here.
 	 *
+	 * Every distractor flavour (which author-mix-up variant, which year
+	 * mistake, which title mistake, which pool entries are eligible) is
+	 * derived purely from this record's OWN fields (see $record_seed
+	 * below) — never from an external per-call seed — so the validator's
+	 * recomputation from the same stored fields always matches exactly.
+	 *
 	 * @param string[] $selected_keys
 	 * @param array    $authors array<{surname, initials, fullName}>, 1 or more.
 	 * @param array    $fields  {year, title, place, publisher}.
@@ -251,6 +304,7 @@ class Citex_Book_Dragdrop_Parts {
 		$tokens       = self::build_tokens( $authors, $fields, $drawn_index );
 		$full_name    = isset( $authors[ $drawn_index ]['fullName'] ) ? (string) $authors[ $drawn_index ]['fullName'] : '';
 		$token_count  = count( $tokens );
+		$record_seed  = implode( '|', array( (string) $fields['year'], (string) $fields['title'], (string) $fields['place'], (string) $fields['publisher'] ) );
 
 		$parts     = array();
 		$confusing = array();
@@ -265,7 +319,7 @@ class Citex_Book_Dragdrop_Parts {
 				$is_last     = ( $index === $token_count - 1 );
 				$fixed      .= ( $is_first || $is_last ) ? '|' : '||';
 				$parts[]     = $token['value'];
-				$confusing[] = self::distractor_for( $token['kind'], $token['value'], $full_name, $fields, $selected_set );
+				$confusing[] = self::distractor_for( $token['kind'], $token['value'], $full_name, $fields, $selected_set, $authors, $drawn_index, $record_seed );
 			} else {
 				$fixed .= $token['value'];
 			}
@@ -281,42 +335,197 @@ class Citex_Book_Dragdrop_Parts {
 	 * "kind" — never Gemini-authored, so there is nothing left for a
 	 * quality gate to sanity-check; the validator can recompute and
 	 * exact-match these exactly like every other part of the question.
-	 * Every case here is a genuine Harvard-formatting mistake, never a
-	 * cosmetically different value (see the class docblock) — see the
-	 * case comments for the specific rule each one tests.
 	 */
-	private static function distractor_for( $kind, $value, $full_name, array $fields, array $selected_set ) {
+	private static function distractor_for( $kind, $value, $full_name, array $fields, array $selected_set, array $authors, $drawn_index, $record_seed ) {
 		switch ( $kind ) {
 			case 'author_surname':
-				// Tests surname-vs-given-name confusion: only the surname
-				// belongs in a Harvard reference. Falls back to a synthetic
-				// marker (never real generated data lacks a full name — see
-				// Citex_AI_V2::derive_author_parts()'s own requirement for
-				// one) rather than silently matching the correct surname.
-				$given = self::given_name_portion( $full_name, $value );
-				return ( '' !== $given && $given !== $value ) ? $given : $value . "'s";
+				return self::author_surname_distractor( $value, $full_name, $authors, $drawn_index, $record_seed );
 			case 'author_initials':
-				// Tests "initials must carry a full stop after each letter".
-				$stripped = str_replace( '.', '', $value );
-				return ( '' !== $stripped && $stripped !== $value ) ? $stripped : $value . "'";
+				return self::author_initials_distractor( $value, $authors, $drawn_index, $record_seed );
 			case 'and':
 				// Tests "authors are joined with 'and', never '&'".
 				return '&';
 			case 'year':
-				// Tests "no full stop after the year inside its parentheses".
-				return $value . '.';
+				return self::year_distractor( $value, $record_seed );
+			case 'title':
+				return self::title_distractor( $value, $fields, $record_seed );
 			case 'place':
-				// Tests place-vs-publisher confusion — falls back to a real
-				// "place not identified" notation instead when publisher is
-				// ALSO drawn in this question, so it can never duplicate
-				// that correct part.
-				return isset( $selected_set['publisher'] ) ? 'n.p.' : (string) $fields['publisher'];
+				return self::place_distractor( $value, $fields, $selected_set, $record_seed );
 			case 'publisher':
-				// Mirror image of 'place', using "publisher not identified".
-				return isset( $selected_set['place'] ) ? 'n.pub.' : (string) $fields['place'];
+				return self::publisher_distractor( $value, $fields, $selected_set, $record_seed );
 			default:
 				return $value . '?';
 		}
+	}
+
+	/**
+	 * The drawn author's surname distractor. Rotates deterministically
+	 * (per record) between two genuine referencing-knowledge tests:
+	 * - surname-vs-given-name confusion (single-author fallback), and
+	 * - attributing the OTHER author's surname to this position (tests
+	 *   "which author does this name actually belong to" — only eligible
+	 *   with 2+ authors).
+	 */
+	private static function author_surname_distractor( $value, $full_name, array $authors, $drawn_index, $record_seed ) {
+		$other = self::other_author( $authors, $drawn_index );
+		if ( null !== $other && 0 === ( abs( crc32( 'book_dragdrop_surname_flavor|' . $record_seed ) ) % 2 )
+			&& 0 !== strcasecmp( (string) $other['surname'], $value ) ) {
+			return (string) $other['surname'];
+		}
+		$given = self::given_name_portion( $full_name, $value );
+		return ( '' !== $given && $given !== $value ) ? $given : $value . "'s";
+	}
+
+	/**
+	 * The drawn author's initials distractor. Rotates deterministically
+	 * (per record) between:
+	 * - "initials need full stops" (single-author fallback), and
+	 * - attributing the OTHER author's initials to this position (correct
+	 *   FORMAT, wrong author — only eligible with 2+ authors).
+	 */
+	private static function author_initials_distractor( $value, array $authors, $drawn_index, $record_seed ) {
+		$other = self::other_author( $authors, $drawn_index );
+		if ( null !== $other && 0 === ( abs( crc32( 'book_dragdrop_initials_flavor|' . $record_seed ) ) % 2 )
+			&& 0 !== strcasecmp( (string) $other['initials'], $value ) ) {
+			return (string) $other['initials'];
+		}
+		$stripped = str_replace( '.', '', $value );
+		return ( '' !== $stripped && $stripped !== $value ) ? $stripped : $value . "'";
+	}
+
+	/**
+	 * The first author in $authors that is NOT the drawn author, or null
+	 * for a single-author record.
+	 */
+	private static function other_author( array $authors, $drawn_index ) {
+		foreach ( $authors as $i => $author ) {
+			if ( $i !== $drawn_index ) {
+				return $author;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * The year distractor. Rotates deterministically (per record) between:
+	 * - a nearby wrong year (year +/- 1) — tests that the student actually
+	 *   knows the real publication year, not just its shape, and
+	 * - a punctuation mistake attached to the bare year (a stray full stop
+	 *   or parenthesis) — tests that the surrounding parentheses belong to
+	 *   the FIXED text, never to the draggable year chip itself.
+	 */
+	private static function year_distractor( $value, $record_seed ) {
+		$numeric = ctype_digit( $value ) ? (int) $value : null;
+		if ( null !== $numeric && 0 === ( abs( crc32( 'book_dragdrop_year_flavor|' . $record_seed ) ) % 2 ) ) {
+			$delta     = ( 0 === ( abs( crc32( 'book_dragdrop_year_delta|' . $record_seed ) ) % 2 ) ) ? -1 : 1;
+			$candidate = (string) ( $numeric + $delta );
+			if ( $candidate !== $value ) {
+				return $candidate;
+			}
+		}
+		$variants = array( $value . '.', '(' . $value, $value . ')' );
+		$pick     = $variants[ abs( crc32( 'book_dragdrop_year_punct|' . $record_seed ) ) % count( $variants ) ];
+		return $pick !== $value ? $pick : $value . '.';
+	}
+
+	/**
+	 * The title distractor. Rotates deterministically (per record) between
+	 * four genuine title-boundary/content mistakes — never a random
+	 * character-level misspelling:
+	 * - a full stop wrongly attached to the title itself (that full stop
+	 *   belongs to the FIXED text after it, not the draggable title chip),
+	 * - a comma wrongly attached the same way,
+	 * - the year wrongly folded into the title chip (tests the title/year
+	 *   boundary), and
+	 * - a subtle wording alteration (a plural/singular flip on the title's
+	 *   last word) — tests actual attentiveness to the real title, not
+	 *   just its rough shape.
+	 */
+	private static function title_distractor( $value, array $fields, $record_seed ) {
+		$flavor = abs( crc32( 'book_dragdrop_title_flavor|' . $record_seed ) ) % 4;
+		if ( 0 === $flavor ) {
+			$candidate = $value . '.';
+		} elseif ( 1 === $flavor ) {
+			$candidate = $value . ',';
+		} elseif ( 2 === $flavor ) {
+			$candidate = $value . ' (' . (string) $fields['year'] . ')';
+		} else {
+			$words = preg_split( '/\s+/', trim( $value ) );
+			$last  = array_pop( $words );
+			if ( null === $last ) {
+				$last = '';
+			}
+			if ( '' !== $last && 's' === strtolower( substr( $last, -1 ) ) ) {
+				$last = substr( $last, 0, -1 );
+			} else {
+				$last .= 's';
+			}
+			$words[]   = $last;
+			$candidate = trim( implode( ' ', $words ) );
+		}
+		return ( '' !== $candidate && $candidate !== $value ) ? $candidate : $value . '.';
+	}
+
+	/**
+	 * The place distractor — a real, globally recognised city drawn from
+	 * place_pool(), excluding the record's own place and (when publisher
+	 * is also drawn this question) the record's own publisher too, so it
+	 * can never duplicate another correct part.
+	 */
+	private static function place_distractor( $value, array $fields, array $selected_set, $record_seed ) {
+		$exclude = array( $value );
+		if ( isset( $selected_set['publisher'] ) ) {
+			$exclude[] = $fields['publisher'];
+		}
+		$pick = self::pick_from_pool( self::place_pool(), $exclude, 'book_dragdrop_place_pool|' . $record_seed );
+		return null !== $pick ? $pick : 'n.p.';
+	}
+
+	/**
+	 * The publisher distractor — the mirror image of place_distractor(),
+	 * drawing from publisher_pool().
+	 */
+	private static function publisher_distractor( $value, array $fields, array $selected_set, $record_seed ) {
+		$exclude = array( $value );
+		if ( isset( $selected_set['place'] ) ) {
+			$exclude[] = $fields['place'];
+		}
+		$pick = self::pick_from_pool( self::publisher_pool(), $exclude, 'book_dragdrop_publisher_pool|' . $record_seed );
+		return null !== $pick ? $pick : 'n.pub.';
+	}
+
+	/**
+	 * Deterministically (crc32-seeded) picks one entry from $pool, having
+	 * removed every value in $exclude (case-insensitively) first. Returns
+	 * null only if every pool entry was excluded.
+	 *
+	 * @param string[] $pool
+	 * @param string[] $exclude
+	 * @param string   $seed_key
+	 * @return string|null
+	 */
+	private static function pick_from_pool( array $pool, array $exclude, $seed_key ) {
+		$exclude_lower = array_map( 'strtolower', array_map( 'strval', $exclude ) );
+		$eligible      = array_values(
+			array_filter(
+				$pool,
+				function ( $candidate ) use ( $exclude_lower ) {
+					return ! in_array( strtolower( $candidate ), $exclude_lower, true );
+				}
+			)
+		);
+		if ( empty( $eligible ) ) {
+			return null;
+		}
+		usort(
+			$eligible,
+			function ( $a, $b ) use ( $seed_key ) {
+				$hash_a = crc32( $seed_key . '|' . $a );
+				$hash_b = crc32( $seed_key . '|' . $b );
+				return ( $hash_a <=> $hash_b ) ?: strcmp( $a, $b );
+			}
+		);
+		return $eligible[0];
 	}
 
 	/**
