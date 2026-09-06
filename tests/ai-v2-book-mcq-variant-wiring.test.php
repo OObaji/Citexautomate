@@ -88,14 +88,29 @@ function invoke_normalise( $questions, $ids, $target_count = null ) {
 	return $reflection->invoke( null, $questions, $ids, 'medium', array(), 'MCQ', Citex_Reference_Rules::CATEGORY_BOOK, $target_count );
 }
 
-function mcq_item( $author_names, $suffix ) {
+function mcq_item( $author_names, $suffix, $place = 'London', $publisher = 'Routledge' ) {
 	return array(
 		'authorFullNames' => $author_names,
 		'year'            => '2021',
 		'bookTitle'       => "Book $suffix",
-		'place'           => 'London',
-		'publisher'       => 'Routledge',
+		'place'           => $place,
+		'publisher'       => $publisher,
 	);
+}
+
+// Place/publisher pools with coprime sizes, so cycling through them by
+// index never repeats the exact same (place, publisher) PAIR within any
+// batch this file builds (batches of 20-30) — Citex_AI_V2::normalise()'s
+// place/publisher diversity check (see check_place_publisher_diversity())
+// would otherwise correctly reject these hand-written fixtures for being
+// exactly as repetitive as the real bug it exists to catch.
+function diverse_place( $i ) {
+	$places = array( 'London', 'Oxford', 'Cambridge', 'Manchester', 'New York', 'Boston', 'Sydney', 'Paris', 'Berlin', 'Toronto' );
+	return $places[ $i % count( $places ) ];
+}
+function diverse_publisher( $i ) {
+	$publishers = array( 'Routledge', 'Pearson', 'SAGE', 'Wiley', 'Springer', 'Oxford University Press', 'Bloomsbury' );
+	return $publishers[ $i % count( $publishers ) ];
 }
 
 $known_variants = Citex_Book_Mcq_Variants::variants();
@@ -136,7 +151,7 @@ if ( ! is_wp_error( $single_result ) ) {
 $batch_items = array();
 $batch_ids   = array();
 for ( $i = 1; $i <= 30; $i++ ) {
-	$batch_items[] = mcq_item( array( 'Andrew Brown' ), (string) $i );
+	$batch_items[] = mcq_item( array( 'Andrew Brown' ), (string) $i, diverse_place( $i ), diverse_publisher( $i ) );
 	$batch_ids[]   = 'BK' . str_pad( $i, 2, '0', STR_PAD_LEFT );
 }
 $batch_result = invoke_normalise( $batch_items, $batch_ids );
@@ -160,7 +175,7 @@ function check_variant_compatible_with_count( $section, $author_full_names, $tar
 	$items = array();
 	$ids   = array();
 	for ( $i = 1; $i <= 20; $i++ ) {
-		$items[] = mcq_item( $author_full_names, (string) $i );
+		$items[] = mcq_item( $author_full_names, (string) $i, diverse_place( $i ), diverse_publisher( $i ) );
 		$ids[]   = 'BK' . str_pad( $i, 2, '0', STR_PAD_LEFT ) . $section;
 	}
 	$result = invoke_normalise( $items, $ids, $target_count );

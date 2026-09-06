@@ -146,18 +146,21 @@ check( '[scenario mismatch] validationErrors is non-empty', is_wp_error( $reject
 // index — never read from Gemini's own response (its schema has no
 // exercise field at all, so there is nothing there to trust or distrust).
 // ---------------------------------------------------------------------
-function make_valid_item( $suffix ) {
+function make_valid_item( $suffix, $place = 'London', $publisher = 'Example Press' ) {
 	return array(
-		'scenario'       => "You are referencing a book titled Book $suffix by Andrew Smith, published in London by Example Press in 2020.",
+		'scenario'       => "You are referencing a book titled Book $suffix by Andrew Smith, published in $place by $publisher in 2020.",
 		'authorFullNames' => array( 'Andrew Smith' ),
 		'year'           => '2020',
 		'bookTitle'      => "Book $suffix",
-		'place'          => 'London',
-		'publisher'      => 'Example Press',
+		'place'          => $place,
+		'publisher'      => $publisher,
 		'confusingWords' => array( '2018', 'Manchester', 'Brown' ),
 	);
 }
-$batch_items = array( make_valid_item( 'One' ), make_valid_item( 'Two' ), make_valid_item( 'Three' ) );
+// Varied place/publisher per item — a 3-item batch all sharing the same
+// pair would itself trip Citex_AI_V2::normalise()'s own place/publisher
+// diversity check (see check_place_publisher_diversity()).
+$batch_items = array( make_valid_item( 'One', 'London', 'Example Press' ), make_valid_item( 'Two', 'Oxford', 'Pearson' ), make_valid_item( 'Three', 'Boston', 'SAGE' ) );
 $batch_ids   = array( 'BK10', 'BK11', 'BK12' );
 $assignments = array( 'Exercise 3', 'Exercise 1', 'Exercise 5' );
 $batch_result = invoke_normalise( $batch_items, $batch_ids, 'medium', $assignments );

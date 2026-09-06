@@ -88,15 +88,30 @@ function invoke_normalise( $questions, $ids, $target_count = null ) {
 	return $reflection->invoke( null, $questions, $ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_BOOK, $target_count );
 }
 
-function dragdrop_item( $author_names, $suffix ) {
+function dragdrop_item( $author_names, $suffix, $place = 'London', $publisher = 'Routledge' ) {
 	return array(
-		'scenario'        => "You are referencing a book titled Book $suffix by " . implode( ' and ', $author_names ) . ', published in 2019 by Routledge in London.',
+		'scenario'        => "You are referencing a book titled Book $suffix by " . implode( ' and ', $author_names ) . ", published in 2019 by $publisher in $place.",
 		'authorFullNames' => $author_names,
 		'year'            => '2019',
 		'bookTitle'       => "Book $suffix",
-		'place'           => 'London',
-		'publisher'       => 'Routledge',
+		'place'           => $place,
+		'publisher'       => $publisher,
 	);
+}
+
+// Place/publisher pools with coprime sizes, so cycling through them by
+// index never repeats the exact same (place, publisher) PAIR within any
+// batch this file builds (batches of 20-30) — Citex_AI_V2::normalise()'s
+// place/publisher diversity check (see check_place_publisher_diversity())
+// would otherwise correctly reject these hand-written fixtures for being
+// exactly as repetitive as the real bug it exists to catch.
+function diverse_place( $i ) {
+	$places = array( 'London', 'Oxford', 'Cambridge', 'Manchester', 'New York', 'Boston', 'Sydney', 'Paris', 'Berlin', 'Toronto' );
+	return $places[ $i % count( $places ) ];
+}
+function diverse_publisher( $i ) {
+	$publishers = array( 'Routledge', 'Pearson', 'SAGE', 'Wiley', 'Springer', 'Oxford University Press', 'Bloomsbury' );
+	return $publishers[ $i % count( $publishers ) ];
 }
 
 // ---------------------------------------------------------------------
@@ -135,7 +150,7 @@ if ( ! is_wp_error( $single_result ) ) {
 $batch_items = array();
 $batch_ids   = array();
 for ( $i = 1; $i <= 30; $i++ ) {
-	$batch_items[] = dragdrop_item( array( 'Andrew Brown' ), (string) $i );
+	$batch_items[] = dragdrop_item( array( 'Andrew Brown' ), (string) $i, diverse_place( $i ), diverse_publisher( $i ) );
 	$batch_ids[]   = 'BK' . str_pad( $i, 2, '0', STR_PAD_LEFT );
 }
 $batch_result = invoke_normalise( $batch_items, $batch_ids );
@@ -160,7 +175,7 @@ function check_multi_author( $section, $author_full_names ) {
 	$items = array();
 	$ids   = array();
 	for ( $i = 1; $i <= 20; $i++ ) {
-		$items[] = dragdrop_item( $author_full_names, $section . $i );
+		$items[] = dragdrop_item( $author_full_names, $section . $i, diverse_place( $i ), diverse_publisher( $i ) );
 		$ids[]   = 'BK' . str_pad( $i, 2, '0', STR_PAD_LEFT ) . $section;
 	}
 	$result = invoke_normalise( $items, $ids );
@@ -180,6 +195,47 @@ function check_multi_author( $section, $author_full_names ) {
 check_multi_author( 'two', array( 'Andrew Brown', 'James Smith' ) );
 check_multi_author( 'three', array( 'John Carter', 'Emma Green', 'David Smith' ) );
 check_multi_author( 'four', array( 'Andrew Brown', 'John Carter', 'Paul Evans', 'Tom Wilson' ) );
+
+// ---------------------------------------------------------------------
+// 4. HARD ENFORCEMENT (never gated behind QUALITY_GATE_ENABLED): a batch
+// that reuses the exact same place/publisher on every question is
+// rejected outright, and a batch where one place/publisher dominates
+// (even paired with different values) is also rejected — the real
+// regression the user reported ("way too much London" and "the same
+// publisher name keeps coming up").
+// ---------------------------------------------------------------------
+$repetitive_items = array();
+$repetitive_ids   = array();
+for ( $i = 1; $i <= 10; $i++ ) {
+	$repetitive_items[] = dragdrop_item( array( 'Andrew Brown' ), 'R' . $i, 'London', 'Routledge' );
+	$repetitive_ids[]   = 'BKR' . $i;
+}
+$repetitive_result = invoke_normalise( $repetitive_items, $repetitive_ids );
+check( '[4] a batch reusing the exact same place/publisher pair on every question is rejected', is_wp_error( $repetitive_result ), true );
+check( '[4] error code identifies the repeated pair', is_wp_error( $repetitive_result ) ? $repetitive_result->get_error_code() : null, 'citex_ai_place_publisher_pair_repeated' );
+
+$dominant_place_items = array();
+$dominant_place_ids   = array();
+$varied_publishers    = array( 'Routledge', 'Pearson', 'SAGE', 'Wiley', 'Springer', 'Bloomsbury', 'Polity', 'Elsevier', 'Palgrave Macmillan', 'Yale University Press' );
+for ( $i = 1; $i <= 10; $i++ ) {
+	// Every question uses London, but a DIFFERENT publisher each time — no
+	// (place, publisher) PAIR ever repeats, so only the place-dominance
+	// check (not the pair check) can catch this.
+	$dominant_place_items[] = dragdrop_item( array( 'Andrew Brown' ), 'D' . $i, 'London', $varied_publishers[ $i - 1 ] );
+	$dominant_place_ids[]   = 'BKD' . $i;
+}
+$dominant_place_result = invoke_normalise( $dominant_place_items, $dominant_place_ids );
+check( '[4] a batch where one place dominates (despite varied publishers) is rejected', is_wp_error( $dominant_place_result ), true );
+check( '[4] error code identifies the dominant place', is_wp_error( $dominant_place_result ) ? $dominant_place_result->get_error_code() : null, 'citex_ai_place_not_diverse' );
+
+$genuinely_diverse_items = array();
+$genuinely_diverse_ids   = array();
+for ( $i = 1; $i <= 10; $i++ ) {
+	$genuinely_diverse_items[] = dragdrop_item( array( 'Andrew Brown' ), 'V' . $i, diverse_place( $i ), diverse_publisher( $i ) );
+	$genuinely_diverse_ids[]   = 'BKV' . $i;
+}
+$genuinely_diverse_result = invoke_normalise( $genuinely_diverse_items, $genuinely_diverse_ids );
+check( '[4] a genuinely diverse batch is NOT rejected', is_wp_error( $genuinely_diverse_result ), false );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

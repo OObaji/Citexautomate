@@ -492,6 +492,35 @@ class Citex_AI_V2 {
 	}
 
 	/**
+	 * Batch-level place/publisher variety guidance — appended to every
+	 * prompt builder that carries a real place-of-publication AND
+	 * publisher (Book, Edited Book, and their identify_error variant).
+	 * This alone is not the enforcement mechanism: normalise() runs a
+	 * hard, code-level batch-diversity check on the actual returned data
+	 * (see its own docblock) and rejects/regenerates the whole batch when
+	 * it fails, precisely because a soft "please vary it" request on its
+	 * own was not reliably followed. This guidance exists to make Gemini
+	 * more likely to pass that check on the FIRST attempt, not to replace it.
+	 */
+	private static function place_publisher_diversity_guidance() {
+		return "PLACE AND PUBLISHER — VARY GLOBALLY ACROSS THE BATCH, CRITICAL:\n"
+			. "- Do NOT default to London (or any single city) for place, and do NOT settle on one favourite publisher — spread both realistically across a genuinely global range of real cities and real, well-known publishers. Places: London, Oxford, Cambridge, Manchester, Edinburgh, Dublin, New York, Boston, Chicago, Toronto, Sydney, Melbourne, Singapore, Delhi, Mumbai, Tokyo, Paris, Berlin, Amsterdam, Cape Town. Publishers: Routledge, Pearson, SAGE, Palgrave Macmillan, Oxford University Press, Cambridge University Press, Wiley, Springer, Elsevier, Taylor & Francis, Bloomsbury, Harvard University Press, Yale University Press.\n"
+			. "- Never repeat the exact same (place, publisher) combination on more than one question in this batch, and never let a single place or a single publisher dominate the batch.\n"
+			. "- Both must still be genuine: the place must be one that publisher plausibly operates from, and the publisher must always be real.";
+	}
+
+	/**
+	 * Publisher-only counterpart to place_publisher_diversity_guidance(),
+	 * for Website (which has no place-of-publication concept at all —
+	 * only a publisher).
+	 */
+	private static function publisher_diversity_guidance() {
+		return "PUBLISHER — VARY GLOBALLY ACROSS THE BATCH, CRITICAL:\n"
+			. "- Do NOT settle on one favourite publisher — spread it across a genuinely wide range of real, well-known publishers (e.g. Routledge, Pearson, SAGE, Palgrave Macmillan, Oxford University Press, Cambridge University Press, Wiley, Springer, Elsevier, Taylor & Francis, Bloomsbury, Harvard University Press, Yale University Press) rather than repeating the same one across the batch.\n"
+			. "- The publisher must always be real.";
+	}
+
+	/**
 	 * Content realism guidance. Author names, book/article/webpage titles,
 	 * and organisation names no longer need to correspond to a real,
 	 * findable source: this tool is for learning Harvard-referencing
@@ -532,8 +561,8 @@ class Citex_AI_V2 {
 	 * confusingWords list.
 	 */
 	private static function build_prompt_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
-		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Bryman\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Keep the author count consistent throughout the question. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- The scenario MUST explicitly state that same bookTitle, EVERY author's full name, the same year, the same place and the same publisher. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nMULTIPLE AUTHORS — LIVERPOOL HOPE'S REFERENCE-LIST RULE:\n- For the reference list (which is the only thing this question generates), EVERY author is always listed in full — 2 authors are joined with \"and\"; 3 or more are comma-separated with \"and\" before the final author; this never changes at 4 or more authors.\n- \"et al.\" must NEVER appear in the reference-list entry, for any author count. (\"et al.\" is Harvard's separate IN-TEXT-CITATION convention for 4+ authors — this question never generates an in-text citation, only a reference-list entry, so that abbreviation does not belong here at all.)\n- Citex constructs the joined author list itself from authorFullNames — you never write the joined form yourself.\n\nPLACE OF PUBLICATION — VARY GLOBALLY ACROSS THE BATCH, CRITICAL:\n- Do NOT default to London (or any single city) for place across this batch — real academic publishers operate worldwide. Spread place realistically across a genuinely global range of cities and countries consistent with each publisher's actual known offices (e.g. New York, Boston, Chicago, Toronto, Sydney, Melbourne, Singapore, Delhi, Mumbai, Tokyo, Paris, Berlin, Amsterdam, Cape Town, as well as UK cities like London, Oxford, Cambridge, Manchester, Edinburgh, Dublin).\n- No two questions in this batch should share the same place unless the batch is larger than the realistic pool of that publisher's real offices — vary it deliberately, not just when convenient.\n- The place must still be a real place that publisher genuinely publishes from — never invent an implausible city for a real publisher.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are creating a reference for a book titled...' or 'You are referencing a book titled...'.\n- State the book title, EVERY author's FULL NAME, publication year, publisher and publication place.\n- Prefer concise real book titles; never truncate or alter the actual bibliographic title.\n- The scenario MUST NOT state, label, or abbreviate any author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, and MUST NOT show any completed or abbreviated Harvard reference (e.g. never write \"Bryman, A.\", \"Bryman, A. (2012)\", or \"Bryman et al.\").\n- GOOD (one author): \"You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.\"\n- GOOD (two authors): \"You are referencing a book titled Understanding digital culture by Vincent Miller and Jo Martin, published in 2020 by SAGE Publications in London.\"\n- BAD: \"...by Alan Bryman (initials A.), published in 2012...\" — reveals the initials directly.\n- BAD: \"...by Bryman, A., published in 2012...\" — states the abbreviated citation form directly.\n- BAD: \"...by Smith et al., published in 2020...\" — states the in-text-citation abbreviation directly, and is also not how the reference-list entry is written.\n- BAD: \"The author's surname is Bryman and his initials are A.\" — explicitly labels both answers.\n- A full author name naturally containing the surname (e.g. \"Alan Bryman\") is correct and required — the failure is explicitly labelling or abbreviating an answer value, not the surname appearing as part of the full name.\n- The student must transform the full bibliographic information you give into the Harvard reference themselves; do not do that transformation for them anywhere in the scenario.\n\nYou are NOT asked for questionParts, fixedText, or any distractor/confusingWords list — Citex builds the whole draggable question itself (which 3-4 parts are drawn from the record — possibly including the joining word \"and\" — Fixed Text, and every wrong chip), deterministically, after you respond. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. The scenario states every author's full name naturally and never the words \"initial\"/\"initials\"/\"surname\", and never a completed, abbreviated, or \"et al.\" reference.\n3. place is a genuinely global choice for this batch, not a repeat of London or of another question's place unless the pool of that publisher's real offices is exhausted.\n4. Only return questions that pass all three checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
-		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Bryman\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Keep the author count consistent throughout the question. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- The scenario MUST explicitly state that same bookTitle, EVERY author's full name, the same year, the same place and the same publisher. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nMULTIPLE AUTHORS — LIVERPOOL HOPE'S REFERENCE-LIST RULE:\n- For the reference list (which is the only thing this question generates), EVERY author is always listed in full — 2 authors are joined with \"and\"; 3 or more are comma-separated with \"and\" before the final author; this never changes at 4 or more authors.\n- \"et al.\" must NEVER appear in the reference-list entry, for any author count. (\"et al.\" is Harvard's separate IN-TEXT-CITATION convention for 4+ authors — this question never generates an in-text citation, only a reference-list entry, so that abbreviation does not belong here at all.)\n- Citex constructs the joined author list itself from authorFullNames — you never write the joined form yourself.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are creating a reference for a book titled...' or 'You are referencing a book titled...'.\n- State the book title, EVERY author's FULL NAME, publication year, publisher and publication place.\n- Prefer concise real book titles; never truncate or alter the actual bibliographic title.\n- The scenario MUST NOT state, label, or abbreviate any author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, and MUST NOT show any completed or abbreviated Harvard reference (e.g. never write \"Bryman, A.\", \"Bryman, A. (2012)\", or \"Bryman et al.\").\n- GOOD (one author): \"You are referencing the book titled Social Research Methods by Alan Bryman, published in 2012 by Oxford University Press in Oxford.\"\n- GOOD (two authors): \"You are referencing a book titled Understanding digital culture by Vincent Miller and Jo Martin, published in 2020 by SAGE Publications in London.\"\n- BAD: \"...by Alan Bryman (initials A.), published in 2012...\" — reveals the initials directly.\n- BAD: \"...by Bryman, A., published in 2012...\" — states the abbreviated citation form directly.\n- BAD: \"...by Smith et al., published in 2020...\" — states the in-text-citation abbreviation directly, and is also not how the reference-list entry is written.\n- BAD: \"The author's surname is Bryman and his initials are A.\" — explicitly labels both answers.\n- A full author name naturally containing the surname (e.g. \"Alan Bryman\") is correct and required — the failure is explicitly labelling or abbreviating an answer value, not the surname appearing as part of the full name.\n- The student must transform the full bibliographic information you give into the Harvard reference themselves; do not do that transformation for them anywhere in the scenario.\n\nYou are NOT asked for questionParts, fixedText, or any distractor/confusingWords list — Citex builds the whole draggable question itself (which 3-4 parts are drawn from the record — possibly including the joining word \"and\" — Fixed Text, and every wrong chip), deterministically, after you respond. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. The scenario states every author's full name naturally and never the words \"initial\"/\"initials\"/\"surname\", and never a completed, abbreviated, or \"et al.\" reference.\n3. place and publisher are each a genuinely global/varied choice for this batch, not a repeat of a prior question's place or publisher.\n4. Only return questions that pass all three checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::place_publisher_diversity_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -551,7 +580,7 @@ class Citex_AI_V2 {
 	 */
 	private static function build_prompt_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Book bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Bryman\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Use the book's true author count. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself (the stem and all 4 options) from this canonical record alone, covering a range of different Harvard book-formatting rules across the batch. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
-		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::place_publisher_diversity_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -634,7 +663,7 @@ class Citex_AI_V2 {
 	 */
 	private static function build_prompt_website( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Website (Web Resource) / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Do not invent sources.' ) . "\n\nONE QUESTION = ONE CANONICAL WEB SOURCE — CRITICAL:\n- authorType, year, title, publisher and url must all describe ONE single, internally consistent webpage or downloadable document (e.g. a PDF report). Do not mix facts from a different page or a different source.\n- authorType must be exactly \"individual\" or \"organisation\". If \"individual\", provide authorFullName (a full name, e.g. \"Sarah Mitchell\") — do NOT provide a surname or initials separately; Citex derives both itself. If \"organisation\", provide organisationName (the organisation's real name exactly as it should appear, e.g. \"University of Leeds\") — never invert it into a surname-style format.\n- year must be the real 4-digit publication/creation year IF the source clearly states or shows one. If — and ONLY if — no such date can genuinely be identified for the real source, year must be exactly the literal string \"n.d.\". NEVER guess a year, and NEVER use today's year merely because the page happens to be online now. NEVER use \"n.d.\" for a source that does have an identifiable date.\n- publisher is the organisation responsible for publishing/hosting the page — this may be the SAME organisation as an organisation author (Harvard's own official example uses the same organisation as both author and publisher), or a different one when the author is an individual.\n- url must be the real, full web address of the actual page or document.\n- Do NOT provide an accessed date — Citex supplies it itself.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are referencing a webpage written by...' or 'You are referencing a webpage published by...' or 'You are creating a reference for a document titled...'.\n- State the title, the author's full name OR the organisation's name, the publisher, and the url. If the source has a real year, state it; if it genuinely has no identifiable date, describe the source in a way that makes this apparent WITHOUT using the words \"n.d.\", \"no date\", or \"undated\" — e.g. simply omit any date reference.\n- The scenario MUST NOT state, label, or abbreviate the author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, MUST NOT show any completed or abbreviated Harvard reference, and MUST NOT use the words \"n.d.\", \"no date\", or \"undated\".\n- GOOD (individual, dated): \"You are referencing a webpage written by Sarah Mitchell in 2024 and published by the University of Leeds, titled Study skills guide, at https://www.leeds.ac.uk/study-skills.\"\n- GOOD (organisation, undated): \"You are referencing a University of Leeds webpage titled About us, at https://www.leeds.ac.uk/about.\" (no date mentioned at all, since none exists)\n- BAD: \"...by Sarah Mitchell (initials S.)...\" — reveals the initials directly.\n- BAD: \"...by Mitchell, S., published in 2024...\" — states the abbreviated citation form directly.\n- BAD: \"...this page has no date, so use (n.d.)...\" — states the answer directly instead of letting the student recognise it.\n- The student must transform the full source information you give into the Harvard reference themselves; do not do that transformation for them anywhere in the scenario.\n\nDRAGDROP:\n- Citex derives the individual author's surname/initials from authorFullName (or uses organisationName exactly as given) and constructs Question Parts and Fixed Text itself from author-or-organisation/year-or-\"n.d.\"/title/publisher/url/the accessed date it computes — your questionParts and fixedText fields are used only for your own self-check and are not read as authoritative.\n- questionParts must ALWAYS contain exactly 6 items: the author (as \"Surname, I.\") or the organisation name, the year (or \"n.d.\"), the title, the publisher, the url, and the accessed date (use today's date in your own self-check copy — Citex's real one may differ slightly and that is fine, only the other 5 items are checked against your submission).\n- fixedText must contain exactly 6 draggable placeholder tokens. \"[online]\" and \"Available from:\" are FIXED literal text, never draggable placeholders.\n- A single | token is allowed only at the beginning or end. Every internal placeholder token MUST be ||.\n- Canonical fixedText: | (||) || [online]. ||. Available from: <||> [accessed ||].\n- Do not use a single internal |.\n- Reconstructed answer (individual, dated): Surname, I. (YYYY) Title [online]. Publisher. Available from: <URL> [accessed DD Month YYYY].\n- Reconstructed answer (organisation, undated): Organisation Name (n.d.) Title [online]. Publisher. Available from: <URL> [accessed DD Month YYYY].\n- No full stop after the year parentheses; no spaces before punctuation; final full stop required.\n\nDISTRACTORS — CRITICAL:\n- Medium exactly 3; Easy exactly 2; Hard exactly 4.\n- Every distractor must be different from ALL correct Question Parts after trimming and case-insensitive comparison.\n- Distractors must also be unique from one another.\n- Do not use the correct title, author/organisation, year (or \"n.d.\"), publisher, or url as a distractor.\n- Before returning each question, compare every confusingWords value against every Question Part and replace any match.\n- Prefer plausible alternatives such as another year, a different publisher, a different author surname, or a different real page title.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorType, author-or-organisation-name, year (or \"n.d.\"), title, publisher and url all describe the exact same real source — no contradictions.\n2. The scenario states the author's or organisation's full real name naturally and never the words \"initial\"/\"initials\"/\"surname\"/\"n.d.\"/\"no date\"/\"undated\", and never a completed or abbreviated reference.\n3. Question Parts always contain exactly 6 items (author-or-organisation, year-or-n.d., title, publisher, url, accessed date).\n4. Fixed Text has exactly 6 placeholder positions and reconstructs the required reference with \"[online]\" and \"Available from:\" as fixed literal text.\n5. No unwanted punctuation or spacing errors.\n6. Correct number of distractors for the difficulty.\n7. Zero distractors match any correct Question Part.\n8. Zero duplicate distractors.\n9. Only return questions that pass all nine checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
-		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::publisher_diversity_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -654,7 +683,7 @@ class Citex_AI_V2 {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Website (Web Resource) multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible source if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL WEB SOURCE — CRITICAL:\n- authorType, year, title, publisher and url must all describe ONE single, internally consistent webpage or downloadable document.\n- authorType must be exactly \"individual\" or \"organisation\". If \"individual\", provide authorFullName — do NOT provide a surname or initials separately; Citex derives both itself and constructs the one correct Harvard reference from them. If \"organisation\", provide organisationName, used exactly as given.\n- year must be a plausible 4-digit year, or exactly \"n.d.\" if the source has no identifiable date — never use \"n.d.\" for a dated source.\n- Do NOT provide an accessed date — Citex supplies it itself.\n- You are NOT asked for a scenario or question text — Citex supplies the entire student-facing question itself (a fixed \"Which of the following is the correct Harvard reference for a website/web resource?\" stem), so there is nothing for you to write and nothing for you to leak the answer through."
 			. self::distractor_prompt_section( Citex_Reference_Rules::CATEGORY_WEBSITE, 'Surname, I. (YYYY|n.d.) Title [online]. Publisher. Available from: <URL> [accessed DD Month YYYY]. — or, for an organisation author, Organisation Name (YYYY|n.d.) Title [online]. Publisher. Available from: <URL> [accessed DD Month YYYY].' )
 			. "\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorType, author-or-organisation-name, year (or \"n.d.\"), title, publisher and url all describe the exact same real source — no contradictions.\n2. Exactly 3 distractors are provided, each with a non-empty, specific errorReason naming the Harvard rule it breaks.\n3. Every distractor, re-read end-to-end against the full correct format, genuinely still breaks the rule named in its errorReason — none of them accidentally also satisfies every Harvard rule.\n4. All 3 distractors are mutually distinct from each other and from the correct reference, and exactly one reference overall (the one Citex will construct) is fully correct.\n5. None of the distractors uses a guessed year in place of a genuine \"n.d.\", or vice versa, as if either were valid — that mistake is never correct here.\n6. Only return questions that pass all six checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
-		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::publisher_diversity_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -680,7 +709,7 @@ class Citex_AI_V2 {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Edited Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n"
 			. self::edited_book_prompt_intro( $verify )
 			. "\n\nDRAGDROP:\n- Citex derives each editor's surname/initials from editorFullNames, decides the designation (\"(ed.)\"/\"(eds)\") from the editor count, and constructs Question Parts and Fixed Text itself — your own questionParts/fixedText fields (if present) are for your own self-check only and are never read as authoritative.\n- The 4 Question Parts Citex builds are: [editor name(s) joined, e.g. \"Smith, J.\" or \"Smith, J. and Jones, A.\"], [designation, \"ed.\" or \"eds\"], [year], [book title].\n- confusingWords should test the designation and editor-formatting rules specifically — see DISTRACTORS below.\n\nDISTRACTORS — CRITICAL:\n- Medium exactly 3; Easy exactly 2; Hard exactly 4.\n- Prioritise designation-confusion distractors: \"author\", \"editor\" (the full word, not abbreviated), the WRONG designation for this question's editor count (\"eds\" for a one-editor question, \"ed.\" for a two-editor one), or a designation with wrong punctuation (\"ed\", \"eds.\").\n- Also acceptable: a different plausible year, city, publisher, or editor surname.\n- Every distractor must be different from ALL FOUR correct Question Parts after trimming and case-insensitive comparison, and unique from one another.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, editorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions.\n2. The scenario names every editor naturally and never shows \"(ed.)\"/\"(eds)\", never the words \"initial\"/\"initials\"/\"surname\", never a completed citation.\n3. The designation matches the editor count exactly (one editor -> \"ed.\", two -> \"eds\").\n4. Correct number of distractors for the difficulty, none matching a correct Question Part, none duplicated.\n5. Only return questions that pass all four checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
-		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::place_publisher_diversity_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -711,7 +740,7 @@ class Citex_AI_V2 {
 			. self::edited_book_mcq_intro( $verify )
 			. self::distractor_prompt_section( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'Editor(s), Initials. (ed.|eds) (YYYY) Title. Place: Publisher.' )
 			. "\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. editorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions.\n2. Exactly 3 distractors are provided, each with a non-empty, specific errorReason naming the Harvard rule it breaks, especially designation mistakes for this category.\n3. Every distractor, re-read end-to-end against the full correct format, genuinely still breaks the rule named in its errorReason — none of them accidentally also satisfies every Harvard rule (in particular, none accidentally uses the correct \"(ed.)\"/\"(eds)\" designation for this question's editor count).\n4. All 3 distractors are mutually distinct from each other and from the correct reference, and exactly one reference overall (the one Citex will construct) is fully correct.\n5. Only return questions that pass all five checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
-		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::place_publisher_diversity_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -759,7 +788,7 @@ class Citex_AI_V2 {
 			. "- wrongDescriptions must be mutually distinct from each other and from errorReason (reworded, not a copy).\n"
 			. "- Before finalising: re-read brokenReference end-to-end against the full correct format and confirm errorReason is the ONLY true description of what is wrong with it — none of the three wrongDescriptions may also happen to be true of brokenReference (that would create a second correct answer).\n"
 			. "\nFINAL SELF-CHECK — DO NOT SKIP:\n1. " . ucfirst( $person_field ) . ", year, bookTitle, place and publisher all describe the same internally-consistent record — no contradictions.\n2. brokenReference genuinely contains every canonical fact and exactly ONE deliberate mistake, correctly named by errorReason.\n3. Exactly 3 wrongDescriptions are provided, each plausible, mutually distinct, and NOT true of brokenReference.\n4. Only return questions that pass all four checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
-		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::place_publisher_diversity_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -1310,7 +1339,104 @@ class Citex_AI_V2 {
 			}
 			$out[] = $candidate;
 		}
+		$diversity_error = self::check_place_publisher_diversity( $out );
+		if ( is_wp_error( $diversity_error ) ) {
+			return $diversity_error;
+		}
 		return $out;
+	}
+
+	/**
+	 * HARD ENFORCEMENT (never gated behind QUALITY_GATE_ENABLED), not just
+	 * a prompt request: place and publisher are invented per-question by
+	 * Gemini, and a soft "vary it globally" prompt instruction
+	 * (place_publisher_diversity_guidance()/publisher_diversity_guidance())
+	 * was not reliably followed on its own — the same place (very often
+	 * "London") and the same publisher kept recurring across a batch. This
+	 * scans the WHOLE batch just built and rejects it outright (feeding the
+	 * existing bounded regenerate-with-feedback retry, exactly like every
+	 * other structural check in normalise()) when:
+	 * - the exact same (place, publisher) combination is used by more than
+	 *   MAX_PLACE_PUBLISHER_PAIR_REPEATS questions — the literal "it should
+	 *   be rare to have the same question with the same place and
+	 *   publisher" requirement, or
+	 * - a single place, or a single publisher, dominates more than a
+	 *   quarter of the batch (floor of 2, so a small batch of 2-8 still
+	 *   tolerates one incidental repeat) — catches "way too much London"
+	 *   even when it is paired with a varying publisher each time.
+	 * Only candidates that actually carry both fields (Book, Edited Book,
+	 * and their identify_error variant) contribute to the pair/place
+	 * checks; a category with 'publisher' but no 'place' (Website) still
+	 * contributes to the publisher-dominance check alone. Journal Article
+	 * (neither field) and choose_treatment (pure rule text, neither field)
+	 * are unaffected — they simply never populate these keys.
+	 *
+	 * @param array $out Candidates already built by normalise()'s own loop.
+	 * @return WP_Error|null
+	 */
+	private static function check_place_publisher_diversity( array $out ) {
+		$max_pair_repeats = 2;
+		$n = count( $out );
+		if ( $n < 3 ) {
+			return null;
+		}
+		$pair_counts   = array();
+		$pair_display  = array();
+		$place_counts  = array();
+		$place_display = array();
+		$pub_counts    = array();
+		$pub_display   = array();
+		foreach ( $out as $candidate ) {
+			$publisher = isset( $candidate['publisher'] ) ? trim( (string) $candidate['publisher'] ) : '';
+			if ( '' === $publisher ) {
+				continue;
+			}
+			$pub_key = strtolower( $publisher );
+			$pub_counts[ $pub_key ]   = ( $pub_counts[ $pub_key ] ?? 0 ) + 1;
+			$pub_display[ $pub_key ] = $publisher;
+
+			$place = isset( $candidate['place'] ) ? trim( (string) $candidate['place'] ) : '';
+			if ( '' === $place ) {
+				continue;
+			}
+			$place_key = strtolower( $place );
+			$place_counts[ $place_key ]   = ( $place_counts[ $place_key ] ?? 0 ) + 1;
+			$place_display[ $place_key ] = $place;
+
+			$pair_key = $place_key . '|' . $pub_key;
+			$pair_counts[ $pair_key ]   = ( $pair_counts[ $pair_key ] ?? 0 ) + 1;
+			$pair_display[ $pair_key ] = $place . ' / ' . $publisher;
+		}
+		foreach ( $pair_counts as $pair_key => $count ) {
+			if ( $count > $max_pair_repeats ) {
+				return new WP_Error(
+					'citex_ai_place_publisher_pair_repeated',
+					sprintf(
+						__( 'This batch reuses the exact same place/publisher combination ("%1$s") on %2$d different questions — vary the place and publisher so the same combination is rare, not repeated.', 'citex-tools' ),
+						$pair_display[ $pair_key ],
+						$count
+					)
+				);
+			}
+		}
+		$max_dominance = max( 2, (int) ceil( $n / 4 ) );
+		foreach ( $place_counts as $place_key => $count ) {
+			if ( $count > $max_dominance ) {
+				return new WP_Error(
+					'citex_ai_place_not_diverse',
+					sprintf( __( 'This batch uses "%1$s" as the place of publication on %2$d of %3$d questions — spread the place of publication globally instead of letting one city dominate.', 'citex-tools' ), $place_display[ $place_key ], $count, $n )
+				);
+			}
+		}
+		foreach ( $pub_counts as $pub_key => $count ) {
+			if ( $count > $max_dominance ) {
+				return new WP_Error(
+					'citex_ai_publisher_not_diverse',
+					sprintf( __( 'This batch uses "%1$s" as the publisher on %2$d of %3$d questions — spread the publisher across a wider range of real publishers instead of letting one dominate.', 'citex-tools' ), $pub_display[ $pub_key ], $count, $n )
+				);
+			}
+		}
+		return null;
 	}
 
 	/**

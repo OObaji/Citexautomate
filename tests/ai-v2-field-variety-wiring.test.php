@@ -95,25 +95,40 @@ function invoke_normalise( $questions, $ids, $difficulty, $exercises, $type, $ca
 	return $reflection->invoke( null, $questions, $ids, $difficulty, $exercises, $type, $category, null, '', '', $exercise_design );
 }
 
-function make_book_item( $suffix ) {
+// Place/publisher pools with coprime sizes, so cycling through them by
+// index never repeats the exact same (place, publisher) PAIR within any
+// batch this file builds (up to 30 items) — Citex_AI_V2::normalise()'s
+// place/publisher diversity check (see check_place_publisher_diversity())
+// would otherwise correctly reject these hand-written fixtures for being
+// exactly as repetitive as the real bug it exists to catch.
+function diverse_place( $i ) {
+	$places = array( 'Cambridge', 'Oxford', 'London', 'Manchester', 'New York', 'Boston', 'Sydney', 'Paris', 'Berlin', 'Toronto' );
+	return $places[ $i % count( $places ) ];
+}
+function diverse_publisher( $i ) {
+	$publishers = array( 'Polity', 'Pearson', 'SAGE', 'Wiley', 'Springer', 'Oxford University Press', 'Bloomsbury' );
+	return $publishers[ $i % count( $publishers ) ];
+}
+
+function make_book_item( $suffix, $place = 'Cambridge', $publisher = 'Polity' ) {
 	return array(
-		'scenario'        => "You are referencing a book titled Book $suffix by Clara Vance, published in Cambridge by Polity in 2019.",
+		'scenario'        => "You are referencing a book titled Book $suffix by Clara Vance, published in $place by $publisher in 2019.",
 		'authorFullNames' => array( 'Clara Vance' ),
 		'year'            => '2019',
 		'bookTitle'       => "Book $suffix",
-		'place'           => 'Cambridge',
-		'publisher'       => 'Polity',
+		'place'           => $place,
+		'publisher'       => $publisher,
 	);
 }
 
-function make_edited_book_item( $suffix ) {
+function make_edited_book_item( $suffix, $place = 'Cambridge', $publisher = 'Polity' ) {
 	return array(
-		'scenario'        => "You are referencing an edited book titled Book $suffix, edited by Clara Vance, published in Cambridge by Polity in 2019.",
+		'scenario'        => "You are referencing an edited book titled Book $suffix, edited by Clara Vance, published in $place by $publisher in 2019.",
 		'editorFullNames' => array( 'Clara Vance' ),
 		'year'            => '2019',
 		'bookTitle'       => "Book $suffix",
-		'place'           => 'Cambridge',
-		'publisher'       => 'Polity',
+		'place'           => $place,
+		'publisher'       => $publisher,
 		'confusingWords'  => array( '2018', 'London', 'Brown' ),
 	);
 }
@@ -124,7 +139,7 @@ function make_edited_book_item( $suffix ) {
 // unaffected — always the exact original baseline shape.
 // ---------------------------------------------------------------------
 $eb_ids = array_map( function ( $i ) { return 'EB' . str_pad( $i, 2, '0', STR_PAD_LEFT ); }, range( 1, 30 ) );
-$eb_items = array_map( function ( $i ) { return make_edited_book_item( $i ); }, range( 1, 30 ) );
+$eb_items = array_map( function ( $i ) { return make_edited_book_item( $i, diverse_place( $i ), diverse_publisher( $i ) ); }, range( 1, 30 ) );
 $eb_unaffected = invoke_normalise( $eb_items, $eb_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'full_reference' );
 check( '[1] Edited Book: normalise() succeeds with the default exercise_design', is_wp_error( $eb_unaffected ), false );
 if ( ! is_wp_error( $eb_unaffected ) ) {
@@ -157,7 +172,7 @@ if ( ! is_wp_error( $eb_random ) ) {
 // Article/Website's own batch-level design concept).
 // ---------------------------------------------------------------------
 $book_ids   = array_map( function ( $i ) { return 'BK' . str_pad( $i, 2, '0', STR_PAD_LEFT ); }, range( 1, 5 ) );
-$book_items = array_map( function ( $i ) { return make_book_item( $i ); }, range( 1, 5 ) );
+$book_items = array_map( function ( $i ) { return make_book_item( $i, diverse_place( $i ), diverse_publisher( $i ) ); }, range( 1, 5 ) );
 $book_result = invoke_normalise( $book_items, $book_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_BOOK, 'random' );
 check( '[3] Book: normalise() succeeds regardless of exercise_design', is_wp_error( $book_result ), false );
 if ( ! is_wp_error( $book_result ) ) {
