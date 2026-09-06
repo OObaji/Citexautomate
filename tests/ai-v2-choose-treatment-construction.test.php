@@ -215,5 +215,33 @@ $unknown_bucket = invoke_normalise(
 check( '[7] an unrecognised bucket is rejected', is_wp_error( $unknown_bucket ), true );
 check( '[7] error code identifies the unknown bucket', is_wp_error( $unknown_bucket ) ? $unknown_bucket->get_error_code() : null, 'citex_ai_unknown_treatment_bucket' );
 
+// ---------------------------------------------------------------------
+// 8. HARD ENFORCEMENT (never gated behind QUALITY_GATE_ENABLED): a
+// wrongStatement carrying a worked example ("e.g. Smith, J. and Jones, A.")
+// is rejected outright, since the true statement never has one and an
+// example would make that option visibly longer/different — the exact
+// regression the user reported (options 2-4 all showed "e.g." examples).
+// ---------------------------------------------------------------------
+$eg_example = invoke_normalise(
+	array( four_or_more_authors_item( array( 'wrongStatements' => array(
+		'Only the first editor should be named, e.g. Smith, J. et al. (eds).',
+		'Only the first three authors are listed; the rest are omitted.',
+		'Authors are joined with an ampersand (&) instead of commas and "and".',
+	) ) ) ),
+	array( 'BK08' ), 'medium', array(), 'MCQ', Citex_Reference_Rules::CATEGORY_BOOK, 4, 'choose_treatment_four_or_more_authors', 'reference_list_all_authors'
+);
+check( '[8] a wrongStatement containing "e.g." is rejected outright (not gated behind the quality gate)', is_wp_error( $eg_example ), true );
+check( '[8] error code identifies the worked-example option', is_wp_error( $eg_example ) ? $eg_example->get_error_code() : null, 'citex_ai_treatment_option_has_example' );
+
+$for_example = invoke_normalise(
+	array( four_or_more_authors_item( array( 'wrongStatements' => array(
+		'The first author is listed and the rest are shortened to et al.',
+		'Only the first three authors are listed, for example just Smith and Jones.',
+		'Authors are joined with an ampersand (&) instead of commas and "and".',
+	) ) ) ),
+	array( 'BK09' ), 'medium', array(), 'MCQ', Citex_Reference_Rules::CATEGORY_BOOK, 4, 'choose_treatment_four_or_more_authors', 'reference_list_all_authors'
+);
+check( '[8] a wrongStatement containing "for example" is also rejected', is_wp_error( $for_example ), true );
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

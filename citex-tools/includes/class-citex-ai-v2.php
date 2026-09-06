@@ -1621,6 +1621,20 @@ class Citex_AI_V2 {
 				if ( $rejection ) { return $rejection; }
 			}
 			$seen[ $normal ] = true;
+			// HARD ENFORCEMENT, not just a prompt request: the true statement
+			// (Citex_Reference_Rules::treatment_question()) is always a short,
+			// example-free claim — a wrongStatement carrying a worked example
+			// ("e.g. Smith, J. and Jones, A.") stands out as visibly longer
+			// and differently styled from the other three options, which
+			// itself gives the answer away. A soft prompt instruction alone
+			// is not reliably followed by Gemini, so this is a real WP_Error
+			// (like the option-count check above), never gated behind
+			// QUALITY_GATE_ENABLED/quality_reject() — length/style
+			// consistency between all four options is a structural
+			// requirement for this MCQ pattern, not an optional quality nit.
+			if ( 1 === preg_match( '/\be\.?\s?g\.?\b|\bfor example\b|\bfor instance\b/i', $statement ) ) {
+				return new WP_Error( 'citex_ai_treatment_option_has_example', sprintf( __( 'Question %1$s has a wrongStatement with a worked example, making it visibly different from the true statement: "%2$s".', 'citex-tools' ), $id, $statement ) );
+			}
 		}
 
 		// Option 1-3 hold the 3 wrong statements, in the order Gemini
