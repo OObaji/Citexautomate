@@ -134,7 +134,7 @@ $two_authors_result = invoke_normalise(
 );
 check( '[2] two_authors bucket succeeds', is_wp_error( $two_authors_result ), false );
 if ( ! is_wp_error( $two_authors_result ) ) {
-	check( '[2] two_authors correct statement', $two_authors_result[0]['reconstructedReference'], 'Both authors are included, joined by "and" — e.g. Smith, J. and Jones, A.' );
+	check( '[2] two_authors correct statement', $two_authors_result[0]['reconstructedReference'], 'Both authors are included, joined by "and", for example Smith, J. and Jones, A.' );
 }
 
 $three_authors_result = invoke_normalise(
@@ -143,7 +143,7 @@ $three_authors_result = invoke_normalise(
 );
 check( '[2] three_authors bucket succeeds', is_wp_error( $three_authors_result ), false );
 if ( ! is_wp_error( $three_authors_result ) ) {
-	check( '[2] three_authors correct statement', $three_authors_result[0]['reconstructedReference'], 'All three authors are included, separated by commas with "and" before the final author — e.g. Smith, J., Jones, A. and Brown, T.' );
+	check( '[2] three_authors correct statement', $three_authors_result[0]['reconstructedReference'], 'All three authors are included, separated by commas with "and" before the final author, for example Smith, J., Jones, A. and Brown, T.' );
 }
 
 // ---------------------------------------------------------------------
@@ -157,7 +157,7 @@ $two_editors_result = invoke_normalise(
 check( '[3] two_editors bucket succeeds', is_wp_error( $two_editors_result ), false );
 if ( ! is_wp_error( $two_editors_result ) ) {
 	check( '[3] candidate category is Edited Book', $two_editors_result[0]['category'], 'Edited Book' );
-	check( '[3] two_editors correct statement', $two_editors_result[0]['reconstructedReference'], 'Both editors are included, joined by "and", followed by the designation "(eds)" — e.g. Smith, J. and Jones, A. (eds).' );
+	check( '[3] two_editors correct statement', $two_editors_result[0]['reconstructedReference'], 'Both editors are included, joined by "and", followed by the designation "(eds)", for example Smith, J. and Jones, A. (eds).' );
 }
 
 $three_or_more_editors_result = invoke_normalise(
@@ -166,7 +166,7 @@ $three_or_more_editors_result = invoke_normalise(
 );
 check( '[3] three_or_more_editors bucket succeeds', is_wp_error( $three_or_more_editors_result ), false );
 if ( ! is_wp_error( $three_or_more_editors_result ) ) {
-	check( '[3] three_or_more_editors correct statement', $three_or_more_editors_result[0]['reconstructedReference'], 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)" — e.g. Smith, J., Jones, A. and Brown, T. (eds).' );
+	check( '[3] three_or_more_editors correct statement', $three_or_more_editors_result[0]['reconstructedReference'], 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)", for example Smith, J., Jones, A. and Brown, T. (eds).' );
 }
 
 // ---------------------------------------------------------------------

@@ -1502,7 +1502,6 @@ class Citex_Generated_Validator {
 					'year'         => array( $year, 'publication year' ),
 					'volume'       => array( $volume, 'volume' ),
 					'issue'        => array( $issue, 'issue' ),
-					'pages'        => array( $pages, 'page range' ),
 				) as $key => $pair
 			) {
 				if ( ! in_array( $key, $design_fields, true ) ) {
@@ -1512,6 +1511,19 @@ class Citex_Generated_Validator {
 				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
 					$errors[] = self::error( 'JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
 				}
+			}
+			// Pages gets its own check: the prompt asks Gemini to phrase the
+			// scenario naturally as "pages 27 to 35", never the reference's
+			// own hyphenated "27-35" form (which would nudge the student
+			// toward the exact reference-list punctuation) — so a literal
+			// text_contains() against the hyphenated canonical value would
+			// reject every correctly-written scenario. Accept either the
+			// literal hyphenated form OR both endpoint numbers appearing
+			// (in either order, since natural phrasing states them in
+			// ascending order regardless of how the canonical value is
+			// written) — see self::scenario_mentions_page_range()'s docblock.
+			if ( in_array( 'pages', $design_fields, true ) && '' !== $pages && ! self::scenario_mentions_page_range( $scenario, $pages ) ) {
+				$errors[] = self::error( 'JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical page range: "%s".', $pages ) );
 			}
 		}
 
@@ -1705,6 +1717,32 @@ class Citex_Generated_Validator {
 		$value = str_replace( array( "\xE2\x80\x99", "\xE2\x80\x98" ), "'", $value ); // curly quotes -> straight
 		$value = preg_replace( '/\s+/', ' ', $value );
 		return trim( (string) $value );
+	}
+
+	/**
+	 * Whether $scenario mentions the canonical page range $pages (e.g.
+	 * "27-35") in EITHER of the two forms a well-written scenario can
+	 * legitimately use:
+	 * - the literal hyphenated form itself ("27-35"), or
+	 * - both endpoint numbers stated separately ("pages 27 to 35") — the
+	 *   natural phrasing Citex_AI_V2's own Journal Article prompt asks
+	 *   Gemini to use, specifically so the scenario never shows the
+	 *   reference's own "pp.27-35" punctuation directly.
+	 * A bare text_contains() against the hyphenated form alone would
+	 * reject every scenario that correctly followed that natural-phrasing
+	 * instruction, so this check is pages-specific. Returns true (skips
+	 * the check) for a page range that is not two hyphen-separated
+	 * numbers — malformed page-range data is caught elsewhere (reference
+	 * format validation), not here.
+	 */
+	private static function scenario_mentions_page_range( $scenario, $pages ) {
+		if ( self::text_contains( $scenario, $pages ) ) {
+			return true;
+		}
+		if ( 1 !== preg_match( '/^\s*(\d+)\s*-\s*(\d+)\s*$/', (string) $pages, $matches ) ) {
+			return true;
+		}
+		return self::text_contains( $scenario, $matches[1] ) && self::text_contains( $scenario, $matches[2] );
 	}
 
 	/**

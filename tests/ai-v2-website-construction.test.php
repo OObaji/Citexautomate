@@ -33,8 +33,19 @@ function is_wp_error( $thing ) {
 function sanitize_key( $v ) {
 	return strtolower( preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $v ) ) );
 }
+// Mimics REAL WordPress sanitize_text_field() behaviour (via
+// wp_strip_all_tags()), not just trim() — a naive trim()-only stub would
+// never have caught the real bug this file now guards against: Website's
+// Harvard format legitimately contains a literal "<URL>" in fixedText/
+// reconstructedReference/MCQ options, and the real sanitize_text_field()
+// treats that as an (unclosed) HTML tag and deletes it wholesale.
 function sanitize_text_field( $v ) {
-	return trim( (string) $v );
+	$v = (string) $v;
+	if ( false !== strpos( $v, '<' ) ) {
+		$v = preg_replace( '/<[^>]*>?/', '', $v );
+	}
+	$v = preg_replace( '/[\r\n\t ]+/', ' ', $v );
+	return trim( $v );
 }
 function absint( $v ) {
 	return abs( intval( $v ) );
@@ -160,6 +171,11 @@ if ( ! is_wp_error( $result1 ) ) {
 	check( '[17] Question Parts contain exactly 3 or 4 items, per the assigned exercise design', in_array( count( $c1['questionParts'] ), array( 3, 4 ), true ), true );
 	check( '[14] Citex computed its own accessedDate (not empty, not Gemini\'s self-check copy)', '' !== trim( $c1['accessedDate'] ), true );
 	check( '[19][20] validates and enters the queue as "passed"', $c1['validationStatus'], 'passed' );
+	// Regression: sanitize_text_field()'s real tag-stripping must never eat
+	// the literal "<URL>" in fixedText/reconstructedReference — see
+	// Citex_AI_V2::sanitize_reference_text()'s docblock.
+	check( '[regression] fixedText retains the literal bracketed URL (design "author_year_title" leaves url non-draggable)', false !== strpos( $c1['fixedText'], '<https://www.leeds.ac.uk/study-skills>' ), true );
+	check( '[regression] reconstructedReference contains the full bracketed URL', false !== strpos( $c1['reconstructedReference'], '<https://www.leeds.ac.uk/study-skills>' ), true );
 }
 
 // ---------------------------------------------------------------------
@@ -258,6 +274,8 @@ if ( ! is_wp_error( $mcq_result ) ) {
 	check( '[24] exactly 4 options, option 4 blank', count( $mc['options'] ) . '|' . $mc['options'][3], '4|' );
 	check( '[24] the correct answer is never duplicated into an option', in_array( $mc['reconstructedReference'], array_slice( $mc['options'], 0, 3 ), true ), false );
 	check( '[24] validates and enters the queue as passed', $mc['validationStatus'], 'passed' );
+	check( '[regression] reconstructedReference contains the full bracketed URL', false !== strpos( $mc['reconstructedReference'], '<https://www.leeds.ac.uk/study-skills>' ), true );
+	check( '[regression] the option that used a bracketed URL still retains it', false !== strpos( $mc['options'][0], '<https://www.leeds.ac.uk/study-skills>' ), true );
 }
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";

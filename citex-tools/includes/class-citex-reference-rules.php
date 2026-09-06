@@ -1061,37 +1061,37 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			return array(
 				'Missing the editor designation "(ed.)"/"(eds)" entirely, as if it were a Book reference with no editor marked.',
-				'Using "(eds)" for a question with only one editor, or "(ed.)" for a question with two editors — the wrong designation for the stated editor count.',
+				'Using "(eds)" for a question with only one editor, or "(ed.)" for a question with two editors: the wrong designation for the stated editor count.',
 				'Using the full word "(editor)" or "(author)" instead of the correct "(ed.)"/"(eds)" abbreviation.',
-				'Placing the designation after the year instead of immediately after the editor name(s) — e.g. "(2020) (ed.)" instead of "(ed.) (2020)".',
-				'Swapping the place of publication and publisher — e.g. "Publisher: Place" instead of "Place: Publisher".',
+				'Placing the designation after the year instead of immediately after the editor name(s), for example "(2020) (ed.)" instead of "(ed.) (2020)".',
+				'Swapping the place of publication and publisher, for example "Publisher: Place" instead of "Place: Publisher".',
 				'Missing the full stop after the book title, or an extra comma before the year.',
 				'For two editors, omitting "and" between them or joining them with the wrong punctuation.',
 			);
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return array(
-				'Using the author\'s full first name instead of initials — e.g. "John Smith" instead of "Smith, J.".',
-				'Placing the initials before the surname — e.g. "J. Smith" instead of "Smith, J.".',
+				'Using the author\'s full first name instead of initials, for example "John Smith" instead of "Smith, J.".',
+				'Placing the initials before the surname, for example "J. Smith" instead of "Smith, J.".',
 				'Placing the year outside its parentheses, or in the wrong position relative to the author.',
 				'Missing the full stop after the article title, or an extra comma before the year.',
 				'Missing the comma after the journal title, before the volume.',
-				'Swapping the volume and issue, or placing the issue outside its parentheses — e.g. "(2)12" instead of "12(2)".',
+				'Swapping the volume and issue, or placing the issue outside its parentheses, for example "(2)12" instead of "12(2)".',
 				'Missing the "pp." prefix before the page range, or using "p." instead of "pp.".',
-				'Reversing the page range — e.g. "pp.35-27" instead of "pp.27-35".',
+				'Reversing the page range, for example "pp.35-27" instead of "pp.27-35".',
 				'Missing the final full stop at the end of the reference.',
 				'For two or more authors, joining them with "&" instead of "and".',
 				'For two or more authors, omitting "and" before the final author and using a comma instead.',
 				'For three or more authors, joining every pair with "and" instead of separating all but the last with commas.',
-				'Using "et al." after the first author\'s name in the reference list for four or more authors, instead of listing every author in full — "et al." is only Liverpool Hope\'s in-text-citation convention, never used in a reference-list entry.',
+				'Using "et al." after the first author\'s name in the reference list for four or more authors, instead of listing every author in full: "et al." is only Liverpool Hope\'s in-text-citation convention, never used in a reference-list entry.',
 				'Listing the authors in a different order than their real published order (e.g. alphabetically by surname) instead of the order they actually appear on the article.',
 			);
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
 			return array(
 				'Missing "[online]" from the reference entirely.',
-				'Missing "Available from:" or omitting the colon after it — e.g. "Available from <URL>" instead of "Available from: <URL>".',
-				'The URL not enclosed in angled brackets — e.g. "Available from: http://example.com" instead of "Available from: <http://example.com>".',
+				'Missing "Available from:" or omitting the colon after it, for example "Available from <URL>" instead of "Available from: <URL>".',
+				'The URL not enclosed in angled brackets, for example "Available from: http://example.com" instead of "Available from: <http://example.com>".',
 				'Missing the "[accessed date]" element entirely.',
 				'Using a guessed or invented year instead of "(n.d.)" when no publication/creation date can be identified for the real source.',
 				'Using "(n.d.)" for a real source that actually has a clearly identifiable publication/creation year.',
@@ -1104,10 +1104,10 @@ class Citex_Reference_Rules {
 			);
 		}
 		return array(
-			'Using the author\'s full first name instead of initials — e.g. "John Smith" instead of "Smith, J.".',
-			'Placing the initials before the surname — e.g. "J. Smith" instead of "Smith, J.".',
+			'Using the author\'s full first name instead of initials, for example "John Smith" instead of "Smith, J.".',
+			'Placing the initials before the surname, for example "J. Smith" instead of "Smith, J.".',
 			'Placing the year outside its parentheses, or in the wrong position relative to the author.',
-			'Swapping the place of publication and publisher — e.g. "Publisher: Place" instead of "Place: Publisher".',
+			'Swapping the place of publication and publisher, for example "Publisher: Place" instead of "Place: Publisher".',
 			'Missing the full stop after the book title, or an extra comma between surname and initials.',
 			'Missing the parentheses around the publication year entirely.',
 			// Multi-author-specific mistakes (only realistic when the
@@ -1116,7 +1116,7 @@ class Citex_Reference_Rules {
 			'For two or more authors, joining them with "&" instead of "and".',
 			'For two or more authors, omitting "and" before the final author and using a comma instead.',
 			'For three or more authors, joining every pair with "and" instead of separating all but the last with commas.',
-			'Using "et al." after the first author\'s name in the reference list for four or more authors, instead of listing every author in full — "et al." is only Liverpool Hope\'s in-text-citation convention, never used in a reference-list entry.',
+			'Using "et al." after the first author\'s name in the reference list for four or more authors, instead of listing every author in full: "et al." is only Liverpool Hope\'s in-text-citation convention, never used in a reference-list entry.',
 		);
 	}
 
@@ -1233,11 +1233,11 @@ class Citex_Reference_Rules {
 			$catalogue = array(
 				'two_editors'            => array(
 					'stem'             => 'Which of the following statements is correct about referencing a book edited by two people in the Harvard reference list?',
-					'correctStatement' => 'Both editors are included, joined by "and", followed by the designation "(eds)" — e.g. Smith, J. and Jones, A. (eds).',
+					'correctStatement' => 'Both editors are included, joined by "and", followed by the designation "(eds)", for example Smith, J. and Jones, A. (eds).',
 				),
 				'three_or_more_editors'  => array(
 					'stem'             => 'Which of the following statements is correct about referencing a book edited by three or more people in the Harvard reference list?',
-					'correctStatement' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)" — e.g. Smith, J., Jones, A. and Brown, T. (eds).',
+					'correctStatement' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)", for example Smith, J., Jones, A. and Brown, T. (eds).',
 				),
 			);
 			return $catalogue[ $bucket_id ] ?? null;
@@ -1245,11 +1245,11 @@ class Citex_Reference_Rules {
 		$catalogue = array(
 			'two_authors'            => array(
 				'stem'             => 'Which of the following statements is correct about referencing a book written by two authors in the Harvard reference list?',
-				'correctStatement' => 'Both authors are included, joined by "and" — e.g. Smith, J. and Jones, A.',
+				'correctStatement' => 'Both authors are included, joined by "and", for example Smith, J. and Jones, A.',
 			),
 			'three_authors'          => array(
 				'stem'             => 'Which of the following statements is correct about referencing a book written by three authors in the Harvard reference list?',
-				'correctStatement' => 'All three authors are included, separated by commas with "and" before the final author — e.g. Smith, J., Jones, A. and Brown, T.',
+				'correctStatement' => 'All three authors are included, separated by commas with "and" before the final author, for example Smith, J., Jones, A. and Brown, T.',
 			),
 			'four_or_more_authors'   => array(
 				'stem'             => 'Which statement is correct about a book with four or more authors in the Harvard reference list?',
@@ -1269,8 +1269,8 @@ class Citex_Reference_Rules {
 	 */
 	public static function treatment_hint( $category ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
-			return 'Think about how the editor designation and the joining of multiple editor names change (or don\'t change) as the editor count grows — and remember this is the reference-list rule, not the separate in-text-citation convention.';
+			return 'Think about how the editor designation and the joining of multiple editor names change (or don\'t change) as the editor count grows, and remember this is the reference-list rule, not the separate in-text-citation convention.';
 		}
-		return 'Think about how the joining of multiple author names changes (or doesn\'t change) as the author count grows — and remember this is the reference-list rule, not the separate in-text-citation convention (which does use "et al.").';
+		return 'Think about how the joining of multiple author names changes (or doesn\'t change) as the author count grows, and remember this is the reference-list rule, not the separate in-text-citation convention (which does use "et al.").';
 	}
 }

@@ -183,7 +183,7 @@ function edited_treatment_question( $overrides = array() ) {
 				'',
 			),
 			'hint'            => 'Think about how the editor designation changes as the editor count grows.',
-			'reconstructedReference' => 'Both editors are included, joined by "and", followed by the designation "(eds)" — e.g. Smith, J. and Jones, A. (eds).',
+			'reconstructedReference' => 'Both editors are included, joined by "and", followed by the designation "(eds)", for example Smith, J. and Jones, A. (eds).',
 		),
 		$overrides
 	);
@@ -195,7 +195,7 @@ check( '[13] no errors reported', $eb_result['errors'], array() );
 $eb_three_or_more = Citex_Generated_Validator::validate( edited_treatment_question( array(
 	'treatmentBucket' => 'three_or_more_editors',
 	'scenario'         => 'Which of the following statements is correct about referencing a book edited by three or more people in the Harvard reference list?',
-	'reconstructedReference' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)" — e.g. Smith, J., Jones, A. and Brown, T. (eds).',
+	'reconstructedReference' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)", for example Smith, J., Jones, A. and Brown, T. (eds).',
 ) ) );
 check( '[13] Edited Book three_or_more_editors: a correct question passes', $eb_three_or_more['status'], 'passed' );
 
