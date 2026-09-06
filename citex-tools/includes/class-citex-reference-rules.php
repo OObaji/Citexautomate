@@ -1063,8 +1063,8 @@ class Citex_Reference_Rules {
 				'Missing the editor designation "(ed.)"/"(eds)" entirely, as if it were a Book reference with no editor marked.',
 				'Using "(eds)" for a question with only one editor, or "(ed.)" for a question with two editors: the wrong designation for the stated editor count.',
 				'Using the full word "(editor)" or "(author)" instead of the correct "(ed.)"/"(eds)" abbreviation.',
-				'Placing the designation after the year instead of immediately after the editor name(s), for example "(2020) (ed.)" instead of "(ed.) (2020)".',
-				'Swapping the place of publication and publisher, for example "Publisher: Place" instead of "Place: Publisher".',
+				'Placing the designation after the year instead of immediately after the editor name(s).',
+				'Swapping the place of publication and publisher.',
 				'Missing the full stop after the book title, or an extra comma before the year.',
 				'For two editors, omitting "and" between them or joining them with the wrong punctuation.',
 			);
@@ -1104,10 +1104,10 @@ class Citex_Reference_Rules {
 			);
 		}
 		return array(
-			'Using the author\'s full first name instead of initials, for example "John Smith" instead of "Smith, J.".',
-			'Placing the initials before the surname, for example "J. Smith" instead of "Smith, J.".',
+			'Using the author\'s full first name instead of the required initials.',
+			'Placing the initials before the surname instead of after it.',
 			'Placing the year outside its parentheses, or in the wrong position relative to the author.',
-			'Swapping the place of publication and publisher, for example "Publisher: Place" instead of "Place: Publisher".',
+			'Swapping the place of publication and publisher.',
 			'Missing the full stop after the book title, or an extra comma between surname and initials.',
 			'Missing the parentheses around the publication year entirely.',
 			// Multi-author-specific mistakes (only realistic when the
@@ -1233,11 +1233,11 @@ class Citex_Reference_Rules {
 			$catalogue = array(
 				'two_editors'            => array(
 					'stem'             => 'Which of the following statements is correct about referencing a book edited by two people in the Harvard reference list?',
-					'correctStatement' => 'Both editors are included, joined by "and", followed by the designation "(eds)", for example Smith, J. and Jones, A. (eds).',
+					'correctStatement' => 'Both editors are included, joined by "and", followed by the designation "(eds)".',
 				),
 				'three_or_more_editors'  => array(
 					'stem'             => 'Which of the following statements is correct about referencing a book edited by three or more people in the Harvard reference list?',
-					'correctStatement' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)", for example Smith, J., Jones, A. and Brown, T. (eds).',
+					'correctStatement' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)".',
 				),
 			);
 			return $catalogue[ $bucket_id ] ?? null;
@@ -1245,11 +1245,11 @@ class Citex_Reference_Rules {
 		$catalogue = array(
 			'two_authors'            => array(
 				'stem'             => 'Which of the following statements is correct about referencing a book written by two authors in the Harvard reference list?',
-				'correctStatement' => 'Both authors are included, joined by "and", for example Smith, J. and Jones, A.',
+				'correctStatement' => 'Both authors are included, joined by "and".',
 			),
 			'three_authors'          => array(
 				'stem'             => 'Which of the following statements is correct about referencing a book written by three authors in the Harvard reference list?',
-				'correctStatement' => 'All three authors are included, separated by commas with "and" before the final author, for example Smith, J., Jones, A. and Brown, T.',
+				'correctStatement' => 'All three authors are included, separated by commas with "and" before the final author.',
 			),
 			'four_or_more_authors'   => array(
 				'stem'             => 'Which statement is correct about a book with four or more authors in the Harvard reference list?',
