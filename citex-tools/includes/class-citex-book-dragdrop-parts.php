@@ -217,11 +217,16 @@ class Citex_Book_Dragdrop_Parts {
 	 * build_tokens()'s docblock).
 	 *
 	 * Every selected candidate is rendered with Citex's established pipe
-	 * grammar (Citex_Reference_Rules::name_template()'s docblock) — always
-	 * "||", never a lone "|", since a lone "|" is only valid at the very
-	 * start or end of Fixed Text (Citex_Generated_Validator::reconstruct()'s
-	 * own rule) and a selected candidate here can land anywhere in the
-	 * string; "||" is valid in every position, so it is used uniformly.
+	 * grammar (Citex_Reference_Rules::name_template()'s docblock): a lone
+	 * "|" only when NOTHING at all precedes it (the very beginning of Fixed
+	 * Text) or NOTHING at all follows it (the very end) — "||" for every
+	 * other, mid-string position. In practice only the very FIRST selected
+	 * candidate can ever qualify (whichever author is drawn always starts
+	 * the reference, so it is the only candidate that can ever sit at
+	 * position 0), never the last: Fixed Text always ends with a literal
+	 * final full stop after 'publisher' (see build_tokens()), so something
+	 * always follows the last selected candidate — the "end" case is
+	 * checked for correctness/symmetry but structurally can never fire here.
 	 *
 	 * @param string[] $selected_keys
 	 * @param array    $authors array<{surname, initials, fullName}>, 1 or more.
@@ -245,17 +250,20 @@ class Citex_Book_Dragdrop_Parts {
 		$selected_set = array_fill_keys( array_map( 'strval', $selected_keys ), true );
 		$tokens       = self::build_tokens( $authors, $fields, $drawn_index );
 		$full_name    = isset( $authors[ $drawn_index ]['fullName'] ) ? (string) $authors[ $drawn_index ]['fullName'] : '';
+		$token_count  = count( $tokens );
 
 		$parts     = array();
 		$confusing = array();
 		$fixed     = '';
-		foreach ( $tokens as $token ) {
+		foreach ( $tokens as $index => $token ) {
 			if ( $token['literal'] ) {
 				$fixed .= $token['value'];
 				continue;
 			}
 			if ( isset( $selected_set[ $token['key'] ] ) ) {
-				$fixed      .= '||';
+				$is_first    = '' === trim( $fixed );
+				$is_last     = ( $index === $token_count - 1 );
+				$fixed      .= ( $is_first || $is_last ) ? '|' : '||';
 				$parts[]     = $token['value'];
 				$confusing[] = self::distractor_for( $token['kind'], $token['value'], $full_name, $fields, $selected_set );
 			} else {

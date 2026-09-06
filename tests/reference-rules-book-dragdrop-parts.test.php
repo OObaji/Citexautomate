@@ -42,12 +42,19 @@ function reconstruct( $built ) {
 	$index = 0;
 	$len   = strlen( $fixed );
 	for ( $i = 0; $i < $len; $i++ ) {
-		if ( '|' === $fixed[ $i ] && $i + 1 < $len && '|' === $fixed[ $i + 1 ] ) {
+		if ( '|' !== $fixed[ $i ] ) {
+			$out .= $fixed[ $i ];
+			continue;
+		}
+		if ( $i + 1 < $len && '|' === $fixed[ $i + 1 ] ) {
 			$out .= (string) $parts[ $index++ ];
 			$i++;
 			continue;
 		}
-		$out .= $fixed[ $i ];
+		// A lone "|" — valid only at the very start or end of Fixed Text
+		// (Citex_Generated_Validator::reconstruct()'s own rule) — still a
+		// single placeholder either way.
+		$out .= (string) $parts[ $index++ ];
 	}
 	return $out;
 }
@@ -164,7 +171,7 @@ $digital_media_fields = array( 'year' => '2019', 'title' => 'Digital Media', 'pl
 
 $built_author0 = Citex_Book_Dragdrop_Parts::build( array( 'author_0_surname', 'author_0_initials', 'year', 'place' ), $three_named, $digital_media_fields );
 check( '[4] drawing author 0 (Clark): parts', $built_author0['parts'], array( 'Clark', 'S.', '2019', 'London' ) );
-check( '[4] drawing author 0 (Clark): fixedText', $built_author0['fixedText'], '||, ||, Davies, H. and Wilson, M. (||) Digital Media. ||: Routledge.' );
+check( '[4] drawing author 0 (Clark): fixedText', $built_author0['fixedText'], '|, ||, Davies, H. and Wilson, M. (||) Digital Media. ||: Routledge.' );
 check( '[4] drawing author 0 (Clark): confusingWords are genuine knowledge tests, not spelling', $built_author0['confusingWords'], array( 'Simon', 'S', '2019.', 'Routledge' ) );
 check( '[4] drawing author 0 (Clark): reconstructs to the full reference', reconstruct( $built_author0 ), 'Clark, S., Davies, H. and Wilson, M. (2019) Digital Media. London: Routledge.' );
 
@@ -182,6 +189,24 @@ check( '[4] drawing "and": parts', $built_and['parts'], array( 'and' ) );
 check( '[4] drawing "and": confusingWords is "&"', $built_and['confusingWords'], array( '&' ) );
 check( '[4] drawing "and": fixedText', $built_and['fixedText'], 'Clark, S., Davies, H. || Wilson, M. (2019) Digital Media. London: Routledge.' );
 check( '[4] drawing "and": reconstructs to the full reference', reconstruct( $built_and ), 'Clark, S., Davies, H. and Wilson, M. (2019) Digital Media. London: Routledge.' );
+
+// ---------------------------------------------------------------------
+// 4b. Pipe grammar: a lone "|" only when NOTHING at all precedes it (the
+// very first character of Fixed Text) — every other placeholder, INCLUDING
+// the very last one (which is always followed by a literal final full
+// stop, never truly "nothing"), is "||". This is the exact case the user
+// confirmed by hand: three authors, drawing the first author's surname,
+// "and", and publisher.
+// ---------------------------------------------------------------------
+$smith_authors = array( author( 'Smith', 'J.', 'John Smith' ), author( 'Green', 'L.', 'Laura Green' ), author( 'Adams', 'P.', 'Peter Adams' ) );
+$urban_fields  = array( 'year' => '2018', 'title' => 'Urban Design', 'place' => 'London', 'publisher' => 'Routledge' );
+$built_pipe_grammar = Citex_Book_Dragdrop_Parts::build( array( 'author_0_surname', 'author_0_initials', 'and', 'publisher' ), $smith_authors, $urban_fields );
+check(
+	'[4b] lone "|" only at the true start; the last placeholder (publisher, followed only by the final full stop) still gets "||"',
+	$built_pipe_grammar['fixedText'],
+	'|, ||, Green, L. || Adams, P. (2018) Urban Design. London: ||.'
+);
+check( '[4b] reconstructs to the full reference', reconstruct( $built_pipe_grammar ), 'Smith, J., Green, L. and Adams, P. (2018) Urban Design. London: Routledge.' );
 
 // ---------------------------------------------------------------------
 // 5. Distractor rules: never equal to the correct value, for every kind.
