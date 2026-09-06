@@ -119,6 +119,7 @@ $dd_prompt  = invoke_private( 'build_prompt_for', array( 'DragDrop', $JA, array(
 check( '[dispatch] Journal Article DragDrop prompt mentions "Journal Article"', false !== strpos( $dd_prompt, 'Journal Article' ), true );
 check( '[dispatch] Journal Article DragDrop prompt mentions "articleTitle"', false !== strpos( $dd_prompt, 'articleTitle' ), true );
 check( '[25] Journal Article DragDrop prompt includes the conciseness (mobile-readability) guidance', false !== strpos( $dd_prompt, 'PREFER CONCISE REAL PUBLISHER/JOURNAL NAMES WHEN POSSIBLE' ), true );
+check( '[regression] Journal Article DragDrop prompt requires the journal title to be introduced with the word "journal" (avoids a short real journal name like "Cities" reading as a place)', false !== strpos( $dd_prompt, 'ALWAYS introduce the journal title with the word "journal"' ), true );
 
 $mcq_prompt = invoke_private( 'build_prompt_for', array( 'MCQ', $JA, array( 'JA01' ), 'medium', false, '' ) );
 check( '[dispatch] Journal Article MCQ prompt mentions "Journal Article"', false !== strpos( $mcq_prompt, 'Journal Article' ), true );
