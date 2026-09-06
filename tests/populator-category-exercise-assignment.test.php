@@ -489,5 +489,29 @@ foreach ( array( 'Exercise 1', 'Exercise 2', 'Exercise 3', 'Exercise 4', 'Exerci
 check( '[13] a full 10-slot Book matrix (5 exercises x {DragDrop, MCQ}) is all correctly classified', $batch_ok, true );
 check( '[13] exactly 10 slots were exercised', $post_id_seq - 200, 10 );
 
+// ---------------------------------------------------------------------
+// 14. HARD REGRESSION for the reported production bug: a real site whose
+// taxonomy names this category "Web Resource" (not "Website" — the exact
+// naming uncertainty Citex_Reference_Rules::CATEGORY_WEBSITE's own docblock
+// flags) still resolves and populates, via category_term_alternates()'s
+// fallback — no code change needed for that site.
+// ---------------------------------------------------------------------
+reset_environment();
+$GLOBALS['__terms_full']['reference_category'][7] = array( 'name' => 'Web Resource', 'parent' => 0 ); // renamed from "Website"
+$classification_web_resource = invoke_private( $populator, 'resolve_classification', array( array( 'category' => 'Website', 'exercise' => 'Exercise 1' ) ) );
+$match_web_resource = invoke_private( $populator, 'assign_generated_classification', array( 104, 'question', $classification_web_resource ) );
+check( '[14] "Website" resolves via the "Web Resource" alternate when the real term is named that', is_wp_error( $match_web_resource ), false );
+check( '[14] resolves to the renamed term (7)', is_wp_error( $match_web_resource ) ? null : $match_web_resource['categoryTermId'], 7 );
+
+// A category with NO alternates registered (e.g. "Book") still fails
+// exactly as before when genuinely missing — the fallback never masks a
+// real problem for a category it does not apply to.
+reset_environment();
+unset( $GLOBALS['__terms_full']['reference_category'][1] ); // "Book" term genuinely absent
+$classification_missing_book = invoke_private( $populator, 'resolve_classification', array( array( 'category' => 'Book', 'exercise' => 'Exercise 1' ) ) );
+$match_missing_book = invoke_private( $populator, 'assign_generated_classification', array( 105, 'question', $classification_missing_book ) );
+check( '[14] a genuinely missing "Book" term (no alternates registered) still fails as before', is_wp_error( $match_missing_book ), true );
+check( '[14] error code is citex_category_term_not_found', is_wp_error( $match_missing_book ) ? $match_missing_book->get_error_code() : null, 'citex_category_term_not_found' );
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

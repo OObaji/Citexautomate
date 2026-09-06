@@ -935,10 +935,26 @@ class Citex_Populator {
 
 		$category_match = $this->find_taxonomy_term_by_name( $post_type, $classification['category'] );
 		if ( null === $category_match ) {
-			return new WP_Error(
-				'citex_category_term_not_found',
-				sprintf( 'Citex could not find a "%s" Reference Category term for this post type.', $classification['category'] )
-			);
+			// The category NAME this codebase generates internally
+			// (Citex_Reference_Rules::CATEGORY_WEBSITE, etc.) is a best
+			// guess at what the real site's own taxonomy term is actually
+			// called, since no live site was accessible to confirm it at
+			// build time (see that constant's own docblock) — try known
+			// real-world alternates before giving up, so a site that named
+			// its term differently still populates without a code change.
+			foreach ( self::category_term_alternates( $classification['category'] ) as $alternate ) {
+				$category_match = $this->find_taxonomy_term_by_name( $post_type, $alternate );
+				if ( null !== $category_match ) {
+					break;
+				}
+			}
+		}
+		if ( null === $category_match ) {
+			$alternates = self::category_term_alternates( $classification['category'] );
+			$message    = $alternates
+				? sprintf( 'Citex could not find a "%1$s" Reference Category term for this post type (also tried: %2$s).', $classification['category'], implode( ', ', array_map( function ( $name ) { return '"' . $name . '"'; }, $alternates ) ) )
+				: sprintf( 'Citex could not find a "%s" Reference Category term for this post type.', $classification['category'] );
+			return new WP_Error( 'citex_category_term_not_found', $message );
 		}
 
 		$exercise_match = $this->find_taxonomy_term_by_name( $post_type, $classification['exercise'], $category_match['taxonomy'], $category_match['termId'] );
@@ -965,6 +981,25 @@ class Citex_Populator {
 			'exerciseTaxonomy' => $exercise_match['taxonomy'],
 			'exerciseTermId'   => $exercise_match['termId'],
 		);
+	}
+
+	/**
+	 * Real-world alternate names to try for a generated question's own
+	 * category label when the exact name (Citex_Reference_Rules::CATEGORY_*)
+	 * finds no taxonomy term at all. Only 'Website' has a documented
+	 * naming uncertainty (see Citex_Reference_Rules::CATEGORY_WEBSITE's own
+	 * docblock: no live site was accessible at build time to confirm its
+	 * real taxonomy term name) — every other category name was confirmed
+	 * against a real site's terms already, so this returns an empty list
+	 * for them and changes nothing about how they resolve.
+	 *
+	 * @return string[]
+	 */
+	private static function category_term_alternates( $category ) {
+		$map = array(
+			'Website' => array( 'Web Resource', 'Website/Web Resource', 'Websites', 'Web Resources' ),
+		);
+		return $map[ $category ] ?? array();
 	}
 
 	/**

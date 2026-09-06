@@ -672,39 +672,43 @@ class Citex_Reference_Rules {
 			// prefix), just skipping the title/journal/issue segment. Pages
 			// is baked into fixedText as literal text (see this design's
 			// own docblock entry in journal_article_designs()) rather than
-			// drawn, so the design stays within the 2-3 part rule — only
-			// author, year and volume are draggable. Exactly 2 OTHER fields
-			// already fill the 3-part budget, so only the FIRST author is
-			// ever an individual draggable part — any further authors are
-			// folded into fixedText as a correct, non-draggable
-			// continuation (person_parts()'s overflow) — this design
-			// produces exactly 3 parts for ANY author count.
-			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
+			// drawn, so the design stays within the 2-3 part rule. The
+			// WHOLE author list (any real count) is drawn as ONE joined
+			// chip via join_people() — e.g. "Bennett, S." or "Bennett, S.,
+			// Maton, K. and Kervin, L." — never one chip per author and
+			// never just the first author with the rest left literal; this
+			// is what lets the author-joining rule itself ("and", never
+			// "&") actually be tested by dragging this chip, matching the
+			// class docblock above and journal_article_partial_format_regex()'s
+			// own multi-author-aware regex, both of which have always
+			// assumed a whole-list chip. part_suitability()'s length gate
+			// (Citex_AI_V2::normalise()) is the backstop against a
+			// genuinely oversized real author list.
 			return array(
-				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['volume'] ) ),
-				'fixedText' => sprintf( '%s%s (||) ||, pp.%s.', self::name_template( $drawn, $joiners ), $overflow, $fields['pages'] ),
+				'parts'     => array( self::join_people( $authors ), $fields['year'], $fields['volume'] ),
+				'fixedText' => sprintf( '| (||) ||, pp.%s.', $fields['pages'] ),
 			);
 		}
 		if ( 'author_year_issue' === $design ) {
 			// A plain, unambiguous "fact list" — deliberately NOT styled
 			// like a real Harvard fragment (issue alone is never shown in
 			// its own parentheses immediately after the year in a real
-			// reference; doing so here would misteach that placement).
-			// Only the FIRST author is ever an individual draggable part
-			// (always exactly 3 parts) — any further authors fold into
-			// fixedText via person_parts()'s overflow, so a Question Part
-			// is never lengthened by joining multiple author names together.
-			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
+			// reference; doing so here would misteach that placement). The
+			// WHOLE author list is drawn as ONE joined chip via
+			// join_people() — see author_year_volume_pages's docblock entry
+			// above for why.
 			return array(
-				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['issue'] ) ),
-				'fixedText' => sprintf( '%s%s, ||, ||.', self::name_template( $drawn, $joiners ), $overflow ),
+				'parts'     => array( self::join_people( $authors ), $fields['year'], $fields['issue'] ),
+				'fixedText' => '|, ||, ||.',
 			);
 		}
 		if ( 'author_year_journal' === $design ) {
-			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
+			// The WHOLE author list is drawn as ONE joined chip via
+			// join_people() — see author_year_volume_pages's docblock entry
+			// above for why.
 			return array(
-				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['journalTitle'] ) ),
-				'fixedText' => sprintf( '%s%s, ||, ||.', self::name_template( $drawn, $joiners ), $overflow ),
+				'parts'     => array( self::join_people( $authors ), $fields['year'], $fields['journalTitle'] ),
+				'fixedText' => '|, ||, ||.',
 			);
 		}
 		if ( 'volume_issue_pages' === $design ) {
