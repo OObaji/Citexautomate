@@ -159,11 +159,12 @@ foreach ( $author_sets as $count => $names ) {
 		$candidate = $result[0];
 		check( "[$count author(s)] category is 'Journal Article'", $candidate['category'], 'Journal Article' );
 		// HARD RULE: the 'author_year_volume_pages' design always produces
-		// EXACTLY 4 parts (the first author as an individual part + year +
-		// volume + pages), for ANY real author count — a 2nd+ author is
-		// folded into fixedText as a correct, non-draggable continuation
+		// EXACTLY 3 parts (the first author as an individual part + year +
+		// volume — pages is baked into fixedText as literal text, not
+		// drawn), for ANY real author count — a 2nd+ author is folded into
+		// fixedText as a correct, non-draggable continuation
 		// (person_parts()'s overflow), never "et al.".
-		check( "[$count author(s)] exactly 4 draggable Question Parts, for any author count", count( $candidate['questionParts'] ), 4 );
+		check( "[$count author(s)] exactly 3 draggable Question Parts, for any author count", count( $candidate['questionParts'] ), 3 );
 		check( "[$count author(s)] the first Question Part is the first author individually, not a joined chip", $candidate['questionParts'][0], 'Mitchell, S.' );
 		check( "[$count author(s)] reconstructedReference contains \"et al.\"? (must not)", false !== stripos( $candidate['reconstructedReference'], 'et al' ), false );
 		check( "[$count author(s)] validates and enters the queue as 'passed'", $candidate['validationStatus'], 'passed' );
@@ -211,7 +212,7 @@ if ( ! is_wp_error( $right_count ) ) {
 // dragdrop_shape() output itself were ever inconsistent with itself —
 // exercised here by directly corrupting an internal candidate).
 // ---------------------------------------------------------------------
-check( '[17] placeholder_count() sees exactly 4 slots in the "author_year_volume_pages" fixedText', invoke_private( 'placeholder_count', array( '| (||) ||, pp.||.' ) ), 4 );
+check( '[17] placeholder_count() sees exactly 3 slots in the "author_year_volume_pages" fixedText (pages is now baked in as literal text)', invoke_private( 'placeholder_count', array( '| (||) ||, pp.45-52.' ) ), 3 );
 
 // ---------------------------------------------------------------------
 // 10 & 11. Correct year passes; a missing year (or any other required
@@ -248,8 +249,8 @@ check( '[18] a duplicated distractor pair no longer blocks generation (quality g
 // 19. Scenario/source mismatch: a scenario naming a different YEAR than the
 // canonical bibliographic fields is rejected by the pre-queue quality gate.
 // (The default 'author_year_volume_pages' design's tested fields are
-// authors/year/volume/pages — NOT articleTitle — so the mismatch must be on
-// a field this design actually checks.)
+// authors/year/volume — NOT articleTitle or pages — so the mismatch must be
+// on a field this design actually checks.)
 // ---------------------------------------------------------------------
 $mismatched_scenario = journal_article_item( array(
 	'scenario' => 'You are referencing a journal article titled A brief guide to Harvard referencing by Sarah Mitchell and Daniel Evans, published in 1975 in The British Journal of Referencing, volume 12, issue 2, pages 27-35.',

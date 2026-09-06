@@ -48,8 +48,8 @@ class Citex_Reference_Rules {
 	 * part count outside this range even if the generation-time check were
 	 * ever bypassed.
 	 */
-	const JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS = 3;
-	const JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS = 4;
+	const JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS = 2;
+	const JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS = 3;
 
 	/**
 	 * HARD RULE for Book DragDrop questions (never MCQ): every generated
@@ -512,7 +512,7 @@ class Citex_Reference_Rules {
 	 * Journal Article's catalogue of DragDrop/MCQ "exercise designs".
 	 *
 	 * HARD RULE (see JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/MAX_PARTS): every
-	 * DragDrop design below produces EXACTLY 3 or 4 draggable Question
+	 * DragDrop design below produces EXACTLY 2 or 3 draggable Question
 	 * Parts, for ANY real author count — never fewer, never more. This is
 	 * only achievable because the whole author list (1 author or several)
 	 * is always ONE joined chip (e.g. "Bennett, S." or "Bennett, S., Maton,
@@ -524,16 +524,30 @@ class Citex_Reference_Rules {
 	 * author counts; the mobile-suitability length gate below is the
 	 * backstop against a genuinely oversized real name list.
 	 *
-	 * DragDrop-eligible designs (each names its 3-4 tested facts):
-	 * - author_year_volume_pages (4 parts): author(s), year, volume, pages.
+	 * DragDrop-eligible designs (each names its 2-3 tested facts). Two
+	 * design ids keep their historical name even though they no longer
+	 * draw every field their name suggests (renaming would have meant
+	 * threading a new id through the scenario catalogue, the prompt notes,
+	 * and every test that exercises them, for no behavioural benefit) — the
+	 * dropped field stays in fixedText as ordinary literal text, exactly
+	 * like every other non-tested field on every design:
+	 * - author_year_volume_pages (3 parts, despite the name): author(s),
+	 *   year, volume — pages is baked into fixedText as literal text, not
+	 *   drawn, so the total stays within the 2-3 part rule.
 	 * - author_year_issue (3 parts): author(s), year, issue.
 	 * - author_year_journal (3 parts): author(s), year, journal title.
 	 * - volume_issue_pages (3 parts): volume, issue, pages — a genuine
 	 *   contiguous Harvard fragment, "Volume(Issue), pp.Start-End.".
 	 * - journal_volume_issue (3 parts): journal title, volume, issue — a
 	 *   genuine contiguous Harvard fragment, "Journal title, Volume(Issue)".
-	 * - year_volume_issue_pages (4 parts, no author at all): year, volume,
-	 *   issue, pages — a genuinely different focus for variety.
+	 * - year_volume_issue_pages (3 parts, despite the name, no author at
+	 *   all): year, volume, issue — pages is baked into fixedText as
+	 *   literal text, not drawn, for the same reason as
+	 *   author_year_volume_pages above.
+	 * - volume_issue (2 parts): volume, issue only — the smallest genuine
+	 *   contiguous Harvard fragment, "Volume(Issue)", with the page range
+	 *   that always follows it left as literal text. The one design that
+	 *   actually uses the new 2-part floor.
 	 *
 	 * MCQ-only designs (no DragDrop part-count constraint applies — see
 	 * Citex_Question_Scenarios's Journal Article MCQ-only scenarios):
@@ -550,13 +564,13 @@ class Citex_Reference_Rules {
 	 * @return string[] design ids.
 	 */
 	public static function journal_article_designs() {
-		return array( 'author_year_volume_pages', 'author_year_issue', 'author_year_journal', 'volume_issue_pages', 'journal_volume_issue', 'year_volume_issue_pages', 'full_reference', 'author_only' );
+		return array( 'author_year_volume_pages', 'author_year_issue', 'author_year_journal', 'volume_issue_pages', 'journal_volume_issue', 'year_volume_issue_pages', 'volume_issue', 'full_reference', 'author_only' );
 	}
 
 	/**
 	 * Design ids permitted for a Journal Article DragDrop question — every
 	 * design except the two MCQ-only ones (full_reference is too large at
-	 * 7 parts; author_only is too small at 1 part — both violate the 3-4
+	 * 7 parts; author_only is too small at 1 part — both violate the 2-3
 	 * part hard rule). Used by Citex_AI_V2's quality gate and
 	 * Citex_Generated_Validator to reject a DragDrop candidate assigned an
 	 * MCQ-only design outright, rather than letting it fail some other,
@@ -582,12 +596,13 @@ class Citex_Reference_Rules {
 	public static function journal_article_design_fields( $design ) {
 		$map = array(
 			'full_reference'           => array( 'authors', 'year', 'articleTitle', 'journalTitle', 'volume', 'issue', 'pages' ),
-			'author_year_volume_pages' => array( 'authors', 'year', 'volume', 'pages' ),
+			'author_year_volume_pages' => array( 'authors', 'year', 'volume' ),
 			'author_year_issue'        => array( 'authors', 'year', 'issue' ),
 			'author_year_journal'      => array( 'authors', 'year', 'journalTitle' ),
 			'volume_issue_pages'       => array( 'volume', 'issue', 'pages' ),
 			'journal_volume_issue'     => array( 'journalTitle', 'volume', 'issue' ),
-			'year_volume_issue_pages'  => array( 'year', 'volume', 'issue', 'pages' ),
+			'year_volume_issue_pages'  => array( 'year', 'volume', 'issue' ),
+			'volume_issue'             => array( 'volume', 'issue' ),
 			'author_only'              => array( 'authors' ),
 		);
 		return $map[ $design ] ?? null;
@@ -596,18 +611,18 @@ class Citex_Reference_Rules {
 	/**
 	 * Whether a design's reconstructed string is a genuine COMPLETE sentence
 	 * ending in a real Harvard full stop, or a fragment that legitimately
-	 * stops mid-reference with no full stop at that point (only
-	 * 'journal_volume_issue's "Journal title, Volume(Issue)" — the real
-	 * reference has no punctuation there before ", pp.Start-End." follows).
-	 * Every comma-separated field-combo design (author_year_volume_pages,
-	 * author_year_issue, author_year_journal, year_volume_issue_pages)
-	 * deliberately ends its own list with a real full stop, precisely so
-	 * this never needs special-casing for them. Used by
-	 * Citex_Generated_Validator to avoid flagging a legitimate mid-reference
-	 * fragment as MISSING_FINAL_PERIOD.
+	 * stops mid-reference with no full stop at that point ('journal_volume_issue's
+	 * "Journal title, Volume(Issue)" and 'volume_issue's "Volume(Issue)" —
+	 * the real reference has no punctuation at either point before
+	 * ", pp.Start-End." follows). Every comma-separated field-combo design
+	 * (author_year_volume_pages, author_year_issue, author_year_journal,
+	 * year_volume_issue_pages) deliberately ends its own list with a real
+	 * full stop, precisely so this never needs special-casing for them.
+	 * Used by Citex_Generated_Validator to avoid flagging a legitimate
+	 * mid-reference fragment as MISSING_FINAL_PERIOD.
 	 */
 	public static function journal_article_design_skips_final_period( $design ) {
-		return 'journal_volume_issue' === $design;
+		return in_array( $design, array( 'journal_volume_issue', 'volume_issue' ), true );
 	}
 
 	/**
@@ -654,16 +669,20 @@ class Citex_Reference_Rules {
 		if ( 'author_year_volume_pages' === $design ) {
 			// "Author(s) (Year) Volume, pp.Start-End." — real Harvard
 			// punctuation throughout (parentheses for the year, "pp."
-			// prefix), just skipping the title/journal/issue segment.
-			// Exactly 3 OTHER fields already fill the 4-part budget, so
-			// only the FIRST author is ever an individual draggable part —
-			// any further authors are folded into fixedText as a correct,
-			// non-draggable continuation (person_parts()'s overflow) —
-			// this design produces exactly 4 parts for ANY author count.
+			// prefix), just skipping the title/journal/issue segment. Pages
+			// is baked into fixedText as literal text (see this design's
+			// own docblock entry in journal_article_designs()) rather than
+			// drawn, so the design stays within the 2-3 part rule — only
+			// author, year and volume are draggable. Exactly 2 OTHER fields
+			// already fill the 3-part budget, so only the FIRST author is
+			// ever an individual draggable part — any further authors are
+			// folded into fixedText as a correct, non-draggable
+			// continuation (person_parts()'s overflow) — this design
+			// produces exactly 3 parts for ANY author count.
 			list( $drawn, $joiners, $overflow ) = self::person_parts( $authors, 1 );
 			return array(
-				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['volume'], $fields['pages'] ) ),
-				'fixedText' => sprintf( '%s%s (||) ||, pp.||.', self::name_template( $drawn, $joiners ), $overflow ),
+				'parts'     => array_merge( $drawn, array( $fields['year'], $fields['volume'] ) ),
+				'fixedText' => sprintf( '%s%s (||) ||, pp.%s.', self::name_template( $drawn, $joiners ), $overflow, $fields['pages'] ),
 			);
 		}
 		if ( 'author_year_issue' === $design ) {
@@ -701,9 +720,29 @@ class Citex_Reference_Rules {
 			);
 		}
 		if ( 'year_volume_issue_pages' === $design ) {
+			// A plain fact list, not styled as a Harvard fragment (same
+			// style as author_year_issue/author_year_journal above) — pages
+			// stays a bare number range with no "pp." prefix, exactly as it
+			// always has been for this design. Pages is baked into
+			// fixedText as literal text (see this design's own docblock
+			// entry in journal_article_designs()), not drawn, so only
+			// year/volume/issue are draggable — 3 parts, within the 2-3
+			// part rule.
 			return array(
-				'parts'     => array( $fields['year'], $fields['volume'], $fields['issue'], $fields['pages'] ),
-				'fixedText' => '|, ||, ||, ||.',
+				'parts'     => array( $fields['year'], $fields['volume'], $fields['issue'] ),
+				'fixedText' => sprintf( '|, ||, ||, %s.', $fields['pages'] ),
+			);
+		}
+		if ( 'volume_issue' === $design ) {
+			// "Volume(Issue)" — the smallest genuine contiguous Harvard
+			// fragment; the real reference continues ", pp.Start-End." from
+			// here but that page range is never shown or tested by this
+			// design at all (unlike the two designs above, which still
+			// bake pages in as literal text) — this is the design that
+			// actually exercises the new 2-part floor.
+			return array(
+				'parts'     => array( $fields['volume'], $fields['issue'] ),
+				'fixedText' => '|(||)',
 			);
 		}
 		// full_reference (MCQ-only — see journal_article_dragdrop_designs()):
@@ -1037,6 +1076,12 @@ class Citex_Reference_Rules {
 			// "Year, Volume, Issue, Pages." — a plain fact list, no author.
 			return '/^\d{4},\s+\d+,\s+\d+,\s+\d+-\d+\.$/u';
 		}
+		if ( 'volume_issue' === $design ) {
+			// "Volume(Issue)" — no trailing full stop, no page range at
+			// all: the real reference continues straight into
+			// ", pp.Start-End." (same reasoning as journal_volume_issue).
+			return '/^\d+\(\d+\)$/u';
+		}
 		// An unrecognised design id must never accidentally match
 		// everything — fail closed, not open.
 		return '/(?!)/';
@@ -1154,12 +1199,13 @@ class Citex_Reference_Rules {
 	private static function journal_article_partial_mcq_stem( $design ) {
 		$stems = array(
 			'author_only'              => 'Which of the following correctly formats this author\'s name for the Harvard reference list?',
-			'author_year_volume_pages' => 'Which of the following correctly identifies the author(s), year, volume and page range for the Harvard reference list?',
+			'author_year_volume_pages' => 'Which of the following correctly identifies the author(s), year and volume for the Harvard reference list?',
 			'author_year_issue'        => 'Which of the following correctly identifies the author(s), year and issue for the Harvard reference list?',
 			'author_year_journal'      => 'Which of the following correctly identifies the author(s), year and journal title for the Harvard reference list?',
 			'volume_issue_pages'       => 'Which of the following correctly formats the volume, issue and page range for the Harvard reference list?',
 			'journal_volume_issue'     => 'Which of the following correctly formats the journal title, volume and issue for the Harvard reference list?',
-			'year_volume_issue_pages'  => 'Which of the following correctly identifies the year, volume, issue and page range for the Harvard reference list?',
+			'year_volume_issue_pages'  => 'Which of the following correctly identifies the year, volume and issue for the Harvard reference list?',
+			'volume_issue'             => 'Which of the following correctly formats the volume and issue for the Harvard reference list?',
 		);
 		return $stems[ $design ] ?? null;
 	}

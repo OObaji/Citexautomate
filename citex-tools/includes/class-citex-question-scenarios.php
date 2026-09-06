@@ -196,29 +196,34 @@ class Citex_Question_Scenarios {
 	 * regardless of which of these is assigned (see
 	 * Citex_Generated_Validator::validate_journal_article_consistency()).
 	 *
-	 * Variation (requirement 6: never test the same 3-4 fields every
+	 * Variation (requirement 6: never test the same 2-3 fields every
 	 * question): the four author-count buckets deliberately rotate across
 	 * THREE different field combinations (author_year_volume_pages for 1
 	 * and 4+ authors, author_year_issue for 2, author_year_journal for 3),
-	 * and three further buckets test combinations that don't involve the
+	 * and four further buckets test combinations that don't involve the
 	 * author at all (volume_issue_pages, journal_volume_issue,
-	 * year_volume_issue_pages) — so the diversity engine's least-used-first
-	 * selection naturally spreads batches across every learning target in
-	 * requirement 6's list (author formatting/order, year, journal title,
-	 * volume, issue, page range) rather than always the same fields.
-	 * 'full_reference' (all 7 fields, MCQ-only) and 'author_initials'
-	 * (single author, MCQ-only) live in mcq_only_scenarios() instead — both
-	 * fall outside the 3-4-part DragDrop range.
+	 * year_volume_issue_pages, volume_issue) — so the diversity engine's
+	 * least-used-first selection naturally spreads batches across every
+	 * learning target in requirement 6's list (author formatting/order,
+	 * year, journal title, volume, issue, page range) rather than always
+	 * the same fields. 'full_reference' (all 7 fields, MCQ-only) and
+	 * 'author_initials' (single author, MCQ-only) live in
+	 * mcq_only_scenarios() instead — both fall outside the 2-3-part
+	 * DragDrop range. Two design ids (author_year_volume_pages,
+	 * year_volume_issue_pages) keep their historical names even though
+	 * pages is no longer one of their draggable parts — see
+	 * Citex_Reference_Rules::journal_article_designs()'s docblock.
 	 */
 	private static function journal_article_buckets() {
 		return array(
-			array( 'id' => 'one_author', 'ruleTested' => 'author_formatting', 'targetCounts' => array( 1 ), 'label' => 'One author (author + year + volume + pages)', 'exerciseDesign' => 'author_year_volume_pages' ),
+			array( 'id' => 'one_author', 'ruleTested' => 'author_formatting', 'targetCounts' => array( 1 ), 'label' => 'One author (author + year + volume)', 'exerciseDesign' => 'author_year_volume_pages' ),
 			array( 'id' => 'two_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 2 ), 'label' => 'Two authors (author + year + issue)', 'exerciseDesign' => 'author_year_issue' ),
 			array( 'id' => 'three_authors', 'ruleTested' => 'author_joining', 'targetCounts' => array( 3 ), 'label' => 'Three authors (author + year + journal)', 'exerciseDesign' => 'author_year_journal' ),
-			array( 'id' => 'four_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4, 5, 6 ), 'label' => 'Four or more authors (author + year + volume + pages)', 'exerciseDesign' => 'author_year_volume_pages' ),
+			array( 'id' => 'four_or_more_authors', 'ruleTested' => 'reference_list_all_authors', 'targetCounts' => array( 4, 5, 6 ), 'label' => 'Four or more authors (author + year + volume)', 'exerciseDesign' => 'author_year_volume_pages' ),
 			array( 'id' => 'volume_issue_pages', 'ruleTested' => 'volume_issue_pages_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Volume/issue/page range structure', 'exerciseDesign' => 'volume_issue_pages' ),
 			array( 'id' => 'journal_volume_issue', 'ruleTested' => 'journal_title_placement', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Journal title, volume and issue', 'exerciseDesign' => 'journal_volume_issue' ),
-			array( 'id' => 'year_volume_issue_pages', 'ruleTested' => 'year_volume_issue_pages_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Year, volume, issue and page range', 'exerciseDesign' => 'year_volume_issue_pages' ),
+			array( 'id' => 'year_volume_issue_pages', 'ruleTested' => 'year_volume_issue_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Year, volume and issue', 'exerciseDesign' => 'year_volume_issue_pages' ),
+			array( 'id' => 'volume_issue', 'ruleTested' => 'volume_issue_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Volume and issue', 'exerciseDesign' => 'volume_issue' ),
 		);
 	}
 
