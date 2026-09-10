@@ -48,20 +48,20 @@ class Citex_Reference_Rules {
 	 * part count outside this range even if the generation-time check were
 	 * ever bypassed.
 	 */
-	const JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS = 2;
+	const JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS = 3;
 	const JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS = 3;
 
 	/**
 	 * HARD RULE for Book DragDrop questions (never MCQ): every generated
-	 * question must draw between 3 and 4 draggable Question Parts, no
-	 * fewer, no more — Citex_Book_Dragdrop_Parts::select_parts() only ever
-	 * produces a selection within this range. Enforced independently at
-	 * validation time (Citex_Generated_Validator::validate_dragdrop()'s
-	 * Book-only block), mirroring JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/
-	 * MAX_PARTS's existing pattern.
+	 * question must draw exactly 3 draggable Question Parts, no fewer, no
+	 * more — Citex_Book_Dragdrop_Parts::select_parts() only ever produces a
+	 * 3-part selection. Enforced independently at validation time
+	 * (Citex_Generated_Validator::validate_dragdrop()'s Book-only block),
+	 * mirroring JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/MAX_PARTS's existing
+	 * pattern (every category's DragDrop hard rule is exactly 3 parts).
 	 */
 	const BOOK_DRAGDROP_MIN_PARTS = 3;
-	const BOOK_DRAGDROP_MAX_PARTS = 4;
+	const BOOK_DRAGDROP_MAX_PARTS = 3;
 
 	public static function categories() {
 		return array( self::CATEGORY_BOOK, self::CATEGORY_EDITED_BOOK, self::CATEGORY_JOURNAL_ARTICLE, self::CATEGORY_WEBSITE );
@@ -266,7 +266,7 @@ class Citex_Reference_Rules {
 	 * Breaks a list of people (authors/editors) into up to $max individual
 	 * draggable Question Parts — the mechanism that lets DragDrop show
 	 * "individual names ... as question parts" (never one joined
-	 * multi-person chunk) while every design still lands on exactly 3-4
+	 * multi-person chunk) while every design still lands on exactly 3
 	 * total parts. Any person beyond $max is folded into $overflow, a
 	 * correctly-joined literal continuation meant to be appended into
 	 * fixedText as ordinary (non-draggable) text — so the reconstructed
@@ -362,42 +362,28 @@ class Citex_Reference_Rules {
 	 * slot into.
 	 *
 	 * Book is NOT handled here — its DragDrop shape is built dynamically,
-	 * per question, by Citex_Book_Dragdrop_Parts (a 3-4 part selection from
-	 * a wider pool that includes the joining word "and" and punctuation,
-	 * not just whole bibliographic fields), replacing the fixed
-	 * catalogue this method used to serve for it.
+	 * per question, by Citex_Book_Dragdrop_Parts (a 3-part selection from a
+	 * wider pool that includes the joining word "and", not just whole
+	 * bibliographic fields), replacing the fixed catalogue this method used
+	 * to serve for it.
 	 *
-	 * Edited Book's DEFAULT design (null, or the id returned by
-	 * edited_book_dragdrop_designs()[0]) is unchanged from before this
-	 * plugin ever varied place/publisher: the editor, designation
-	 * ("(ed.)"/"(eds)"), year and title are draggable; place and publisher
-	 * are baked into the fixed template directly, from the record. It
-	 * keeps its designation as its own dedicated part always, and draws
-	 * only the FIRST editor as an individual part (person_parts( $editors, 1 )
-	 * ) plus designation, year and title — always exactly 4 parts, for any
-	 * editor count; a 2nd+ editor is folded into fixedText as a correct,
-	 * non-draggable continuation (person_parts()'s overflow).
-	 *
-	 * Any OTHER $design id from edited_book_dragdrop_designs() swaps year
-	 * for place or publisher (see edited_book_dragdrop_shape_variant())
-	 * so not every generated question tests the same fields — see
-	 * Citex_AI_V2::normalise_edited_book_item() for where a design is
+	 * Edited Book routes every design (including the DEFAULT, null or the
+	 * id returned by edited_book_dragdrop_designs()[0]) through
+	 * edited_book_dragdrop_shape_variant() — every design draws the editor
+	 * (as one combined chip, or split into surname/initials for
+	 * editor_split_designation) and its designation ("(ed.)"/"(eds)",
+	 * never traded away — this category's own defining rule, always
+	 * tested), plus exactly ONE further field (year, title, place, or
+	 * publisher) so every design stays at exactly 3 parts — see
+	 * edited_book_dragdrop_designs()'s own docblock for the full catalogue,
+	 * and Citex_AI_V2::normalise_edited_book_item() for where a design is
 	 * actually picked, at random, per question.
 	 *
 	 * @return array{parts: string[], fixedText: string}
 	 */
 	public static function dragdrop_shape( $category, array $fields, $design = null ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
-			$editors = $fields['editors'];
-			if ( in_array( $design, self::edited_book_dragdrop_variant_designs(), true ) ) {
-				return self::edited_book_dragdrop_shape_variant( $design, $editors, $fields );
-			}
-			$designation = self::designation_for_editor_count( count( $editors ) );
-			list( $drawn, $joiners, $overflow ) = self::person_parts( $editors, 1 );
-			return array(
-				'parts'     => array_merge( $drawn, array( $designation, $fields['year'], $fields['title'] ) ),
-				'fixedText' => sprintf( '%s%s (||) (||) ||. %s: %s.', self::name_template( $drawn, $joiners ), $overflow, $fields['place'], $fields['publisher'] ),
-			);
+			return self::edited_book_dragdrop_shape_variant( $design ?: self::edited_book_dragdrop_designs()[0], $fields['editors'], $fields );
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return self::journal_article_dragdrop_shape( $fields, $design );
@@ -411,35 +397,31 @@ class Citex_Reference_Rules {
 	/**
 	 * Edited Book's DragDrop "exercise design" catalogue — a fixed
 	 * catalogue of author/field-swap designs (Book's own equivalent
-	 * catalogue was replaced by Citex_Book_Dragdrop_Parts's dynamic 2-4
-	 * part selection — see dragdrop_shape()'s docblock). The designation
+	 * catalogue was replaced by Citex_Book_Dragdrop_Parts's dynamic 3-part
+	 * selection — see dragdrop_shape()'s docblock). The designation
 	 * ("(ed.)"/"(eds)") part is never traded away (it is this category's
-	 * own defining rule, always tested):
-	 * - editor_designation_year_title (baseline, unchanged): editor,
-	 *   designation, year, title.
-	 * - editor_designation_title_place: editor, designation, title, place —
-	 *   year and publisher baked into fixedText.
-	 * - editor_designation_title_publisher: editor, designation, title,
-	 *   publisher — year and place baked into fixedText.
-	 * - editor_split_designation_title: surname, initials, designation,
-	 *   title — the drawn editor as two separate parts instead of one
-	 *   combined "Surname, I." chip; year and both place/publisher baked
-	 *   into fixedText, since splitting the name already uses the 4th slot
+	 * own defining rule, always tested) — every design draws it plus the
+	 * editor, leaving room for exactly ONE further field so every design
+	 * stays at exactly 3 parts (the hard, category-wide DragDrop rule):
+	 * - editor_designation_year (baseline): editor, designation, year —
+	 *   title/place/publisher baked into fixedText.
+	 * - editor_designation_title: editor, designation, title — year/place/
+	 *   publisher baked into fixedText.
+	 * - editor_designation_place: editor, designation, place — year/title/
+	 *   publisher baked into fixedText.
+	 * - editor_designation_publisher: editor, designation, publisher —
+	 *   year/title/place baked into fixedText.
+	 * - editor_split_designation: surname, initials, designation — the
+	 *   drawn editor as two separate parts instead of one combined
+	 *   "Surname, I." chip, already filling the 3-part budget on its own
 	 *   (designation can never be traded away, so there is no room left for
-	 *   place/publisher too in a split design).
-	 * Every design here stays at exactly 4 parts.
+	 *   a further field in a split design); year/title/place/publisher all
+	 *   baked into fixedText.
 	 *
 	 * @return string[] design ids, baseline first.
 	 */
 	public static function edited_book_dragdrop_designs() {
-		return array( 'editor_designation_year_title', 'editor_designation_title_place', 'editor_designation_title_publisher', 'editor_split_designation_title' );
-	}
-
-	/**
-	 * @return string[]
-	 */
-	private static function edited_book_dragdrop_variant_designs() {
-		return array_values( array_diff( self::edited_book_dragdrop_designs(), array( 'editor_designation_year_title' ) ) );
+		return array( 'editor_designation_year', 'editor_designation_title', 'editor_designation_place', 'editor_designation_publisher', 'editor_split_designation' );
 	}
 
 	/**
@@ -447,10 +429,11 @@ class Citex_Reference_Rules {
 	 */
 	public static function edited_book_dragdrop_design_fields( $design ) {
 		$map = array(
-			'editor_designation_year_title'      => array( 'editors', 'designation', 'year', 'title' ),
-			'editor_designation_title_place'     => array( 'editors', 'designation', 'title', 'place' ),
-			'editor_designation_title_publisher' => array( 'editors', 'designation', 'title', 'publisher' ),
-			'editor_split_designation_title'     => array( 'editors', 'designation', 'title' ),
+			'editor_designation_year'      => array( 'editors', 'designation', 'year' ),
+			'editor_designation_title'     => array( 'editors', 'designation', 'title' ),
+			'editor_designation_place'     => array( 'editors', 'designation', 'place' ),
+			'editor_designation_publisher' => array( 'editors', 'designation', 'publisher' ),
+			'editor_split_designation'     => array( 'editors', 'designation' ),
 		);
 		return $map[ $design ] ?? null;
 	}
@@ -458,16 +441,16 @@ class Citex_Reference_Rules {
 	/**
 	 * Edited Book counterpart to book_dragdrop_design_for() — same
 	 * seeded-but-unpredictable selection, weighted so the baseline is
-	 * picked half the time and each of the 3 variety designs a further
-	 * sixth.
+	 * picked a third of the time and each of the 4 variety designs a
+	 * further sixth.
 	 *
 	 * @param string|int $seed Typically the question's own id (e.g. "EB04").
 	 * @return string design id.
 	 */
 	public static function edited_book_dragdrop_design_for( $seed ) {
 		$weighted = array_merge(
-			array_fill( 0, 3, 'editor_designation_year_title' ),
-			array( 'editor_designation_title_place', 'editor_designation_title_publisher', 'editor_split_designation_title' )
+			array_fill( 0, 2, 'editor_designation_year' ),
+			array( 'editor_designation_title', 'editor_designation_place', 'editor_designation_publisher', 'editor_split_designation' )
 		);
 		$index = abs( crc32( 'edited_book|' . (string) $seed ) ) % count( $weighted );
 		return $weighted[ $index ];
@@ -475,36 +458,51 @@ class Citex_Reference_Rules {
 
 	/**
 	 * Builds the DragDrop shape for any of edited_book_dragdrop_designs()'s
-	 * non-baseline ids. The designation part is always drawn, in every
-	 * design — see this method's own docblock. editor_split_designation_title
-	 * renders the drawn editor as two separate parts (surname, initials)
-	 * instead of one combined chip, reusing person_parts() purely for its
-	 * $overflow computation and Citex's established leading-pipe fragment
-	 * "|, ||" — see book_dragdrop_shape_variant()'s identical treatment for
-	 * Book's own split designs.
+	 * ids. The designation part is always drawn, in every design — see
+	 * this method's own docblock (and edited_book_dragdrop_designs()'s).
+	 * editor_split_designation renders the drawn editor as two separate
+	 * parts (surname, initials) instead of one combined chip, reusing
+	 * person_parts() purely for its $overflow computation and Citex's
+	 * established leading-pipe fragment "|, ||" — see
+	 * book_dragdrop_shape_variant()'s identical treatment for Book's own
+	 * split designs. Every other design draws the editor as one combined
+	 * chip plus designation plus exactly one further field, keeping every
+	 * design at exactly 3 parts.
 	 *
 	 * @return array{parts: string[], fixedText: string}
 	 */
 	private static function edited_book_dragdrop_shape_variant( $design, array $editors, array $fields ) {
 		$designation = self::designation_for_editor_count( count( $editors ) );
 		list( $drawn, $joiners, $overflow ) = self::person_parts( $editors, 1 );
-		if ( 'editor_split_designation_title' === $design ) {
+		if ( 'editor_split_designation' === $design ) {
 			return array(
-				'parts'     => array( $editors[0]['surname'], $editors[0]['initials'], $designation, $fields['title'] ),
-				'fixedText' => sprintf( '|, ||%s (||) (%s) ||. %s: %s.', $overflow, $fields['year'], $fields['place'], $fields['publisher'] ),
+				'parts'     => array( $editors[0]['surname'], $editors[0]['initials'], $designation ),
+				'fixedText' => sprintf( '|, ||%s (||) (%s) %s. %s: %s.', $overflow, $fields['year'], $fields['title'], $fields['place'], $fields['publisher'] ),
 			);
 		}
 		$editor_template = self::name_template( $drawn, $joiners ) . $overflow;
-		if ( 'editor_designation_title_publisher' === $design ) {
+		if ( 'editor_designation_title' === $design ) {
 			return array(
-				'parts'     => array_merge( $drawn, array( $designation, $fields['title'], $fields['publisher'] ) ),
-				'fixedText' => sprintf( '%s (||) (%s) ||. %s: ||.', $editor_template, $fields['year'], $fields['place'] ),
+				'parts'     => array_merge( $drawn, array( $designation, $fields['title'] ) ),
+				'fixedText' => sprintf( '%s (||) (%s) ||. %s: %s.', $editor_template, $fields['year'], $fields['place'], $fields['publisher'] ),
 			);
 		}
-		// 'editor_designation_title_place'.
+		if ( 'editor_designation_place' === $design ) {
+			return array(
+				'parts'     => array_merge( $drawn, array( $designation, $fields['place'] ) ),
+				'fixedText' => sprintf( '%s (||) (%s) %s. ||: %s.', $editor_template, $fields['year'], $fields['title'], $fields['publisher'] ),
+			);
+		}
+		if ( 'editor_designation_publisher' === $design ) {
+			return array(
+				'parts'     => array_merge( $drawn, array( $designation, $fields['publisher'] ) ),
+				'fixedText' => sprintf( '%s (||) (%s) %s. %s: ||.', $editor_template, $fields['year'], $fields['title'], $fields['place'] ),
+			);
+		}
+		// 'editor_designation_year' (baseline).
 		return array(
-			'parts'     => array_merge( $drawn, array( $designation, $fields['title'], $fields['place'] ) ),
-			'fixedText' => sprintf( '%s (||) (%s) ||. ||: %s.', $editor_template, $fields['year'], $fields['publisher'] ),
+			'parts'     => array_merge( $drawn, array( $designation, $fields['year'] ) ),
+			'fixedText' => sprintf( '%s (||) (||) %s. %s: %s.', $editor_template, $fields['title'], $fields['place'], $fields['publisher'] ),
 		);
 	}
 
@@ -512,7 +510,7 @@ class Citex_Reference_Rules {
 	 * Journal Article's catalogue of DragDrop/MCQ "exercise designs".
 	 *
 	 * HARD RULE (see JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/MAX_PARTS): every
-	 * DragDrop design below produces EXACTLY 2 or 3 draggable Question
+	 * DragDrop design below produces EXACTLY 3 draggable Question
 	 * Parts, for ANY real author count — never fewer, never more. This is
 	 * only achievable because the whole author list (1 author or several)
 	 * is always ONE joined chip (e.g. "Bennett, S." or "Bennett, S., Maton,
@@ -524,16 +522,16 @@ class Citex_Reference_Rules {
 	 * author counts; the mobile-suitability length gate below is the
 	 * backstop against a genuinely oversized real name list.
 	 *
-	 * DragDrop-eligible designs (each names its 2-3 tested facts). Two
-	 * design ids keep their historical name even though they no longer
-	 * draw every field their name suggests (renaming would have meant
-	 * threading a new id through the scenario catalogue, the prompt notes,
-	 * and every test that exercises them, for no behavioural benefit) — the
-	 * dropped field stays in fixedText as ordinary literal text, exactly
-	 * like every other non-tested field on every design:
+	 * DragDrop-eligible designs (each names its 3 tested facts). Two design
+	 * ids keep their historical name even though they no longer draw every
+	 * field their name suggests (renaming would have meant threading a new
+	 * id through the scenario catalogue, the prompt notes, and every test
+	 * that exercises them, for no behavioural benefit) — the dropped field
+	 * stays in fixedText as ordinary literal text, exactly like every other
+	 * non-tested field on every design:
 	 * - author_year_volume_pages (3 parts, despite the name): author(s),
 	 *   year, volume — pages is baked into fixedText as literal text, not
-	 *   drawn, so the total stays within the 2-3 part rule.
+	 *   drawn.
 	 * - author_year_issue (3 parts): author(s), year, issue.
 	 * - author_year_journal (3 parts): author(s), year, journal title.
 	 * - volume_issue_pages (3 parts): volume, issue, pages — a genuine
@@ -544,10 +542,6 @@ class Citex_Reference_Rules {
 	 *   all): year, volume, issue — pages is baked into fixedText as
 	 *   literal text, not drawn, for the same reason as
 	 *   author_year_volume_pages above.
-	 * - volume_issue (2 parts): volume, issue only — the smallest genuine
-	 *   contiguous Harvard fragment, "Volume(Issue)", with the page range
-	 *   that always follows it left as literal text. The one design that
-	 *   actually uses the new 2-part floor.
 	 *
 	 * MCQ-only designs (no DragDrop part-count constraint applies — see
 	 * Citex_Question_Scenarios's Journal Article MCQ-only scenarios):
@@ -564,14 +558,14 @@ class Citex_Reference_Rules {
 	 * @return string[] design ids.
 	 */
 	public static function journal_article_designs() {
-		return array( 'author_year_volume_pages', 'author_year_issue', 'author_year_journal', 'volume_issue_pages', 'journal_volume_issue', 'year_volume_issue_pages', 'volume_issue', 'full_reference', 'author_only' );
+		return array( 'author_year_volume_pages', 'author_year_issue', 'author_year_journal', 'volume_issue_pages', 'journal_volume_issue', 'year_volume_issue_pages', 'full_reference', 'author_only' );
 	}
 
 	/**
 	 * Design ids permitted for a Journal Article DragDrop question — every
 	 * design except the two MCQ-only ones (full_reference is too large at
-	 * 7 parts; author_only is too small at 1 part — both violate the 2-3
-	 * part hard rule). Used by Citex_AI_V2's quality gate and
+	 * 7 parts; author_only is too small at 1 part — both violate the
+	 * exactly-3-part hard rule). Used by Citex_AI_V2's quality gate and
 	 * Citex_Generated_Validator to reject a DragDrop candidate assigned an
 	 * MCQ-only design outright, rather than letting it fail some other,
 	 * less specific check.
@@ -602,7 +596,6 @@ class Citex_Reference_Rules {
 			'volume_issue_pages'       => array( 'volume', 'issue', 'pages' ),
 			'journal_volume_issue'     => array( 'journalTitle', 'volume', 'issue' ),
 			'year_volume_issue_pages'  => array( 'year', 'volume', 'issue' ),
-			'volume_issue'             => array( 'volume', 'issue' ),
 			'author_only'              => array( 'authors' ),
 		);
 		return $map[ $design ] ?? null;
@@ -611,18 +604,18 @@ class Citex_Reference_Rules {
 	/**
 	 * Whether a design's reconstructed string is a genuine COMPLETE sentence
 	 * ending in a real Harvard full stop, or a fragment that legitimately
-	 * stops mid-reference with no full stop at that point ('journal_volume_issue's
-	 * "Journal title, Volume(Issue)" and 'volume_issue's "Volume(Issue)" —
-	 * the real reference has no punctuation at either point before
-	 * ", pp.Start-End." follows). Every comma-separated field-combo design
-	 * (author_year_volume_pages, author_year_issue, author_year_journal,
-	 * year_volume_issue_pages) deliberately ends its own list with a real
-	 * full stop, precisely so this never needs special-casing for them.
-	 * Used by Citex_Generated_Validator to avoid flagging a legitimate
-	 * mid-reference fragment as MISSING_FINAL_PERIOD.
+	 * stops mid-reference with no full stop at that point (only
+	 * 'journal_volume_issue's "Journal title, Volume(Issue)" — the real
+	 * reference has no punctuation there before ", pp.Start-End." follows).
+	 * Every comma-separated field-combo design (author_year_volume_pages,
+	 * author_year_issue, author_year_journal, year_volume_issue_pages)
+	 * deliberately ends its own list with a real full stop, precisely so
+	 * this never needs special-casing for them. Used by
+	 * Citex_Generated_Validator to avoid flagging a legitimate mid-reference
+	 * fragment as MISSING_FINAL_PERIOD.
 	 */
 	public static function journal_article_design_skips_final_period( $design ) {
-		return in_array( $design, array( 'journal_volume_issue', 'volume_issue' ), true );
+		return 'journal_volume_issue' === $design;
 	}
 
 	/**
@@ -645,11 +638,12 @@ class Citex_Reference_Rules {
 	 * Journal Article's DragDrop shape, per exercise design. $design of
 	 * null or 'full_reference' reconstructs the complete reference (7
 	 * parts, MCQ-only — see journal_article_dragdrop_designs()). Every
-	 * other design produces EXACTLY 3 or 4 parts (the hard DragDrop rule —
+	 * other design produces EXACTLY 3 parts (the hard DragDrop rule —
 	 * see JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/MAX_PARTS), built from a
 	 * SINGLE joined author-list chip (via join_people() — "Bennett, S." for
 	 * one author, "Bennett, S., Maton, K. and Kervin, L." for three, never
-	 * "et al." and never one chip per author) plus 2-3 other short fields.
+	 * "et al." and never one chip per author) plus 2 other short fields, or
+	 * from 3 non-author fields when the design has no author at all.
 	 * There is no place/publisher to bake into the fixed template for any
 	 * design — this category has none.
 	 */
@@ -672,7 +666,7 @@ class Citex_Reference_Rules {
 			// prefix), just skipping the title/journal/issue segment. Pages
 			// is baked into fixedText as literal text (see this design's
 			// own docblock entry in journal_article_designs()) rather than
-			// drawn, so the design stays within the 2-3 part rule. The
+			// drawn, so the design stays within the exactly-3-part rule. The
 			// WHOLE author list (any real count) is drawn as ONE joined
 			// chip via join_people() — e.g. "Bennett, S." or "Bennett, S.,
 			// Maton, K. and Kervin, L." — never one chip per author and
@@ -730,27 +724,14 @@ class Citex_Reference_Rules {
 			// always has been for this design. Pages is baked into
 			// fixedText as literal text (see this design's own docblock
 			// entry in journal_article_designs()), not drawn, so only
-			// year/volume/issue are draggable — 3 parts, within the 2-3
-			// part rule.
+			// year/volume/issue are draggable — exactly 3 parts.
 			return array(
 				'parts'     => array( $fields['year'], $fields['volume'], $fields['issue'] ),
 				'fixedText' => sprintf( '|, ||, ||, %s.', $fields['pages'] ),
 			);
 		}
-		if ( 'volume_issue' === $design ) {
-			// "Volume(Issue)" — the smallest genuine contiguous Harvard
-			// fragment; the real reference continues ", pp.Start-End." from
-			// here but that page range is never shown or tested by this
-			// design at all (unlike the two designs above, which still
-			// bake pages in as literal text) — this is the design that
-			// actually exercises the new 2-part floor.
-			return array(
-				'parts'     => array( $fields['volume'], $fields['issue'] ),
-				'fixedText' => '|(||)',
-			);
-		}
 		// full_reference (MCQ-only — see journal_article_dragdrop_designs()):
-		// no 3-4-part cap applies, since this is never shown as separate
+		// no 3-part cap applies, since this is never shown as separate
 		// DragDrop chips; kept as a single joined author chip purely to
 		// compute the correct reconstructed STRING for MCQ option
 		// comparison.
@@ -905,7 +886,7 @@ class Citex_Reference_Rules {
 	 * category with no multi-person joining concept at all. Every design
 	 * still reconstructs the SAME complete, correct 6-field reference
 	 * string (author, year, title, publisher, url, accessedDate, in the
-	 * fixed Harvard order) — the choice of design only changes WHICH 3-4
+	 * fixed Harvard order) — the choice of design only changes WHICH 3
 	 * of those 6 fields are draggable Question Parts; the rest are baked
 	 * into fixedText as ordinary (non-draggable) literal text, exactly
 	 * like place/publisher have always been for Book. This means
@@ -925,11 +906,11 @@ class Citex_Reference_Rules {
 		);
 		// Index map: 0=author, 1=year, 2=title, 3=publisher, 4=url, 5=accessedDate.
 		$draggable_map = array(
-			'author_year_title'           => array( 0, 1, 2 ),
-			'author_year_publisher'       => array( 0, 1, 3 ),
-			'title_publisher_url'         => array( 2, 3, 4 ),
-			'year_publisher_url_accessed' => array( 1, 3, 4, 5 ),
-			'full_reference'              => array( 0, 1, 2, 3, 4, 5 ),
+			'author_year_title'      => array( 0, 1, 2 ),
+			'author_year_publisher'  => array( 0, 1, 3 ),
+			'title_publisher_url'    => array( 2, 3, 4 ),
+			'year_publisher_accessed' => array( 1, 3, 5 ),
+			'full_reference'         => array( 0, 1, 2, 3, 4, 5 ),
 		);
 		$draggable = $draggable_map[ $design ] ?? $draggable_map['full_reference'];
 		// The literal connective text that always follows each of the 6
@@ -961,14 +942,20 @@ class Citex_Reference_Rules {
 
 	/**
 	 * Design ids permitted for a Website DragDrop question — every design
-	 * except 'full_reference' (6 parts, MCQ-only — too large for the 3-4
-	 * part hard rule). Mirrors
+	 * except 'full_reference' (6 parts, MCQ-only — too large for the
+	 * 3-part hard rule). 'year_publisher_accessed' keeps year (not url)
+	 * among its 3 fields deliberately: it is the design assigned to the
+	 * 'individual_author_undated' scenario bucket (see
+	 * Citex_Question_Scenarios::website_buckets()), whose whole point is
+	 * testing that the student drags "(n.d.)" correctly — dropping year
+	 * here would leave that rule completely untested by DragDrop for
+	 * undated sources. Mirrors
 	 * Citex_Reference_Rules::journal_article_dragdrop_designs().
 	 *
 	 * @return string[]
 	 */
 	public static function website_dragdrop_designs() {
-		return array( 'author_year_title', 'author_year_publisher', 'title_publisher_url', 'year_publisher_url_accessed' );
+		return array( 'author_year_title', 'author_year_publisher', 'title_publisher_url', 'year_publisher_accessed' );
 	}
 
 	/**
@@ -1079,12 +1066,6 @@ class Citex_Reference_Rules {
 		if ( 'year_volume_issue_pages' === $design ) {
 			// "Year, Volume, Issue, Pages." — a plain fact list, no author.
 			return '/^\d{4},\s+\d+,\s+\d+,\s+\d+-\d+\.$/u';
-		}
-		if ( 'volume_issue' === $design ) {
-			// "Volume(Issue)" — no trailing full stop, no page range at
-			// all: the real reference continues straight into
-			// ", pp.Start-End." (same reasoning as journal_volume_issue).
-			return '/^\d+\(\d+\)$/u';
 		}
 		// An unrecognised design id must never accidentally match
 		// everything — fail closed, not open.
@@ -1209,7 +1190,6 @@ class Citex_Reference_Rules {
 			'volume_issue_pages'       => 'Which of the following correctly formats the volume, issue and page range for the Harvard reference list?',
 			'journal_volume_issue'     => 'Which of the following correctly formats the journal title, volume and issue for the Harvard reference list?',
 			'year_volume_issue_pages'  => 'Which of the following correctly identifies the year, volume and issue for the Harvard reference list?',
-			'volume_issue'             => 'Which of the following correctly formats the volume and issue for the Harvard reference list?',
 		);
 		return $stems[ $design ] ?? null;
 	}

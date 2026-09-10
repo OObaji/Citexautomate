@@ -2,7 +2,7 @@
 /**
  * Regression tests for Citex_Generated_Validator::validate_dragdrop()'s
  * Book-only block — the exact-match check backing Citex_Book_Dragdrop_Parts'
- * dynamic 3-4-part selection (replaces the fixed 8-design catalogue).
+ * dynamic exactly-3-part selection (replaces the fixed 8-design catalogue).
  * Exercises the validator directly against hand-built candidate fixtures,
  * the same style as generated-validator-book-mcq-variant.test.php.
  *
@@ -61,7 +61,7 @@ function has_error_code( $result, $code ) {
 
 $authors = array( array( 'surname' => 'Brown', 'initials' => 'A.', 'fullName' => 'Andrew Brown' ) );
 $fields  = array( 'year' => '2021', 'title' => 'Digital Culture', 'place' => 'London', 'publisher' => 'Routledge' );
-$keys    = array( 'author_0_surname', 'author_0_initials', 'year', 'place' );
+$keys    = array( 'author_0_surname', 'author_0_initials', 'year' );
 $built   = Citex_Book_Dragdrop_Parts::build( $keys, $authors, $fields );
 
 function book_dragdrop_question( $keys, $built, $authors, $fields, $overrides = array() ) {
@@ -98,7 +98,7 @@ check( '[1] the reconstructed value returned is the correct reference', $result[
 // 2. A tampered Question Part fails.
 // ---------------------------------------------------------------------
 $tampered_parts = book_dragdrop_question( $keys, $built, $authors, $fields, array(
-	'questionParts' => array( 'Wrong', $built['parts'][1], $built['parts'][2], $built['parts'][3] ),
+	'questionParts' => array( 'Wrong', $built['parts'][1], $built['parts'][2] ),
 ) );
 $tampered_result = Citex_Generated_Validator::validate( $tampered_parts );
 check( '[2] a tampered Question Part fails', $tampered_result['status'], 'failed' );
@@ -118,7 +118,7 @@ check( '[3] reports BOOK_DRAGDROP_FIXED_TEXT_MISMATCH', has_error_code( $tampere
 // 4. A tampered confusing word fails.
 // ---------------------------------------------------------------------
 $tampered_confusing = book_dragdrop_question( $keys, $built, $authors, $fields, array(
-	'confusingWords' => array( 'Wrong', $built['confusingWords'][1], $built['confusingWords'][2], $built['confusingWords'][3] ),
+	'confusingWords' => array( 'Wrong', $built['confusingWords'][1], $built['confusingWords'][2] ),
 ) );
 $tampered_confusing_result = Citex_Generated_Validator::validate( $tampered_confusing );
 check( '[4] a tampered confusing word fails', $tampered_confusing_result['status'], 'failed' );
@@ -141,14 +141,14 @@ check( '[6] an out-of-range author index fails', $bad_author_index_result['statu
 check( '[6] reports BOOK_DRAGDROP_PARTS_UNKNOWN', has_error_code( $bad_author_index_result, 'book_dragdrop_parts_unknown' ), true );
 
 // ---------------------------------------------------------------------
-// 7. Part count outside 3-4 fails (built directly with an out-of-bounds
-// key list, bypassing select_parts()'s own floor/ceiling).
+// 7. Part count outside exactly 3 fails (built directly with an
+// out-of-bounds key list, bypassing select_parts()'s own fixed count).
 // ---------------------------------------------------------------------
 $one_part_keys = array( 'year' );
 $one_part_built = Citex_Book_Dragdrop_Parts::build( $one_part_keys, $authors, $fields );
 $one_part_question = book_dragdrop_question( $one_part_keys, $one_part_built, $authors, $fields );
 $one_part_result = Citex_Generated_Validator::validate( $one_part_question );
-check( '[7] a 1-part selection fails the 3-4 part-count bound', $one_part_result['status'], 'failed' );
+check( '[7] a 1-part selection fails the exactly-3 part-count bound', $one_part_result['status'], 'failed' );
 check( '[7] reports BOOK_DRAGDROP_PART_COUNT_OUT_OF_RANGE', has_error_code( $one_part_result, 'book_dragdrop_part_count_out_of_range' ), true );
 
 // ---------------------------------------------------------------------

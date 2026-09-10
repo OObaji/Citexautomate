@@ -143,7 +143,7 @@ $eb_items = array_map( function ( $i ) { return make_edited_book_item( $i, diver
 $eb_unaffected = invoke_normalise( $eb_items, $eb_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'full_reference' );
 check( '[1] Edited Book: normalise() succeeds with the default exercise_design', is_wp_error( $eb_unaffected ), false );
 if ( ! is_wp_error( $eb_unaffected ) ) {
-	check( '[1] Edited Book: unaffected by default keeps the original baseline shape', $eb_unaffected[0]['questionParts'], array( 'Vance, C.', 'ed.', '2019', $eb_unaffected[0]['bookTitle'] ) );
+	check( '[1] Edited Book: unaffected by default keeps the original baseline shape', $eb_unaffected[0]['questionParts'], array( 'Vance, C.', 'ed.', '2019' ) );
 }
 
 // ---------------------------------------------------------------------

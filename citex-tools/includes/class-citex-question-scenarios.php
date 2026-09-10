@@ -107,7 +107,7 @@ class Citex_Question_Scenarios {
 			return array(
 				// author_initials: a single author's "Surname, I." tested in
 				// isolation (design 'author_only'). Deliberately MCQ-only —
-				// a 1-part answer could never satisfy the hard 3-4-part
+				// a 1-part answer could never satisfy the hard exactly-3-part
 				// DragDrop rule (see Citex_Reference_Rules::
 				// JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS), but MCQ has no such
 				// constraint since it tests one meaningful decision, not a
@@ -116,7 +116,7 @@ class Citex_Question_Scenarios {
 				// full_reference: the original "select the correct complete
 				// reference" MCQ mechanic — kept exactly as before.
 				// Deliberately MCQ-only — its 7-part shape is far outside
-				// the hard 3-4-part DragDrop rule, and MCQ's options are,
+				// the hard exactly-3-part DragDrop rule, and MCQ's options are,
 				// unavoidably, complete reference strings regardless.
 				array( 'id' => 'full_reference', 'ruleTested' => 'full_reference_construction', 'targetCounts' => array( 1, 2, 3, 4, 5 ), 'label' => 'Full reference (all fields)', 'exerciseDesign' => 'full_reference' ),
 			);
@@ -196,19 +196,19 @@ class Citex_Question_Scenarios {
 	 * regardless of which of these is assigned (see
 	 * Citex_Generated_Validator::validate_journal_article_consistency()).
 	 *
-	 * Variation (requirement 6: never test the same 2-3 fields every
+	 * Variation (requirement 6: never test the same 3 fields every
 	 * question): the four author-count buckets deliberately rotate across
 	 * THREE different field combinations (author_year_volume_pages for 1
 	 * and 4+ authors, author_year_issue for 2, author_year_journal for 3),
-	 * and four further buckets test combinations that don't involve the
+	 * and three further buckets test combinations that don't involve the
 	 * author at all (volume_issue_pages, journal_volume_issue,
-	 * year_volume_issue_pages, volume_issue) — so the diversity engine's
+	 * year_volume_issue_pages) — so the diversity engine's
 	 * least-used-first selection naturally spreads batches across every
 	 * learning target in requirement 6's list (author formatting/order,
 	 * year, journal title, volume, issue, page range) rather than always
 	 * the same fields. 'full_reference' (all 7 fields, MCQ-only) and
 	 * 'author_initials' (single author, MCQ-only) live in
-	 * mcq_only_scenarios() instead — both fall outside the 2-3-part
+	 * mcq_only_scenarios() instead — both fall outside the 3-part
 	 * DragDrop range. Two design ids (author_year_volume_pages,
 	 * year_volume_issue_pages) keep their historical names even though
 	 * pages is no longer one of their draggable parts — see
@@ -223,7 +223,6 @@ class Citex_Question_Scenarios {
 			array( 'id' => 'volume_issue_pages', 'ruleTested' => 'volume_issue_pages_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Volume/issue/page range structure', 'exerciseDesign' => 'volume_issue_pages' ),
 			array( 'id' => 'journal_volume_issue', 'ruleTested' => 'journal_title_placement', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Journal title, volume and issue', 'exerciseDesign' => 'journal_volume_issue' ),
 			array( 'id' => 'year_volume_issue_pages', 'ruleTested' => 'year_volume_issue_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Year, volume and issue', 'exerciseDesign' => 'year_volume_issue_pages' ),
-			array( 'id' => 'volume_issue', 'ruleTested' => 'volume_issue_structure', 'targetCounts' => array( 1, 2, 3 ), 'label' => 'Volume and issue', 'exerciseDesign' => 'volume_issue' ),
 		);
 	}
 
@@ -245,15 +244,15 @@ class Citex_Question_Scenarios {
 	 */
 	private static function website_buckets() {
 		// exerciseDesign routes each bucket to one of
-		// Citex_Reference_Rules::website_dragdrop_designs()' 3-4-part
+		// Citex_Reference_Rules::website_dragdrop_designs()' 3-part
 		// field-subset shapes (see that method's docblock) — every design
 		// still reconstructs the same complete, correct 6-field reference,
-		// just varying which 3-4 fields are draggable. The undated bucket
+		// just varying which 3 fields are draggable. The undated bucket
 		// is paired with the one design that draggable-tests the year
 		// field, since that is exactly where the "n.d." mechanic is tested.
 		return array(
 			array( 'id' => 'individual_author_dated', 'ruleTested' => 'date_handling', 'targetCounts' => array( 1 ), 'label' => 'Individual author, dated', 'exerciseDesign' => 'author_year_title' ),
-			array( 'id' => 'individual_author_undated', 'ruleTested' => 'date_handling', 'targetCounts' => array( 1 ), 'label' => 'Individual author, undated (n.d.)', 'exerciseDesign' => 'year_publisher_url_accessed' ),
+			array( 'id' => 'individual_author_undated', 'ruleTested' => 'date_handling', 'targetCounts' => array( 1 ), 'label' => 'Individual author, undated (n.d.)', 'exerciseDesign' => 'year_publisher_accessed' ),
 			array( 'id' => 'organisation_author_dated', 'ruleTested' => 'author_type', 'targetCounts' => array( 1 ), 'label' => 'Organisation author, dated', 'exerciseDesign' => 'author_year_publisher' ),
 			array( 'id' => 'organisation_author_undated', 'ruleTested' => 'author_type', 'targetCounts' => array( 1 ), 'label' => 'Organisation author, undated (n.d.)', 'exerciseDesign' => 'title_publisher_url' ),
 		);

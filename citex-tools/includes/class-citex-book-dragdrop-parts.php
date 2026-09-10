@@ -4,10 +4,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Book DragDrop's dynamic 3-4-part question builder — replaces the fixed
+ * Book DragDrop's dynamic 3-part question builder — replaces the fixed
  * 8-design catalogue (Citex_Reference_Rules::book_dragdrop_designs() and
  * friends, now removed) with a genuinely dynamic system: every question
- * draws a random subset of 3-4 "parts" from a pool of author name, year,
+ * draws a random subset of exactly 3 "parts" from a pool of author name, year,
  * title, place, publisher, and the joining word "and" — and every wrong
  * "distractor" chip is authored deterministically by Citex, never Gemini
  * (mirrors the Book MCQ variant overhaul's philosophy: Gemini supplies only
@@ -190,7 +190,8 @@ class Citex_Book_Dragdrop_Parts {
 	 * own id (same crc32-seeding pattern as
 	 * Citex_Book_Mcq_Variants::variant_for()):
 	 * 1. Pick a drawn author index (any of count($authors), uniformly).
-	 * 2. Pick a target part count, uniform in {3, 4}.
+	 * 2. The target part count is always exactly 3 (every DragDrop
+	 *    question, across every category, draws exactly 3 parts).
 	 * 3. Pick one "seed" content slot from {author_name, year, title,
 	 *    place, publisher} — guarantees the content floor (every question
 	 *    tests at least one real bibliographic field, never only the
@@ -213,7 +214,7 @@ class Citex_Book_Dragdrop_Parts {
 		$seed         = (string) $seed;
 		$author_count = count( $authors );
 		$drawn_index  = abs( crc32( 'book_dragdrop_author|' . $seed ) ) % max( 1, $author_count );
-		$target_count = 3 + ( abs( crc32( 'book_dragdrop_count|' . $seed ) ) % 2 );
+		$target_count = 3;
 
 		$content_slots = self::content_slots();
 		$seed_slot     = $content_slots[ abs( crc32( 'book_dragdrop_seed|' . $seed ) ) % count( $content_slots ) ];

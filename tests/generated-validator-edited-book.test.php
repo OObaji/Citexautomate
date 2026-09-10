@@ -184,7 +184,7 @@ check( '[3] reconstructedReference matches the spec\'s two-editor example', $goo
 $wrong_designation_for_two = Citex_Generated_Validator::validate(
 	edited_book_dragdrop_question( array(
 		'editors'       => two_editors(),
-		'questionParts' => array( 'Smith, J. and Jones, A.', 'ed.', '2022', 'Digital media and society' ), // WRONG: "ed." for 2 editors
+		'questionParts' => array( 'Smith, J. and Jones, A.', 'ed.', '2022' ), // WRONG: "ed." for 2 editors
 	) )
 );
 check( '[4] using "(ed.)" for two editors FAILS', $wrong_designation_for_two['status'], 'failed' );
@@ -192,7 +192,7 @@ check( '[4] reports EDITED_BOOK_DESIGNATION_MISMATCH', has_error_code( $wrong_de
 
 $wrong_designation_for_one = Citex_Generated_Validator::validate(
 	edited_book_dragdrop_question( array(
-		'questionParts' => array( 'Smith, J.', 'eds', '2022', 'Digital media and society' ), // WRONG: "eds" for 1 editor
+		'questionParts' => array( 'Smith, J.', 'eds', '2022' ), // WRONG: "eds" for 1 editor
 	) )
 );
 check( '[4] using "(eds)" for one editor FAILS', $wrong_designation_for_one['status'], 'failed' );

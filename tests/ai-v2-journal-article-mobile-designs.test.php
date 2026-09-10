@@ -1,14 +1,14 @@
 <?php
 /**
- * Regression tests for the Journal Article DragDrop HARD 3-4-PART RULE
- * (superseding the earlier per-author-chip mobile redesign, which the
+ * Regression tests for the Journal Article DragDrop HARD EXACTLY-3-PART
+ * RULE (superseding the earlier per-author-chip mobile redesign, which the
  * user's real mobile test showed still violated the exercise rules —
  * several designs exceeded 4 parts, and per-author chips made it
- * impossible to ever hit a fixed 3-4-part target once other fields were
+ * impossible to ever hit a fixed part target once other fields were
  * tested too).
  *
  * HARD RULE (Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/
- * MAX_PARTS): every Journal Article DragDrop question has EXACTLY 2 or 3
+ * MAX_PARTS): every Journal Article DragDrop question has EXACTLY 3
  * Question Parts, every placeholder maps to exactly one non-empty part,
  * no part is punctuation-only, no part is oversized, and the whole author
  * list (any real count) is always ONE compact chip (via join_people()) —
@@ -161,15 +161,15 @@ if ( ! is_wp_error( $result_b ) ) {
 }
 
 // =======================================================================
-// C. Fewer than 2 parts (1) -> FAIL. 'author_only' is MCQ-only (1 part);
+// C. Fewer than 3 parts (1) -> FAIL. 'author_only' is MCQ-only (1 part);
 // no real DragDrop-eligible design ever produces exactly 1, so this is
 // exercised via a direct Reference_Rules-level check plus confirming the
 // AI-v2 quality gate independently enforces the same floor for any design
 // a bypassing caller might assign.
 // =======================================================================
-check_true( '[C] Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS is 2', 2 === Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS );
+check_true( '[C] Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS is 3', 3 === Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS );
 $result_c = invoke_normalise( array( $item_base ), array( 'JA03' ), array( 'Exercise 1' ), 'DragDrop', $JA, 1, '', '', 'author_only' );
-check( '[C] a design producing only 1 part (below the 2-3 range) is rejected', is_wp_error( $result_c ), true );
+check( '[C] a design producing only 1 part (below the exactly-3 rule) is rejected', is_wp_error( $result_c ), true );
 check( '[C] rejected because the design is MCQ-only (not DragDrop-eligible)', is_wp_error( $result_c ) ? $result_c->get_error_code() : null, 'citex_ai_journal_article_design_not_dragdrop_eligible' );
 
 // =======================================================================
@@ -182,7 +182,7 @@ check_true( '[D] Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS is 3'
 
 // Directly prove the validator's own explicit range check (requirement 2)
 // independently of which design produced the parts — 5 parts, none of
-// them empty, still fails the hard 3-4 range.
+// them empty, still fails the hard exactly-3 rule.
 $five_parts_question = array(
 	'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop', 'exerciseDesign' => 'author_year_volume_pages',
 	'authors' => $one_author, 'year' => '2020', 'articleTitle' => 'A study of referencing', 'journalTitle' => 'Journal of Studies', 'volume' => '12', 'issue' => '3', 'pages' => '45-52',
@@ -304,24 +304,6 @@ check( '[K] 3-part shape reconstructs correctly', Citex_Reference_Rules::reconst
 check_true( '[K] reconstruction matches its own format regex', 1 === preg_match( Citex_Reference_Rules::format_regex( $JA, 'author_year_volume_pages' ), Citex_Reference_Rules::reconstruct_reference( $shape_k ) ) );
 
 // =======================================================================
-// M. Valid 2-part reconstruction (volume_issue) — the new design added
-// alongside the 2-3 part range, the smallest fragment this category tests.
-// =======================================================================
-$shape_m = Citex_Reference_Rules::dragdrop_shape( $JA, $base_fields, 'volume_issue' );
-check( '[M] 2-part shape has exactly 2 parts', count( $shape_m['parts'] ), 2 );
-check( '[M] 2-part shape reconstructs correctly', Citex_Reference_Rules::reconstruct_reference( $shape_m ), '12(3)' );
-check_true( '[M] reconstruction matches its own format regex', 1 === preg_match( Citex_Reference_Rules::format_regex( $JA, 'volume_issue' ), Citex_Reference_Rules::reconstruct_reference( $shape_m ) ) );
-check( '[M] design fields are exactly volume and issue', Citex_Reference_Rules::journal_article_design_fields( 'volume_issue' ), array( 'volume', 'issue' ) );
-check( '[M] volume_issue is DragDrop-eligible (2-3 part range)', in_array( 'volume_issue', Citex_Reference_Rules::journal_article_dragdrop_designs(), true ), true );
-
-$result_m = invoke_normalise( array( $item_base ), array( 'JA12' ), array( 'Exercise 1' ), 'DragDrop', $JA, 1, 'volume_issue', 'volume_issue_structure', 'volume_issue' );
-check( '[M] a 2-part DragDrop candidate (volume_issue) succeeds end to end', is_wp_error( $result_m ), false );
-if ( ! is_wp_error( $result_m ) ) {
-	check( '[M] exactly 2 Question Parts', count( $result_m[0]['questionParts'] ), 2 );
-	check( '[M] validates and enters the queue as passed', $result_m[0]['validationStatus'], 'passed' );
-}
-
-// =======================================================================
 // L. A generated candidate with an invalid structure is rejected — proven
 // end-to-end via generate_questions()'s own quality-gate retry loop: a
 // scenario/design combination that always violates the hard rule (here,
@@ -347,14 +329,14 @@ foreach ( array( 1, 2, 3, 4, 5 ) as $n ) {
 
 // =======================================================================
 // Variation across learning targets: the Journal Article bucket catalogue
-// spreads across several different field combinations, not the same 3-4
+// spreads across several different field combinations, not the same 3
 // fields every time (requirement 6).
 // =======================================================================
 $dragdrop_scenarios = Citex_Question_Scenarios::catalog( $JA, 'DragDrop' );
 $designs_used = array_unique( array_column( $dragdrop_scenarios, 'exerciseDesign' ) );
 check_true( '[6] the DragDrop scenario catalogue uses more than one distinct design', count( $designs_used ) > 1 );
 foreach ( $dragdrop_scenarios as $scenario ) {
-	check_true( "[1][2] scenario '{$scenario['id']}' uses a DragDrop-eligible (2-3 part) design", in_array( $scenario['exerciseDesign'], Citex_Reference_Rules::journal_article_dragdrop_designs(), true ) );
+	check_true( "[1][2] scenario '{$scenario['id']}' uses a DragDrop-eligible (exactly-3 part) design", in_array( $scenario['exerciseDesign'], Citex_Reference_Rules::journal_article_dragdrop_designs(), true ) );
 }
 
 // =======================================================================
@@ -390,7 +372,7 @@ $mcq_initials = array(
 	),
 );
 $result_initials = invoke_normalise( array( $mcq_initials ), array( 'JA09' ), array( 'Exercise 1' ), 'MCQ', $JA, 1, 'author_initials', 'author_initial_format', 'author_only' );
-check( '[11] "author initials" MCQ (1-part design) still succeeds — MCQ has no 3-4-part floor', is_wp_error( $result_initials ), false );
+check( '[11] "author initials" MCQ (1-part design) still succeeds — MCQ has no exactly-3-part floor', is_wp_error( $result_initials ), false );
 if ( ! is_wp_error( $result_initials ) ) {
 	check( '[11] the correct answer is exactly the author\'s Harvard-formatted name', $result_initials[0]['reconstructedReference'], 'Brown, S.' );
 }

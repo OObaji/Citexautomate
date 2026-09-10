@@ -1,10 +1,15 @@
 <?php
 /**
  * Regression tests for Edited Book's DragDrop "exercise design" variety —
- * swapping year for place or publisher so a generated batch does not test
- * the exact same 3-4 fields every question (per the user's own request:
- * "test either the city or the publisher name... don't do that in every
- * question... don't test the year in every question").
+ * every design produces EXACTLY 3 draggable parts (the plugin-wide "every
+ * DragDrop question has exactly 3 parts" rule): the editor(s) (as one
+ * joined chip, or split into surname/initials for editor_split_designation),
+ * the designation (always drawn, never traded away), and exactly ONE
+ * further fact rotating across the 5 designs (year, title, place,
+ * publisher — or nothing further for editor_split_designation, which
+ * spends its 3rd slot on the split initials instead) — per the user's own
+ * request: "test either the city or the publisher name... don't do that in
+ * every question... don't test the year in every question".
  *
  * Book's own equivalent coverage was removed along with its fixed 8-design
  * catalogue — see tests/reference-rules-book-dragdrop-parts.test.php for
@@ -64,7 +69,7 @@ function reconstruct_from_shape( $shape ) {
 }
 
 // ---------------------------------------------------------------------
-// 1. Edited Book: every declared design produces exactly 4 parts, matching
+// 1. Edited Book: every declared design produces exactly 3 parts, matching
 // placeholder count, reconstructs to the exact same reference regardless
 // of which fields are draggable vs. baked, and always draws the
 // designation as its own part (this category's own defining rule never
@@ -77,30 +82,40 @@ $eb_fields_two = array( 'editors' => array( author( 'Vance', 'C.' ), author( 'Sh
 $expected_eb_reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_two );
 foreach ( Citex_Reference_Rules::edited_book_dragdrop_designs() as $design ) {
 	$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_two, $design );
-	check( "[1] Edited Book design \"$design\" (2 editors) produces exactly 4 parts", count( $shape['parts'] ), 4 );
+	check( "[1] Edited Book design \"$design\" (2 editors) produces exactly 3 parts", count( $shape['parts'] ), 3 );
 	check( "[1] Edited Book design \"$design\" (2 editors) reconstructs to the exact same reference as the baseline", reconstruct_from_shape( $shape ), $expected_eb_reference );
 	check( "[1] Edited Book design \"$design\" always draws the designation as its own part", in_array( 'eds', $shape['parts'], true ), true );
 }
 
 check(
-	'[1] editor_designation_title_place (1 editor): year baked, place drawn, publisher baked',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_title_place' ),
-	array( 'parts' => array( 'Vance, C.', 'ed.', 'Urban Ecology', 'Cambridge' ), 'fixedText' => '| (||) (2019) ||. ||: Polity.' )
+	'[1] editor_designation_year (1 editor, baseline): title/place/publisher baked, year drawn',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_year' ),
+	array( 'parts' => array( 'Vance, C.', 'ed.', '2019' ), 'fixedText' => '| (||) (||) Urban Ecology. Cambridge: Polity.' )
 );
 check(
-	'[1] editor_designation_title_publisher (1 editor): year baked, publisher drawn, place baked',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_title_publisher' ),
-	array( 'parts' => array( 'Vance, C.', 'ed.', 'Urban Ecology', 'Polity' ), 'fixedText' => '| (||) (2019) ||. Cambridge: ||.' )
+	'[1] editor_designation_title (1 editor): year baked, title drawn, place/publisher baked',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_title' ),
+	array( 'parts' => array( 'Vance, C.', 'ed.', 'Urban Ecology' ), 'fixedText' => '| (||) (2019) ||. Cambridge: Polity.' )
 );
 check(
-	'[1] editor_split_designation_title (1 editor): surname/initials split, designation always drawn, year/place/publisher baked',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_split_designation_title' ),
-	array( 'parts' => array( 'Vance', 'C.', 'ed.', 'Urban Ecology' ), 'fixedText' => '|, || (||) (2019) ||. Cambridge: Polity.' )
+	'[1] editor_designation_place (1 editor): year/title baked, place drawn, publisher baked',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_place' ),
+	array( 'parts' => array( 'Vance, C.', 'ed.', 'Cambridge' ), 'fixedText' => '| (||) (2019) Urban Ecology. ||: Polity.' )
 );
 check(
-	'[1] editor_split_designation_title (2 editors): first editor split, 2nd folds in as a literal continuation, designation still for the whole pair',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_two, 'editor_split_designation_title' ),
-	array( 'parts' => array( 'Vance', 'C.', 'eds', 'Urban Ecology' ), 'fixedText' => '|, || and Shaw, D. (||) (2019) ||. Cambridge: Polity.' )
+	'[1] editor_designation_publisher (1 editor): year/title/place baked, publisher drawn',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_publisher' ),
+	array( 'parts' => array( 'Vance, C.', 'ed.', 'Polity' ), 'fixedText' => '| (||) (2019) Urban Ecology. Cambridge: ||.' )
+);
+check(
+	'[1] editor_split_designation (1 editor): surname/initials split, designation always drawn, year/title/place/publisher baked',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_split_designation' ),
+	array( 'parts' => array( 'Vance', 'C.', 'ed.' ), 'fixedText' => '|, || (||) (2019) Urban Ecology. Cambridge: Polity.' )
+);
+check(
+	'[1] editor_split_designation (2 editors): first editor split, 2nd folds in as a literal continuation, designation still for the whole pair',
+	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_two, 'editor_split_designation' ),
+	array( 'parts' => array( 'Vance', 'C.', 'eds' ), 'fixedText' => '|, || and Shaw, D. (||) (2019) Urban Ecology. Cambridge: Polity.' )
 );
 
 // ---------------------------------------------------------------------
@@ -128,7 +143,7 @@ check( '[2] edited_book_dragdrop_design_for() picks more than one distinct desig
 check(
 	'[3] Edited Book: no design argument at all matches the pre-existing baseline exactly',
 	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one ),
-	array( 'parts' => array( 'Vance, C.', 'ed.', '2019', 'Urban Ecology' ), 'fixedText' => '| (||) (||) ||. Cambridge: Polity.' )
+	array( 'parts' => array( 'Vance, C.', 'ed.', '2019' ), 'fixedText' => '| (||) (||) Urban Ecology. Cambridge: Polity.' )
 );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
