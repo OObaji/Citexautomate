@@ -662,13 +662,23 @@ class Citex_Reference_Rules {
 	 * null or 'full_reference' reconstructs the complete reference (7
 	 * parts, MCQ-only — see journal_article_dragdrop_designs()). Every
 	 * other design produces EXACTLY 3 parts (the hard DragDrop rule —
-	 * see JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/MAX_PARTS), built from a
-	 * SINGLE joined author-list chip (via join_people() — "Bennett, S." for
-	 * one author, "Bennett, S., Maton, K. and Kervin, L." for three, never
-	 * "et al." and never one chip per author) plus 2 other short fields, or
-	 * from 3 non-author fields when the design has no author at all.
-	 * There is no place/publisher to bake into the fixed template for any
-	 * design — this category has none.
+	 * see JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS/MAX_PARTS).
+	 *
+	 * The 3 author-testing designs (author_year_volume_pages,
+	 * author_year_issue, author_year_journal) draw only the FIRST author
+	 * individually, via person_parts() — exactly the same "one short chip,
+	 * the rest folded into fixedText as a literal continuation" technique
+	 * already used for Book's own author and Edited Book's editor — rather
+	 * than the WHOLE joined author list as one chip. A real multi-author
+	 * article (routinely 3-6+ authors in the sciences) produced a genuinely
+	 * unusable, multi-line drag chip under the old whole-list approach — a
+	 * real reported bug, fixed the same way Book/Edited Book already avoid
+	 * it. The author-joining rule ("and", never "&"; never "et al.") is
+	 * still fully present in the reconstructed reference text (via the
+	 * literal overflow) and still checked at validation time — it is no
+	 * longer itself a draggable chip for these 3 designs, matching
+	 * Book/Edited Book's own baseline designs, which never draw "and" as a
+	 * chip either.
 	 *
 	 * `confusingWords` is now also computed HERE, deterministically from the
 	 * record's own fields — never Gemini-authored (see the "SHARED
@@ -693,64 +703,51 @@ class Citex_Reference_Rules {
 				'confusingWords' => array(),
 			);
 		}
-		if ( 'author_year_volume_pages' === $design ) {
-			// "Author(s) (Year) Volume, pp.Start-End." — real Harvard
-			// punctuation throughout (parentheses for the year, "pp."
-			// prefix), just skipping the title/journal/issue segment. Pages
-			// is baked into fixedText as literal text (see this design's
-			// own docblock entry in journal_article_designs()) rather than
-			// drawn, so the design stays within the exactly-3-part rule. The
-			// WHOLE author list (any real count) is drawn as ONE joined
-			// chip via join_people() — e.g. "Bennett, S." or "Bennett, S.,
-			// Maton, K. and Kervin, L." — never one chip per author and
-			// never just the first author with the rest left literal; this
-			// is what lets the author-joining rule itself ("and", never
-			// "&") actually be tested by dragging this chip, matching the
-			// class docblock above and journal_article_partial_format_regex()'s
-			// own multi-author-aware regex, both of which have always
-			// assumed a whole-list chip. part_suitability()'s length gate
-			// (Citex_AI_V2::normalise()) is the backstop against a
-			// genuinely oversized real author list.
-			$joined = self::join_people( $authors );
+		if ( in_array( $design, array( 'author_year_volume_pages', 'author_year_issue', 'author_year_journal' ), true ) ) {
+			list( $author_drawn, $author_joiners, $author_overflow ) = self::person_parts( $authors, 1 );
+			$author_template   = self::name_template( $author_drawn, $author_joiners ) . $author_overflow;
+			$other_author_full = isset( $authors[1] ) ? sprintf( '%s, %s', $authors[1]['surname'], $authors[1]['initials'] ) : null;
+			$author_distractor = self::combined_person_distractor( $author_drawn[0], $other_author_full, $authors[0]['fullName'] ?? '', $authors[0]['surname'], $record_seed . '|authors' );
+
+			if ( 'author_year_volume_pages' === $design ) {
+				// "Author (Year) Volume, pp.Start-End." — real Harvard
+				// punctuation throughout (parentheses for the year, "pp."
+				// prefix), just skipping the title/journal/issue segment.
+				// Pages is baked into fixedText as literal text (see this
+				// design's own docblock entry in journal_article_designs())
+				// rather than drawn, so the design stays within the
+				// exactly-3-part rule.
+				return array(
+					'parts'          => array( $author_drawn[0], $fields['year'], $fields['volume'] ),
+					'fixedText'      => sprintf( '%s (||) ||, pp.%s.', $author_template, $fields['pages'] ),
+					'confusingWords' => array(
+						$author_distractor,
+						self::year_distractor( $fields['year'], $record_seed . '|year' ),
+						self::small_integer_distractor( $fields['volume'], $record_seed . '|volume' ),
+					),
+				);
+			}
+			if ( 'author_year_issue' === $design ) {
+				// A plain, unambiguous "fact list" — deliberately NOT styled
+				// like a real Harvard fragment (issue alone is never shown in
+				// its own parentheses immediately after the year in a real
+				// reference; doing so here would misteach that placement).
+				return array(
+					'parts'          => array( $author_drawn[0], $fields['year'], $fields['issue'] ),
+					'fixedText'      => sprintf( '%s, ||, ||.', $author_template ),
+					'confusingWords' => array(
+						$author_distractor,
+						self::year_distractor( $fields['year'], $record_seed . '|year' ),
+						self::small_integer_distractor( $fields['issue'], $record_seed . '|issue' ),
+					),
+				);
+			}
+			// 'author_year_journal'.
 			return array(
-				'parts'          => array( $joined, $fields['year'], $fields['volume'] ),
-				'fixedText'      => sprintf( '| (||) ||, pp.%s.', $fields['pages'] ),
+				'parts'          => array( $author_drawn[0], $fields['year'], $fields['journalTitle'] ),
+				'fixedText'      => sprintf( '%s, ||, ||.', $author_template ),
 				'confusingWords' => array(
-					self::joining_mistake_distractor( $authors, $joined, $record_seed . '|authors' ),
-					self::year_distractor( $fields['year'], $record_seed . '|year' ),
-					self::small_integer_distractor( $fields['volume'], $record_seed . '|volume' ),
-				),
-			);
-		}
-		if ( 'author_year_issue' === $design ) {
-			// A plain, unambiguous "fact list" — deliberately NOT styled
-			// like a real Harvard fragment (issue alone is never shown in
-			// its own parentheses immediately after the year in a real
-			// reference; doing so here would misteach that placement). The
-			// WHOLE author list is drawn as ONE joined chip via
-			// join_people() — see author_year_volume_pages's docblock entry
-			// above for why.
-			$joined = self::join_people( $authors );
-			return array(
-				'parts'          => array( $joined, $fields['year'], $fields['issue'] ),
-				'fixedText'      => '|, ||, ||.',
-				'confusingWords' => array(
-					self::joining_mistake_distractor( $authors, $joined, $record_seed . '|authors' ),
-					self::year_distractor( $fields['year'], $record_seed . '|year' ),
-					self::small_integer_distractor( $fields['issue'], $record_seed . '|issue' ),
-				),
-			);
-		}
-		if ( 'author_year_journal' === $design ) {
-			// The WHOLE author list is drawn as ONE joined chip via
-			// join_people() — see author_year_volume_pages's docblock entry
-			// above for why.
-			$joined = self::join_people( $authors );
-			return array(
-				'parts'          => array( $joined, $fields['year'], $fields['journalTitle'] ),
-				'fixedText'      => '|, ||, ||.',
-				'confusingWords' => array(
-					self::joining_mistake_distractor( $authors, $joined, $record_seed . '|authors' ),
+					$author_distractor,
 					self::year_distractor( $fields['year'], $record_seed . '|year' ),
 					self::pick_from_pool( self::journal_pool(), array( $fields['journalTitle'] ), $record_seed . '|journal' ) ?? 'n.j.',
 				),
@@ -1737,42 +1734,6 @@ class Citex_Reference_Rules {
 			return implode( ' ', $words );
 		}
 		return '' !== $full_name ? $full_name : $surname;
-	}
-
-	/**
-	 * A whole-author-list chip's distractor — the joined list itself is the
-	 * draggable part for Journal Article (never split per-author — see
-	 * journal_article_dragdrop_shape()'s docblock), so its distractors test
-	 * the JOINING rule itself, the single most common real mistake this
-	 * exact chip exists to catch: rotates deterministically between:
-	 * - "&" instead of "and" (only when there are 2+ authors),
-	 * - a comma-throughout join with no "and" at all before the last name
-	 *   (the other common real mistake for 3+ authors), and
-	 * - the Harvard IN-TEXT-CITATION convention ("et al.") wrongly used in
-	 *   the reference list — always eligible, and the fallback for a
-	 *   single-author list that has no "and" to mistake in the first place.
-	 *
-	 * @param array  $people       array<{surname, initials}>, 1 or more — the ORIGINAL person records, never parsed back out of $joined_value, so a comma inside any one person's own "Surname, I." can never be mistaken for a person separator.
-	 * @param string $joined_value The correct joined chip (join_people($people)).
-	 * @param string $seed_key
-	 */
-	private static function joining_mistake_distractor( array $people, $joined_value, $seed_key ) {
-		$has_and = count( $people ) >= 2;
-		$flavor  = abs( crc32( $seed_key . '|flavor' ) ) % ( $has_and ? 3 : 1 );
-		if ( $has_and && 0 === $flavor ) {
-			$candidate = preg_replace( '/ and ([^,]+)$/', ' & $1', $joined_value, 1 );
-			if ( null !== $candidate && $candidate !== $joined_value ) {
-				return $candidate;
-			}
-		}
-		if ( $has_and && 1 === $flavor ) {
-			$candidate = str_replace( ' and ', ', ', $joined_value );
-			if ( $candidate !== $joined_value ) {
-				return $candidate;
-			}
-		}
-		$candidate = sprintf( '%s, %s et al.', $people[0]['surname'], $people[0]['initials'] );
-		return $candidate !== $joined_value ? $candidate : $joined_value . '.';
 	}
 
 	/**

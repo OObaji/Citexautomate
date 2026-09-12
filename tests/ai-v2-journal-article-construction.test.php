@@ -148,20 +148,11 @@ $author_sets = array(
 	4 => array( 'Sarah Mitchell', 'Daniel Evans', 'Tom Brown', 'Ruth Williams' ),
 	5 => array( 'Sarah Mitchell', 'Daniel Evans', 'Tom Brown', 'Ruth Williams', 'Kate Davies' ),
 );
-function expected_joined_authors_chip( array $names ) {
-	$chips = array_map(
-		function ( $name ) {
-			$words   = preg_split( '/\s+/', trim( $name ) );
-			$surname = array_pop( $words );
-			$initial = implode( '', array_map( function ( $w ) { return strtoupper( $w[0] ) . '.'; }, $words ) );
-			return $surname . ', ' . $initial;
-		},
-		$names
-	);
-	if ( 1 === count( $chips ) ) {
-		return $chips[0];
-	}
-	return implode( ', ', array_slice( $chips, 0, -1 ) ) . ' and ' . end( $chips );
+function expected_first_author_chip( array $names ) {
+	$words   = preg_split( '/\s+/', trim( $names[0] ) );
+	$surname = array_pop( $words );
+	$initial = implode( '', array_map( function ( $w ) { return strtoupper( $w[0] ) . '.'; }, $words ) );
+	return $surname . ', ' . $initial;
 }
 
 foreach ( $author_sets as $count => $names ) {
@@ -175,13 +166,15 @@ foreach ( $author_sets as $count => $names ) {
 		$candidate = $result[0];
 		check( "[$count author(s)] category is 'Journal Article'", $candidate['category'], 'Journal Article' );
 		// HARD RULE: the 'author_year_volume_pages' design always produces
-		// EXACTLY 3 parts (the WHOLE joined author list as ONE part + year +
+		// EXACTLY 3 parts (the FIRST author individually as ONE part + year +
 		// volume — pages is baked into fixedText as literal text, not
-		// drawn), for ANY real author count — the whole list is dragged as
-		// a single chip via join_people(), never one chip per author and
-		// never "et al.".
+		// drawn), for ANY real author count — only the first author is
+		// dragged as a chip (person_parts()), the rest folded into fixedText
+		// as a literal continuation, exactly like Book/Edited Book already
+		// do; never one chip per author and never "et al." in the
+		// reconstruction.
 		check( "[$count author(s)] exactly 3 draggable Question Parts, for any author count", count( $candidate['questionParts'] ), 3 );
-		check( "[$count author(s)] the first Question Part is the WHOLE joined author list, not just the first author", $candidate['questionParts'][0], expected_joined_authors_chip( $names ) );
+		check( "[$count author(s)] the first Question Part is only the FIRST author, never the whole joined list", $candidate['questionParts'][0], expected_first_author_chip( $names ) );
 		check( "[$count author(s)] reconstructedReference contains \"et al.\"? (must not)", false !== stripos( $candidate['reconstructedReference'], 'et al' ), false );
 		check( "[$count author(s)] validates and enters the queue as 'passed'", $candidate['validationStatus'], 'passed' );
 	}
@@ -197,7 +190,7 @@ if ( ! is_wp_error( $result_initials ) ) {
 	$c = $result_initials[0];
 	check( '[6] initials correctly derived: "Sarah Mitchell" -> surname "Mitchell", initials "S."', $c['authors'][0]['surname'] . '|' . $c['authors'][0]['initials'], 'Mitchell|S.' );
 	check( '[6] second author too: "Daniel Evans" -> "Evans", "D."', $c['authors'][1]['surname'] . '|' . $c['authors'][1]['initials'], 'Evans|D.' );
-	check( '[6] Question Parts reflect the correctly-derived WHOLE joined author list (never one chip per author)', $c['questionParts'][0], 'Mitchell, S. and Evans, D.' );
+	check( '[6] Question Parts reflect only the correctly-derived FIRST author (never one chip per author, never the whole joined list)', $c['questionParts'][0], 'Mitchell, S.' );
 	check( '[6] the reconstructed reference still names the second author in full', false !== strpos( $c['reconstructedReference'], 'Evans, D.' ), true );
 }
 

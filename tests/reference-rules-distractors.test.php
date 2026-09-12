@@ -80,9 +80,9 @@ $ja_authors_one = array( author( 'Bennett', 'S.' ) );
 $ja_fields      = array( 'year' => '2020', 'articleTitle' => 'A Study', 'journalTitle' => 'Journal of Studies', 'volume' => '12', 'issue' => '3', 'pages' => '45-52' );
 
 $ja_expected = array(
-	'author_year_volume_pages' => array( 'Bennett, S. et al.', '2022', '14' ),
-	'author_year_issue'        => array( 'Bennett, S. et al.', '2022', '4' ),
-	'author_year_journal'      => array( 'Bennett, S. et al.', '2022', 'Cities' ),
+	'author_year_volume_pages' => array( 'Bennett, S', '2022', '14' ),
+	'author_year_issue'        => array( 'Bennett, S', '2022', '4' ),
+	'author_year_journal'      => array( 'Bennett, S', '2022', 'Cities' ),
 	'volume_issue_pages'       => array( '14', '4', '43-50' ),
 	'journal_volume_issue'     => array( 'Cities', '14', '4' ),
 	'year_volume_issue_pages'  => array( '2022', '14', '4' ),
@@ -96,6 +96,31 @@ $mcq_only_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::
 check( '[2] Journal Article "full_reference" (MCQ-only) has empty confusingWords', $mcq_only_shape['confusingWords'], array() );
 $author_only_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, array_merge( $ja_fields, array( 'authors' => $ja_authors_one ) ), 'author_only' );
 check( '[2] Journal Article "author_only" (MCQ-only) has empty confusingWords', $author_only_shape['confusingWords'], array() );
+
+// =======================================================================
+// 2b. CRITICAL — a real reported bug: a multi-author article (routinely
+// 3-6+ authors in the sciences) used to draw the WHOLE joined author list
+// as one chip, producing a genuinely unusable, multi-line drag chip on
+// mobile. The author-testing designs now draw only the FIRST author
+// individually — exactly the same "one short chip, the rest folded into
+// fixedText" technique already used for Book's author and Edited Book's
+// editor — so the draggable chip stays short regardless of author count,
+// while the reconstructed reference still names every author, correctly
+// joined.
+// =======================================================================
+$ja_six_authors = array(
+	author( 'Evans', 'C.' ), author( 'Scott', 'L.' ), author( 'Patel', 'M.' ),
+	author( 'Brooks', 'O.' ), author( 'Flores', 'N.' ), author( 'Wright', 'T.' ),
+);
+$ja_six_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, array_merge( $ja_fields, array( 'authors' => $ja_six_authors ) ), 'author_year_volume_pages' );
+check( '[2b] a 6-author record still draws only the FIRST author as the chip', $ja_six_shape['parts'][0], 'Evans, C.' );
+check_true( '[2b] the draggable author chip stays short regardless of author count', mb_strlen( $ja_six_shape['parts'][0] ) < 20 );
+check(
+	'[2b] the reconstructed reference still correctly joins all 6 authors, with "and" before the last',
+	Citex_Reference_Rules::reconstruct_reference( $ja_six_shape ),
+	'Evans, C., Scott, L., Patel, M., Brooks, O., Flores, N. and Wright, T. (2020) 12, pp.45-52.'
+);
+check_true( '[2b] "et al." never appears in the reconstruction (Harvard reference-list rule always lists every author)', false === stripos( Citex_Reference_Rules::reconstruct_reference( $ja_six_shape ), 'et al' ) );
 
 // =======================================================================
 // 3. Website: hand-verified confusingWords, individual (dated) and
