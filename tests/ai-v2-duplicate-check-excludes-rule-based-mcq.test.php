@@ -15,6 +15,16 @@
  * exclusion for the same reason: neither pattern's reconstructedReference
  * is an actual bibliographic reference.
  *
+ * The same bug, reported separately, hit 3 of Book's 16 'book_mcq_variant'
+ * templates (reference_structure, missing_information,
+ * identify_the_error — see
+ * Citex_Book_Mcq_Variants::book_independent_answer_variants()): their
+ * correctAnswer (stored as reconstructedReference) is also a fixed,
+ * book-independent string ("Author → Year → Title → Place → Publisher",
+ * "Place of publication", "The place and publisher are reversed."), so once
+ * one landed in the pending queue, generation failed every time a later
+ * batch picked the same variant again.
+ *
  * Repo-level only, run with plain
  * `php tests/ai-v2-duplicate-check-excludes-rule-based-mcq.test.php` — not
  * shipped in citex-tools.zip.
@@ -133,6 +143,59 @@ check(
 		array()
 	),
 	null
+);
+
+// ---------------------------------------------------------------------
+// 3b. The exact bug reported for Book MCQ: two book_mcq_variant candidates
+// using the same book-independent-answer variant (in the same batch, or
+// one already pending) must NOT be flagged as a duplicate, for each of the
+// 3 affected variants.
+// ---------------------------------------------------------------------
+foreach ( Citex_Book_Mcq_Variants::book_independent_answer_variants() as $variant ) {
+	$built = Citex_Book_Mcq_Variants::build( $variant, array(
+		'authors'   => array( array( 'surname' => 'Bryman', 'initials' => 'A.', 'fullName' => 'Alan Bryman' ) ),
+		'year'      => '2012',
+		'title'     => 'Social Research Methods',
+		'place'     => 'Oxford',
+		'publisher' => 'Oxford University Press',
+	) );
+	check(
+		"[book_mcq_variant bug repro] two \"$variant\" candidates in the same batch sharing the same fixed answer is NOT a duplicate",
+		invoke_find_duplicate_reference(
+			array(
+				array( 'mcqPattern' => 'book_mcq_variant', 'bookMcqVariant' => $variant, 'reconstructedReference' => $built['correctAnswer'] ),
+				array( 'mcqPattern' => 'book_mcq_variant', 'bookMcqVariant' => $variant, 'reconstructedReference' => $built['correctAnswer'] ),
+			),
+			array()
+		),
+		null
+	);
+	check(
+		"[book_mcq_variant bug repro] a \"$variant\" candidate matching an existing pending fixed answer is NOT a duplicate",
+		invoke_find_duplicate_reference(
+			array( array( 'mcqPattern' => 'book_mcq_variant', 'bookMcqVariant' => $variant, 'reconstructedReference' => $built['correctAnswer'] ) ),
+			array( $built['correctAnswer'] )
+		),
+		null
+	);
+}
+
+// ---------------------------------------------------------------------
+// 3c. An ordinary book_mcq_variant (one whose correctAnswer genuinely is
+// derived from the book record, e.g. "complete_reference") still catches a
+// real duplicate — the fix must not blanket-exempt the whole mcqPattern.
+// ---------------------------------------------------------------------
+$book_variant_reference = 'Bryman, A. (2012) Social Research Methods. Oxford: Oxford University Press.';
+check(
+	'[book_mcq_variant still works] two "complete_reference" candidates with the exact same real reference IS a duplicate',
+	invoke_find_duplicate_reference(
+		array(
+			array( 'mcqPattern' => 'book_mcq_variant', 'bookMcqVariant' => 'complete_reference', 'reconstructedReference' => $book_variant_reference ),
+			array( 'mcqPattern' => 'book_mcq_variant', 'bookMcqVariant' => 'complete_reference', 'reconstructedReference' => $book_variant_reference ),
+		),
+		array()
+	),
+	$book_variant_reference
 );
 
 // ---------------------------------------------------------------------

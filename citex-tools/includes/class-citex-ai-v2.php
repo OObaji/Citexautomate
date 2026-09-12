@@ -261,6 +261,11 @@ class Citex_AI_V2 {
 	 * "duplicates one already in the pending queue" error, since the
 	 * correct rule statement is deliberately the same text every time.
 	 *
+	 * The same class of bug applies to 3 of Book's 16 'book_mcq_variant'
+	 * templates — see Citex_Book_Mcq_Variants::book_independent_answer_variants()
+	 * — whose `correctAnswer` (stored as `reconstructedReference`) is also a
+	 * fixed, book-independent string; those are skipped here too.
+	 *
 	 * @param array    $candidates
 	 * @param string[] $existing_references
 	 * @return string|null
@@ -268,7 +273,11 @@ class Citex_AI_V2 {
 	private static function find_duplicate_reference( $candidates, array $existing_references ) {
 		$seen_in_batch = array();
 		foreach ( $candidates as $candidate ) {
-			if ( in_array( $candidate['mcqPattern'] ?? '', array( 'choose_treatment', 'identify_error' ), true ) ) {
+			$mcq_pattern = $candidate['mcqPattern'] ?? '';
+			if ( in_array( $mcq_pattern, array( 'choose_treatment', 'identify_error' ), true ) ) {
+				continue;
+			}
+			if ( 'book_mcq_variant' === $mcq_pattern && in_array( $candidate['bookMcqVariant'] ?? '', Citex_Book_Mcq_Variants::book_independent_answer_variants(), true ) ) {
 				continue;
 			}
 			$reference = (string) ( $candidate['reconstructedReference'] ?? '' );

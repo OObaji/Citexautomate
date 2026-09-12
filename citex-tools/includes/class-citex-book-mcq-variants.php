@@ -27,6 +27,34 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Citex_Book_Mcq_Variants {
 
 	/**
+	 * Variants whose `correctAnswer` is a fixed, book-independent string —
+	 * identical for every real book, never derived from this record's own
+	 * author/year/title/place/publisher (the STEM still embeds the real
+	 * record; only the answer text itself is generic):
+	 * - reference_structure: "Author → Year → Title → Place → Publisher"
+	 *   (the docblock over build_reference_structure() already calls this
+	 *   variant "Fully static — no book data at all").
+	 * - missing_information: "Place of publication".
+	 * - identify_the_error: "The place and publisher are reversed.".
+	 *
+	 * Citex_AI_V2::find_duplicate_reference() must skip these exactly like
+	 * it already skips 'choose_treatment'/'identify_error' MCQ candidates —
+	 * otherwise a second question using the same variant (in the same
+	 * batch, or already sitting in the pending queue from an earlier
+	 * generation run) always looks like a duplicate reference, since the
+	 * "reference" text is deliberately identical every time. This was a
+	 * real reported bug: once one of these 3 variants landed in the
+	 * pending queue, every later batch that happened to pick the same
+	 * variant again failed generation entirely with a spurious "duplicates
+	 * one already in the pending queue" error.
+	 *
+	 * @return string[] variant ids.
+	 */
+	public static function book_independent_answer_variants() {
+		return array( 'reference_structure', 'missing_information', 'identify_the_error' );
+	}
+
+	/**
 	 * @return string[] the 16 variant ids.
 	 */
 	public static function variants() {
