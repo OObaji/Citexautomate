@@ -121,7 +121,7 @@ check( '[19] a missing final full stop does NOT match', 1 === preg_match( $regex
 check( '[26] id_prefix uses "WR" for Website', Citex_Reference_Rules::id_prefix( $WR ), 'WR' );
 check( 'id_prefix: Book unaffected ("BK")', Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ), 'BK' );
 check( 'id_prefix: Journal Article unaffected ("JA")', Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ), 'JA' );
-check( 'mcq_question_stem mentions "website/web resource"', false !== stripos( Citex_Reference_Rules::mcq_question_stem( $WR ), 'website' ), true );
+check( 'mcq_question_stem mentions "website"', false !== stripos( Citex_Reference_Rules::mcq_question_stem( $WR ), 'website' ), true );
 check( 'mcq_hint mentions individual/organisation and "n.d."', false !== stripos( Citex_Reference_Rules::mcq_hint( $WR ), 'organisation' ) && false !== strpos( Citex_Reference_Rules::mcq_hint( $WR ), 'n.d.' ), true );
 
 // ---------------------------------------------------------------------

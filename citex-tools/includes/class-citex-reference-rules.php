@@ -1304,7 +1304,7 @@ class Citex_Reference_Rules {
 			return $partial_stem ?? 'Which of the following is the correct Harvard reference for a journal article?';
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
-			return 'Which of the following is the correct Harvard reference for a website/web resource?';
+			return 'Which of the following is the correct Harvard reference for a website?';
 		}
 		return 'Which of the following is the correct Harvard reference for a book?';
 	}
