@@ -85,7 +85,7 @@ function web_dragdrop_question( $keys, $built, $author, $fields, $overrides = ar
 			'authors'                => $authors,
 			'organisationName'       => 'organisation' === $author['type'] ? $author['name'] : '',
 			'year'                   => $fields['year'],
-			'title'                  => $fields['title'],
+			'pageTitle'              => $fields['title'],
 			'publisher'              => $fields['publisher'],
 			'url'                    => $fields['url'],
 			'accessedDate'           => $fields['accessedDate'],

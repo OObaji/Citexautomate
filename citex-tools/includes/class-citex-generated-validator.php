@@ -242,7 +242,7 @@ class Citex_Generated_Validator {
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			$web_author_type = (string) ( $question['authorType'] ?? '' );
 			$web_authors_arr = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
-			$web_title       = trim( (string) ( $question['title'] ?? '' ) );
+			$web_title       = trim( (string) ( $question['pageTitle'] ?? '' ) );
 			$has_web_author  = 'individual' === $web_author_type
 				? '' !== trim( (string) ( $web_authors_arr[0]['surname'] ?? '' ) )
 				: ( 'organisation' === $web_author_type && '' !== trim( (string) ( $question['organisationName'] ?? '' ) ) );
@@ -527,7 +527,7 @@ class Citex_Generated_Validator {
 				array(
 					'author'       => $author,
 					'year'         => (string) ( $question['year'] ?? '' ),
-					'title'        => (string) ( $question['title'] ?? '' ),
+					'title'        => (string) ( $question['pageTitle'] ?? '' ),
 					'publisher'    => (string) ( $question['publisher'] ?? '' ),
 					'url'          => (string) ( $question['url'] ?? '' ),
 					'accessedDate' => (string) ( $question['accessedDate'] ?? '' ),
@@ -1673,7 +1673,7 @@ class Citex_Generated_Validator {
 		} elseif ( 'organisation' === $author_type ) {
 			$organisation_name = trim( (string) ( $question['organisationName'] ?? '' ) );
 		}
-		$title = trim( (string) ( $question['title'] ?? '' ) );
+		$title = trim( (string) ( $question['pageTitle'] ?? '' ) );
 
 		if ( '' === $author_type && '' === $title ) {
 			return $errors;
