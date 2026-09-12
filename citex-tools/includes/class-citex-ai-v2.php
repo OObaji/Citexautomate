@@ -1113,17 +1113,9 @@ class Citex_AI_V2 {
 		}
 		return $count;
 	}
-	private static function expected_distractor_count( $difficulty ) {
-		switch ( sanitize_key( $difficulty ) ) {
-			case 'easy': return 2;
-			case 'hard': return 4;
-			default: return 3;
-		}
-	}
 	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null, $target_count = null, $scenario_id = '', $rule_tested = '', $exercise_design = 'full_reference' ) {
 		$category = $category ?: Citex_Reference_Rules::CATEGORY_BOOK;
 		$out = array();
-		$expected_distractors = self::expected_distractor_count( $difficulty );
 		foreach ( $questions as $i => $item ) {
 			if ( ! is_array( $item ) ) { return new WP_Error( 'citex_ai_bad_question', sprintf( __( 'Question %d was not a valid object.', 'citex-tools' ), $i + 1 ) ); }
 			$id = strtoupper( trim( (string) $ids[ $i ] ) ); $year = trim( (string) ( $item['year'] ?? '' ) ); $title = trim( (string) ( $item['bookTitle'] ?? '' ) ); $place = trim( (string) ( $item['place'] ?? '' ) ); $publisher = trim( (string) ( $item['publisher'] ?? '' ) );
@@ -1184,7 +1176,7 @@ class Citex_AI_V2 {
 				}
 				$candidate = 'MCQ' === $type
 					? self::normalise_edited_book_mcq_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty )
-					: self::normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design );
+					: self::normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty );
 			} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
 				$article_title = trim( (string) ( $item['articleTitle'] ?? '' ) );
 				$journal_title = trim( (string) ( $item['journalTitle'] ?? '' ) );
@@ -1218,7 +1210,7 @@ class Citex_AI_V2 {
 				}
 				$candidate = 'MCQ' === $type
 					? self::normalise_journal_article_mcq_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty, $exercise_design )
-					: self::normalise_journal_article_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design );
+					: self::normalise_journal_article_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty );
 			} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 				$author_type = sanitize_key( trim( (string) ( $item['authorType'] ?? '' ) ) );
 				if ( ! in_array( $author_type, array( 'individual', 'organisation' ), true ) ) {
@@ -1282,7 +1274,7 @@ class Citex_AI_V2 {
 
 				$candidate = 'MCQ' === $type
 					? self::normalise_website_mcq_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $scenario, $exercise, $difficulty )
-					: self::normalise_website_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design );
+					: self::normalise_website_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $scenario, $exercise, $difficulty );
 			} else {
 				if ( '' === $scenario || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
 				// Harvard's reference-list rule (confirmed): a Book can
@@ -1811,46 +1803,32 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Edited Book counterpart to normalise_dragdrop_item(). Citex — never
-	 * Gemini — builds the reference, the editor designation ("(ed.)" for
-	 * one editor, "(eds)" for two), and the Question Parts/Fixed Text, via
-	 * Citex_Reference_Rules::build_reference()/dragdrop_shape() — the same
-	 * pluggable layer that also drives Citex_Generated_Validator, so the
-	 * two can never silently disagree about what "correct" looks like for
-	 * this category.
+	 * Citex — not Gemini — authors the ENTIRE Edited Book DragDrop
+	 * question: which 3 parts are drawn (the editor+designation pair is
+	 * always forced; the third is a random pick from
+	 * year/title/place/publisher/"and"), the wrong ("confusing") chip for
+	 * each, Question Parts, and Fixed Text, via
+	 * Citex_Edited_Book_Dragdrop_Parts — the complete reference is always
+	 * shown in full; nothing is ever omitted (replaces the old fixed
+	 * named-design catalogue, which hid every field except its own 3).
+	 * Gemini supplies nothing beyond the canonical record
+	 * ($editors/$year/$title/$place/$publisher) and a non-leaking scenario
+	 * — no distractor text (see Citex_Generated_Validator::validate_dragdrop()'s
+	 * Edited Book block, which recomputes and exact-matches this from the
+	 * stored `dragdropPartKeys` selection).
 	 *
 	 * @return array|WP_Error
 	 */
-	private static function normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design = 'full_reference' ) {
-		$fields = array( 'editors' => $editors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
-		// See normalise_dragdrop_item()'s identical 'random' handling.
-		$edited_book_design = 'random' === $exercise_design ? Citex_Reference_Rules::edited_book_dragdrop_design_for( $id ) : $exercise_design;
-		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $fields, $edited_book_design );
-		$parts = $shape['parts'];
-		$fixed = $shape['fixedText'];
-		// confusingWords is Citex-authored, deterministically, from the
-		// shape above — never Gemini's own $item['confusingWords'] (see
-		// Citex_Reference_Rules::edited_book_dragdrop_shape_variant()'s
-		// docblock) — mirroring normalise_book_dragdrop_item()'s identical
-		// approach, so there is no distractor-count check against
-		// difficulty here: exactly one distractor per drawn part, always.
-		$distractors = $shape['confusingWords'];
-		$count = self::placeholder_count( $fixed ); if ( is_wp_error( $count ) ) { return $count; } if ( count( $parts ) !== $count ) { return new WP_Error( 'citex_ai_bad_placeholders', sprintf( __( 'Question %1$s has %2$d draggable placeholder tokens; %3$d are required.', 'citex-tools' ), $id, $count, count( $parts ) ) ); }
-		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
-		foreach ( $distractors as $distractor ) {
-			$normal = strtolower( trim( $distractor ) );
-			if ( in_array( $normal, $correct_lower, true ) ) { $rejection = self::quality_reject( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
-			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
-			$seen[ $normal ] = true;
+	private static function normalise_edited_book_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty ) {
+		$fields = array( 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
+		$selected_keys = Citex_Edited_Book_Dragdrop_Parts::select_parts( $id, $editors );
+		$built = Citex_Edited_Book_Dragdrop_Parts::build( $selected_keys, $editors, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_edited_book_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build Edited Book DragDrop parts for this record.', 'citex-tools' ), $id ) );
 		}
-		$suitability_reason = Citex_Reference_Rules::part_suitability( $parts, self::configured_part_word_limit() );
-		if ( null !== $suitability_reason ) {
-			$rejection = self::quality_reject( 'citex_ai_part_too_long', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $suitability_reason ) );
-			if ( $rejection ) { return $rejection; }
-		}
-		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $fields );
+		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array_merge( $fields, array( 'editors' => $editors ) ) );
 		$editor_full_names = array_column( $editors, 'fullName' );
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Edited Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'exerciseDesign' => sanitize_key( $edited_book_design ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'initials' => sanitize_text_field( $editor['initials'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Edited Book | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'initials' => sanitize_text_field( $editor['initials'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**
@@ -1917,101 +1895,34 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Journal Article counterpart to normalise_dragdrop_item(). Citex —
-	 * never Gemini — builds the reference and the Question Parts/Fixed Text
-	 * via Citex_Reference_Rules::build_reference()/dragdrop_shape(), the
-	 * same pluggable layer that also drives Citex_Generated_Validator, so
-	 * the two can never silently disagree about what "correct" looks like
-	 * for this category. Unlike Book, the shape is ALWAYS 7 parts (see
-	 * Citex_Reference_Rules::journal_article_dragdrop_shape()) — there is no
-	 * single-author special case.
+	 * Citex — not Gemini — authors the ENTIRE Journal Article DragDrop
+	 * question: which 3 parts are drawn (from author name, year, title,
+	 * journal, volume, issue, pages, and "and"), the wrong ("confusing")
+	 * chip for each, Question Parts, and Fixed Text, via
+	 * Citex_Journal_Article_Dragdrop_Parts — the complete Cite Them Right
+	 * reference is always shown in full; nothing is ever omitted (replaces
+	 * the old fixed named-design catalogue, which hid every field except
+	 * its own 3 — e.g. "Journal, Volume(Issue)" alone, with no
+	 * author/year/title/pages at all). Gemini supplies nothing beyond the
+	 * canonical record ($authors/$year/$article_title/$journal_title/
+	 * $volume/$issue/$pages) and a non-leaking scenario — no distractor
+	 * text (see Citex_Generated_Validator::validate_dragdrop()'s Journal
+	 * Article block, which recomputes and exact-matches this from the
+	 * stored `dragdropPartKeys` selection).
 	 *
 	 * @param array $authors array<{fullName, surname, initials}>, 1 or more.
 	 * @return array|WP_Error
 	 */
-	private static function normalise_journal_article_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design = 'full_reference' ) {
-		$fields = array( 'authors' => $authors, 'year' => $year, 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'pages' => $pages );
-		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields, $exercise_design );
-		$parts = $shape['parts'];
-		$fixed = $shape['fixedText'];
-		$expected_part_count = count( $parts );
-		// MCQ-ONLY DESIGN GUARD — 'full_reference' (7 parts) and
-		// 'author_only' (1 part) are registered MCQ-only (see
-		// Citex_Question_Scenarios' Journal Article MCQ-only scenarios)
-		// precisely because neither can satisfy the hard exactly-3-part
-		// DragDrop rule; reject outright if one is ever assigned to a DragDrop slot
-		// (defence in depth against a scenario-catalogue routing bug).
-		if ( ! in_array( $exercise_design, Citex_Reference_Rules::journal_article_dragdrop_designs(), true ) ) {
-			return new WP_Error( 'citex_ai_journal_article_design_not_dragdrop_eligible', sprintf( __( 'Question %1$s: the "%2$s" exercise design is MCQ-only and cannot be used for a DragDrop question.', 'citex-tools' ), $id, $exercise_design ) );
+	private static function normalise_journal_article_item( $item, $id, $authors, $year, $article_title, $journal_title, $volume, $issue, $pages, $scenario, $exercise, $difficulty ) {
+		$fields = array( 'year' => $year, 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'pages' => $pages );
+		$selected_keys = Citex_Journal_Article_Dragdrop_Parts::select_parts( $id, $authors );
+		$built = Citex_Journal_Article_Dragdrop_Parts::build( $selected_keys, $authors, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_journal_article_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build Journal Article DragDrop parts for this record.', 'citex-tools' ), $id ) );
 		}
-		$count = self::placeholder_count( $fixed ); if ( is_wp_error( $count ) ) { return $count; } if ( $expected_part_count !== $count ) { return new WP_Error( 'citex_ai_bad_placeholders', sprintf( __( 'Question %1$s has %2$d draggable placeholder tokens; exactly %3$d are required for this exercise design.', 'citex-tools' ), $id, $count, $expected_part_count ) ); }
-		// HARD RULE — EXACTLY 3 OR 4 MEANINGFUL PARTS, NEVER FEWER, NEVER
-		// MORE: punctuation is never one of them (see Citex_Reference_Rules::
-		// journal_article_mobile_suitability()'s punctuation-only check
-		// below), and an empty part is never counted as meaningful (checked
-		// explicitly next).
-		if ( count( $parts ) < Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS || count( $parts ) > Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS ) {
-			$rejection = self::quality_reject( 'citex_ai_journal_article_part_count_out_of_range', sprintf( __( 'Question %1$s: this exercise design produces %2$d draggable answer part(s); Journal Article DragDrop questions must have between %3$d and %4$d.', 'citex-tools' ), $id, count( $parts ), Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS, Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS ) );
-			if ( $rejection ) { return $rejection; }
-		}
-		// NO EMPTY PLACEHOLDERS — every Question Part must be non-empty
-		// after trimming; an empty part would mean a placeholder maps to
-		// nothing draggable at all.
-		foreach ( $parts as $index => $part ) {
-			if ( '' === trim( (string) $part ) ) {
-				return new WP_Error( 'citex_ai_journal_article_empty_part', sprintf( __( 'Question %1$s: draggable answer part %2$d is empty.', 'citex-tools' ), $id, $index + 1 ) );
-			}
-		}
-		// No two draggable answer parts may be identical — an ambiguous
-		// pair of interchangeable chips (case/whitespace-insensitive) can
-		// never be genuinely tested by drag-and-drop placement.
-		$seen_parts = array();
-		foreach ( $parts as $part ) {
-			$normal_part = strtolower( trim( (string) $part ) );
-			if ( isset( $seen_parts[ $normal_part ] ) ) {
-				$rejection = self::quality_reject( 'citex_ai_journal_article_duplicate_part', sprintf( __( 'Question %1$s has two identical draggable answer parts: "%2$s".', 'citex-tools' ), $id, $part ) );
-				if ( $rejection ) { return $rejection; }
-			}
-			$seen_parts[ $normal_part ] = true;
-		}
-		// confusingWords is Citex-authored, deterministically, from the
-		// shape above — never Gemini's own $item['confusingWords'] (see
-		// Citex_Reference_Rules::journal_article_dragdrop_shape()'s
-		// docblock) — mirroring normalise_book_dragdrop_item()'s identical
-		// approach, so there is no distractor-count check against
-		// difficulty here: exactly one distractor per drawn part, always.
-		$distractors = $shape['confusingWords'];
-		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
-		foreach ( $distractors as $distractor ) {
-			$normal = strtolower( trim( $distractor ) );
-			if ( in_array( $normal, $correct_lower, true ) ) { $rejection = self::quality_reject( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
-			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
-			$seen[ $normal ] = true;
-		}
-		// MOBILE SUITABILITY — a UX quality-gate check, entirely separate
-		// from correctness validation (see Citex_Reference_Rules::
-		// journal_article_mobile_suitability()'s docblock): fed into the
-		// existing regenerate-with-feedback retry loop exactly like every
-		// other check here, never stored as a "known-bad" candidate.
-		$mobile_reason = Citex_Reference_Rules::part_suitability( $parts, self::configured_part_word_limit() );
-		if ( null !== $mobile_reason ) {
-			$rejection = self::quality_reject( 'citex_ai_journal_article_mobile_unsuitable', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $mobile_reason ) );
-			if ( $rejection ) { return $rejection; }
-		}
-		// The reference this SPECIFIC exercise reconstructs (a full
-		// reference for the 'full_reference' design, or a short segment for
-		// every other design) — computed by
-		// the exact same |/|| algorithm DragDrop itself uses, so the two
-		// can never disagree (see Citex_Reference_Rules::reconstruct_reference()).
-		$reference = Citex_Reference_Rules::reconstruct_reference( $shape );
-		// The COMPLETE canonical reference built from ALL the real source
-		// data, regardless of which part this exercise actually tests —
-		// always retained (never just implied) per the requirement that the
-		// system must keep the full canonical record even when the exercise
-		// tests only a subset of it.
-		$canonical_reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields );
+		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, array_merge( $fields, array( 'authors' => $authors ) ) );
 		$author_full_names = array_column( $authors, 'fullName' );
-		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Journal Article | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'exerciseDesign' => sanitize_key( $exercise_design ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'fixedText' => sanitize_text_field( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'canonicalReference' => sanitize_text_field( $canonical_reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Journal Article | DragDrop | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**
@@ -2103,63 +2014,42 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Citex — never Gemini — builds the reference and the Question Parts/
-	 * Fixed Text via Citex_Reference_Rules::build_reference()/dragdrop_shape(),
-	 * the same pluggable layer that also drives Citex_Generated_Validator, so
-	 * the two can never silently disagree about what "correct" looks like
-	 * for this category. Unlike every other category, there is no author-
-	 * count branching at all — Website's DragDrop shape is always exactly 6
-	 * parts (see Citex_Reference_Rules::website_dragdrop_shape()).
+	 * Citex — not Gemini — authors the ENTIRE Website DragDrop question:
+	 * which 3 of the 6 fields (author/org, year, title, publisher, url,
+	 * accessedDate) are drawn, the wrong ("confusing") chip for each,
+	 * Question Parts, and Fixed Text, via Citex_Website_Dragdrop_Parts —
+	 * the complete reference is always shown in full; nothing is ever
+	 * omitted (replaces the old fixed named-design catalogue, which hid 3
+	 * of the 6 fields entirely). Gemini supplies nothing beyond the
+	 * canonical record ($author/$year/$title/$publisher/$url) and a
+	 * non-leaking scenario — no distractor text, and no accessed date
+	 * (Citex computes that itself, below) — see
+	 * Citex_Generated_Validator::validate_dragdrop()'s Website block, which
+	 * recomputes and exact-matches this from the stored `dragdropPartKeys`
+	 * selection.
 	 *
 	 * @param array $author {type: 'individual'|'organisation', fullName?, surname?, initials?, name?}.
 	 * @return array|WP_Error
 	 */
-	private static function normalise_website_item( $item, $id, $author, $year, $title, $publisher, $url, $scenario, $exercise, $difficulty, $expected_distractors, $exercise_design = 'author_year_title' ) {
+	private static function normalise_website_item( $item, $id, $author, $year, $title, $publisher, $url, $scenario, $exercise, $difficulty ) {
 		$accessed_date = self::current_accessed_date();
-		$fields = array( 'author' => $author, 'year' => $year, 'title' => $title, 'publisher' => $publisher, 'url' => $url, 'accessedDate' => $accessed_date );
-		// MCQ-ONLY DESIGN GUARD — 'full_reference' (6 parts) is registered
-		// MCQ-only (see Citex_Reference_Rules::website_dragdrop_designs())
-		// precisely because it cannot satisfy the hard exactly-3-part
-		// DragDrop rule; reject outright if it is ever assigned to a DragDrop slot.
-		if ( ! in_array( $exercise_design, Citex_Reference_Rules::website_dragdrop_designs(), true ) ) {
-			return new WP_Error( 'citex_ai_website_design_not_dragdrop_eligible', sprintf( __( 'Question %1$s: the "%2$s" exercise design is MCQ-only and cannot be used for a DragDrop question.', 'citex-tools' ), $id, $exercise_design ) );
+		$fields = array( 'year' => $year, 'title' => $title, 'publisher' => $publisher, 'url' => $url, 'accessedDate' => $accessed_date );
+		$selected_keys = Citex_Website_Dragdrop_Parts::select_parts( $id );
+		$built = Citex_Website_Dragdrop_Parts::build( $selected_keys, $author, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_website_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build Website DragDrop parts for this record.', 'citex-tools' ), $id ) );
 		}
-		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields, $exercise_design );
-		$parts = $shape['parts'];
-		$fixed = $shape['fixedText'];
-		// confusingWords is Citex-authored, deterministically, from the
-		// shape above — never Gemini's own $item['confusingWords'] (see
-		// Citex_Reference_Rules::website_dragdrop_shape()'s docblock) —
-		// mirroring normalise_book_dragdrop_item()'s identical approach, so
-		// there is no distractor-count check against difficulty here:
-		// exactly one distractor per drawn part, always.
-		$distractors = $shape['confusingWords'];
-		$count = self::placeholder_count( $fixed ); if ( is_wp_error( $count ) ) { return $count; } if ( count( $parts ) !== $count ) { return new WP_Error( 'citex_ai_bad_placeholders', sprintf( __( 'Question %1$s has %2$d draggable placeholder tokens; exactly %3$d are required for this exercise design.', 'citex-tools' ), $id, $count, count( $parts ) ) ); }
-		$correct_lower = array_map( 'strtolower', array_map( 'trim', $parts ) ); $seen = array();
-		foreach ( $distractors as $distractor ) {
-			$normal = strtolower( trim( $distractor ) );
-			if ( in_array( $normal, $correct_lower, true ) ) { $rejection = self::quality_reject( 'citex_ai_distractor_matches_part', sprintf( __( 'Question %s has a distractor that duplicates a correct Question Part: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
-			if ( isset( $seen[ $normal ] ) ) { $rejection = self::quality_reject( 'citex_ai_duplicate_distractor', sprintf( __( 'Question %s has a duplicate distractor: %s.', 'citex-tools' ), $id, $distractor ) ); if ( $rejection ) { return $rejection; } }
-			$seen[ $normal ] = true;
-		}
-		// PART SUITABILITY — mobile-length/word-count backstop, shared with
-		// every other category (see Citex_Reference_Rules::part_suitability()).
-		$suitability_reason = Citex_Reference_Rules::part_suitability( $parts, self::configured_part_word_limit() );
-		if ( null !== $suitability_reason ) {
-			$rejection = self::quality_reject( 'citex_ai_part_too_long', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $suitability_reason ) );
-			if ( $rejection ) { return $rejection; }
-		}
-		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields );
+		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_WEBSITE, array_merge( $fields, array( 'author' => $author ) ) );
 		return array(
 			'key' => wp_generate_uuid4(), 'questionId' => $id,
 			'title' => sprintf( 'Harvard | ReferenceList | Website | DragDrop | %s', $id ),
 			'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Website', 'exercise' => $exercise, 'type' => 'DragDrop',
-			'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'exerciseDesign' => sanitize_key( $exercise_design ), 'scenario' => sanitize_textarea_field( $scenario ),
+			'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ),
 			'authorType' => $author['type'],
 			'authors' => 'individual' === $author['type'] ? array( array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ) ) : array(),
 			'organisationName' => 'organisation' === $author['type'] ? sanitize_text_field( $author['name'] ) : '',
 			'year' => sanitize_text_field( $year ), 'title' => sanitize_text_field( $title ), 'publisher' => sanitize_text_field( $publisher ), 'url' => sanitize_text_field( $url ), 'accessedDate' => sanitize_text_field( $accessed_date ),
-			'fixedText' => self::sanitize_reference_text( $fixed ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $parts ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $distractors ) ),
+			'fixedText' => self::sanitize_reference_text( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ),
 			'reconstructedReference' => self::sanitize_reference_text( $reference ),
 			'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ),
 		);

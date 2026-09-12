@@ -1473,7 +1473,7 @@ class Citex_Reference_Rules {
 	 *
 	 * @return string[]
 	 */
-	private static function place_pool() {
+	public static function place_pool() {
 		return array(
 			'London', 'Oxford', 'Cambridge', 'Manchester', 'Edinburgh', 'Dublin',
 			'New York', 'Boston', 'Chicago', 'San Francisco', 'Toronto', 'Vancouver',
@@ -1489,7 +1489,7 @@ class Citex_Reference_Rules {
 	 *
 	 * @return string[]
 	 */
-	private static function publisher_pool() {
+	public static function publisher_pool() {
 		return array(
 			'Routledge', 'Pearson', 'SAGE', 'Palgrave Macmillan', 'Oxford University Press',
 			'Cambridge University Press', 'Wiley', 'Wiley-Blackwell', 'Springer', 'Elsevier',
@@ -1505,7 +1505,7 @@ class Citex_Reference_Rules {
 	 *
 	 * @return string[]
 	 */
-	private static function journal_pool() {
+	public static function journal_pool() {
 		return array(
 			'Nature', 'Science', 'The Lancet', 'BMJ', 'Cell', 'PNAS',
 			'Journal of Applied Psychology', 'American Economic Review',
@@ -1524,7 +1524,7 @@ class Citex_Reference_Rules {
 	 *
 	 * @return string[]
 	 */
-	private static function organisation_pool() {
+	public static function organisation_pool() {
 		return array(
 			'World Health Organization', 'United Nations', 'UNESCO', 'World Bank',
 			'NHS', 'British Council', 'European Commission', 'UNICEF',
@@ -1547,7 +1547,7 @@ class Citex_Reference_Rules {
 	 * @param string   $seed_key
 	 * @return string|null
 	 */
-	private static function pick_from_pool( array $pool, array $exclude, $seed_key ) {
+	public static function pick_from_pool( array $pool, array $exclude, $seed_key ) {
 		$exclude_lower = array_map( 'strtolower', array_map( 'strval', $exclude ) );
 		$eligible      = array_values(
 			array_filter(
@@ -1578,7 +1578,7 @@ class Citex_Reference_Rules {
 	 * digits, e.g. "2021" -> "2012") — both genuine "close but wrong"
 	 * mistakes, never a wildly different value.
 	 */
-	private static function year_distractor( $value, $seed_key ) {
+	public static function year_distractor( $value, $seed_key ) {
 		$numeric = ctype_digit( (string) $value ) ? (int) $value : null;
 		if ( null === $numeric ) {
 			return $value . '?';
@@ -1618,7 +1618,7 @@ class Citex_Reference_Rules {
 	 * - a subtle wording alteration (a plural/singular flip on the title's
 	 *   last word).
 	 */
-	private static function title_like_distractor( $value, $fold_in, $seed_key ) {
+	public static function title_like_distractor( $value, $fold_in, $seed_key ) {
 		$flavor = abs( crc32( $seed_key . '|flavor' ) ) % 4;
 		if ( 0 === $flavor ) {
 			$candidate = $value . '.';
@@ -1650,7 +1650,7 @@ class Citex_Reference_Rules {
 	 * only the actual numbers are wrong — a genuine "close but wrong"
 	 * mistake, never an absurd range.
 	 */
-	private static function page_range_distractor( $value, $seed_key ) {
+	public static function page_range_distractor( $value, $seed_key ) {
 		if ( 1 !== preg_match( '/^(\d+)-(\d+)$/', (string) $value, $matches ) ) {
 			return $value . '?';
 		}
@@ -1669,7 +1669,7 @@ class Citex_Reference_Rules {
 	 * clamped to stay at least 1 (never zero or negative, which would never
 	 * be a real volume/issue number).
 	 */
-	private static function small_integer_distractor( $value, $seed_key, array $deltas = array( -2, -1, 1, 2 ) ) {
+	public static function small_integer_distractor( $value, $seed_key, array $deltas = array( -2, -1, 1, 2 ) ) {
 		if ( ! ctype_digit( (string) $value ) ) {
 			return $value . '?';
 		}
@@ -1697,7 +1697,7 @@ class Citex_Reference_Rules {
 	 * @param string      $surname        This person's own surname (to isolate the given-name portion of $full_name).
 	 * @param string      $seed_key
 	 */
-	private static function combined_person_distractor( $value, $other_combined, $full_name, $surname, $seed_key ) {
+	public static function combined_person_distractor( $value, $other_combined, $full_name, $surname, $seed_key ) {
 		if ( null !== $other_combined && '' !== trim( (string) $other_combined )
 			&& 0 !== strcasecmp( (string) $other_combined, $value )
 			&& 0 === ( abs( crc32( $seed_key . '|other' ) ) % 2 ) ) {
@@ -1772,7 +1772,7 @@ class Citex_Reference_Rules {
 	 * - truncating the final path segment (linking to the site's home page
 	 *   instead of the actual specific page).
 	 */
-	private static function url_distractor( $value, $seed_key ) {
+	public static function url_distractor( $value, $seed_key ) {
 		$flavor = abs( crc32( $seed_key . '|flavor' ) ) % 3;
 		if ( 0 === $flavor ) {
 			$candidate = preg_replace( '#^https?://(www\.)?#i', '', (string) $value );
@@ -1805,7 +1805,7 @@ class Citex_Reference_Rules {
 	 * Citex_AI_V2::current_accessed_date()), so the parse below is never
 	 * expected to fail in practice.
 	 */
-	private static function date_distractor( $value, $seed_key ) {
+	public static function date_distractor( $value, $seed_key ) {
 		$date = DateTime::createFromFormat( 'j F Y', (string) $value );
 		if ( false === $date ) {
 			return $value . '?';
@@ -1824,7 +1824,7 @@ class Citex_Reference_Rules {
 	 * (a small deterministic pool of recent years, never today's actual
 	 * year, which would be an unfairly easy tell).
 	 */
-	private static function year_or_undated_distractor( $value, $seed_key ) {
+	public static function year_or_undated_distractor( $value, $seed_key ) {
 		if ( 'n.d.' === $value ) {
 			$years = array( '2018', '2019', '2020', '2021', '2022' );
 			return $years[ abs( crc32( $seed_key . '|nd_year' ) ) % count( $years ) ];
@@ -1848,7 +1848,7 @@ class Citex_Reference_Rules {
 	 * - a punctuation mistake on the correct designation itself ("ed"
 	 *   missing its full stop, or "eds." with a stray one).
 	 */
-	private static function designation_mistake_distractor( $value, $editor_count, $seed_key ) {
+	public static function designation_mistake_distractor( $value, $editor_count, $seed_key ) {
 		$wrong_count_designation = $editor_count > 1 ? 'ed.' : 'eds';
 		$punctuation_mistake     = 'ed.' === $value ? 'ed' : 'eds.';
 		$flavors                = array( $wrong_count_designation, 'editor', 'author', $punctuation_mistake );

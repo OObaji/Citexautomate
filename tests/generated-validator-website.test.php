@@ -38,6 +38,9 @@ function sanitize_key( $v ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 
 $failures = 0;
@@ -70,7 +73,19 @@ function website_dragdrop_question( $author, $fields, $overrides = array() ) {
 	$WR = Citex_Reference_Rules::CATEGORY_WEBSITE;
 	$full_fields = array_merge( $fields, array( 'author' => $author ) );
 	$reference   = Citex_Reference_Rules::build_reference( $WR, $full_fields );
-	$shape       = Citex_Reference_Rules::dragdrop_shape( $WR, $full_fields );
+	// DragDrop no longer takes a named "design" — Citex_Website_Dragdrop_Parts
+	// always draws exactly 3 of the record's 6 fields, seeded per question.
+	// A handful of tests below still deliberately override fixedText/
+	// questionParts with hand-crafted OLD-shape strings purely to exercise
+	// validate_reference_format()'s regex matching in isolation — those
+	// overrides intentionally disagree with this record's own
+	// dragdropPartKeys (harmless: the extra WEBSITE_DRAGDROP_*_MISMATCH/
+	// UNKNOWN noise doesn't affect has_error_code() checks for the specific
+	// code each test is actually looking for), so dragdropPartKeys/shape are
+	// only computed here to make the DEFAULT (no-override) fixture fully
+	// self-consistent and error-free.
+	$keys  = Citex_Website_Dragdrop_Parts::select_parts( 'WR-FIXTURE' );
+	$shape = Citex_Website_Dragdrop_Parts::build( $keys, $author, $fields );
 	$name = 'individual' === $author['type'] ? $author['surname'] : $author['name'];
 	return array_merge(
 		array(
@@ -86,9 +101,10 @@ function website_dragdrop_question( $author, $fields, $overrides = array() ) {
 			'publisher'        => $fields['publisher'],
 			'url'              => $fields['url'],
 			'accessedDate'     => $fields['accessedDate'],
+			'dragdropPartKeys' => $keys,
 			'fixedText'        => $shape['fixedText'],
 			'questionParts'    => $shape['parts'],
-			'confusingWords'   => array( '2015', 'A different publisher', 'https://example.com/wrong' ),
+			'confusingWords'   => $shape['confusingWords'],
 			'scenario'         => "You are referencing a webpage titled {$fields['title']}, at {$fields['url']}, written by {$name} and published by {$fields['publisher']}.",
 			'reconstructedReference' => $reference,
 		),
@@ -127,7 +143,7 @@ check( '[5] a correct PDF-document source question passes (identical structure t
 // ---------------------------------------------------------------------
 // 7. Missing "[online]" fails.
 // ---------------------------------------------------------------------
-$q7 = website_dragdrop_question( $individual, $canonical_dated, array( 'fixedText' => '| (||) || ||. Available from: <||> [accessed ||].' ) );
+$q7 = website_dragdrop_question( $individual, $canonical_dated, array( 'fixedText' => '| (||) || ||. Available from: <||> [accessed ||].', 'questionParts' => array( 'Mitchell, S.', '2024', 'Study skills guide', 'University of Leeds', 'https://www.leeds.ac.uk/study-skills', '3 September 2026' ) ) );
 $r7 = Citex_Generated_Validator::validate( $q7 );
 check( '[7] missing "[online]" fails', $r7['status'], 'failed' );
 check( '[7] reports WEBSITE_FORMAT_MISMATCH', has_error_code( $r7, 'website_format_mismatch' ), true );
@@ -142,7 +158,7 @@ check( '[9] missing publisher fails', $r9['status'], 'failed' );
 // ---------------------------------------------------------------------
 // 11. "Available from" missing its colon fails.
 // ---------------------------------------------------------------------
-$q11 = website_dragdrop_question( $individual, $canonical_dated, array( 'fixedText' => '| (||) || [online]. ||. Available from <||> [accessed ||].' ) );
+$q11 = website_dragdrop_question( $individual, $canonical_dated, array( 'fixedText' => '| (||) || [online]. ||. Available from <||> [accessed ||].', 'questionParts' => array( 'Mitchell, S.', '2024', 'Study skills guide', 'University of Leeds', 'https://www.leeds.ac.uk/study-skills', '3 September 2026' ) ) );
 $r11 = Citex_Generated_Validator::validate( $q11 );
 check( '[11] "Available from" missing its colon fails', $r11['status'], 'failed' );
 check( '[11] reports WEBSITE_FORMAT_MISMATCH', has_error_code( $r11, 'website_format_mismatch' ), true );
@@ -172,6 +188,7 @@ check( '[15] reports WEBSITE_ACCESSED_DATE_MISSING', has_error_code( $r15, 'webs
 // the canonical accessedDate field) fails via independent reconstruction.
 // ---------------------------------------------------------------------
 $q16 = website_dragdrop_question( $individual, $canonical_dated, array(
+	'fixedText'     => '| (||) || [online]. ||. Available from: <||> [accessed ||].',
 	'questionParts' => array( 'Mitchell, S.', '2024', 'Study skills guide', 'University of Leeds', 'https://www.leeds.ac.uk/study-skills', '1 January 2000' ),
 ) );
 $r16 = Citex_Generated_Validator::validate( $q16 );
@@ -182,6 +199,7 @@ check( '[16] reports WEBSITE_RECONSTRUCTION_MISMATCH', has_error_code( $r16, 'we
 // 18. Incorrect title fails.
 // ---------------------------------------------------------------------
 $q18 = website_dragdrop_question( $individual, $canonical_dated, array(
+	'fixedText'     => '| (||) || [online]. ||. Available from: <||> [accessed ||].',
 	'questionParts' => array( 'Mitchell, S.', '2024', 'A completely different title', 'University of Leeds', 'https://www.leeds.ac.uk/study-skills', '3 September 2026' ),
 ) );
 $r18 = Citex_Generated_Validator::validate( $q18 );
@@ -193,6 +211,7 @@ check( '[18] reports WEBSITE_RECONSTRUCTION_MISMATCH', has_error_code( $r18, 'we
 // ---------------------------------------------------------------------
 $q19 = website_dragdrop_question( $individual, $canonical_dated, array(
 	'fixedText' => '| (||) || [online]. ||. Available from: <||> [accessed ||]',
+	'questionParts' => array( 'Mitchell, S.', '2024', 'Study skills guide', 'University of Leeds', 'https://www.leeds.ac.uk/study-skills', '3 September 2026' ),
 ) );
 $r19 = Citex_Generated_Validator::validate( $q19 );
 check( '[19] missing final full stop fails', $r19['status'], 'failed' );
@@ -335,20 +354,24 @@ $book_regression = Citex_Generated_Validator::validate( array(
 ) );
 check( '[30] existing Book validation is completely unaffected by Website support', $book_regression['status'], 'passed' );
 
-// Journal Article DragDrop questions must use one of the 3-4-part designs
-// (see Citex_Reference_Rules::journal_article_dragdrop_designs()) —
-// 'full_reference' (the default with no design given) is MCQ-only, so this
-// regression check uses a real DragDrop-eligible design instead.
-$ja_regression_fields = array( 'authors' => array( array( 'surname' => 'Mitchell', 'initials' => 'S.' ) ), 'year' => '2010', 'articleTitle' => 'A brief guide to Harvard referencing', 'journalTitle' => 'The British Journal of Referencing', 'volume' => '12', 'issue' => '2', 'pages' => '27-35' );
+// Journal Article DragDrop no longer takes a named design — it always uses
+// Citex_Journal_Article_Dragdrop_Parts's own dynamic exactly-3-part
+// selection now; build a self-consistent fixture the same way this file's
+// own website_dragdrop_question() helper does.
+$ja_regression_authors = array( array( 'surname' => 'Mitchell', 'initials' => 'S.', 'fullName' => 'Sarah Mitchell' ) );
+$ja_regression_fields  = array( 'year' => '2010', 'articleTitle' => 'A brief guide to Harvard referencing', 'journalTitle' => 'The British Journal of Referencing', 'volume' => '12', 'issue' => '2', 'pages' => '27-35' );
 $JA = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE;
-$ja_shape = Citex_Reference_Rules::dragdrop_shape( $JA, $ja_regression_fields, 'author_year_volume_pages' );
+$ja_keys  = Citex_Journal_Article_Dragdrop_Parts::select_parts( 'JA-WR-REGRESSION', $ja_regression_authors );
+$ja_shape = Citex_Journal_Article_Dragdrop_Parts::build( $ja_keys, $ja_regression_authors, $ja_regression_fields );
 $journal_article_regression = Citex_Generated_Validator::validate( array_merge(
 	array(
-		'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop', 'exerciseDesign' => 'author_year_volume_pages',
+		'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop',
+		'authors' => $ja_regression_authors,
+		'dragdropPartKeys' => $ja_keys,
 		'fixedText' => $ja_shape['fixedText'], 'questionParts' => $ja_shape['parts'],
 		'confusingWords' => $ja_shape['confusingWords'],
 		'scenario' => 'You are referencing a journal article titled A brief guide to Harvard referencing by Sarah Mitchell, published in 2010 in The British Journal of Referencing, volume 12, issue 2, pages 27-35.',
-		'reconstructedReference' => Citex_Reference_Rules::reconstruct_reference( $ja_shape ),
+		'reconstructedReference' => Citex_Reference_Rules::build_reference( $JA, array_merge( $ja_regression_fields, array( 'authors' => $ja_regression_authors ) ) ),
 	),
 	$ja_regression_fields
 ) );
@@ -356,21 +379,13 @@ check( '[31] existing Journal Article validation is completely unaffected by Web
 
 // ---------------------------------------------------------------------
 // 32. CRITICAL — confusingWords is now Citex-authored, deterministically,
-// from the record + exerciseDesign (see
-// Citex_Reference_Rules::website_dragdrop_shape()'s "SHARED DETERMINISTIC
-// DISTRACTOR PRIMITIVES" section), and the validator recomputes and
+// from the record's own fields and its stored `dragdropPartKeys` selection
+// (see Citex_Website_Dragdrop_Parts), and the validator recomputes and
 // exact-matches it — a tampered confusingWords entry must fail even though
-// every other field is untouched and correct. Uses a real 3-part
-// DragDrop-eligible design (website_dragdrop_question()'s own default has
-// no exerciseDesign at all, which the validator treats as MCQ-only
-// 'full_reference' and skips this exact-match check for).
+// every other field is untouched and correct. website_dragdrop_question()'s
+// own default fixture is already built this way.
 // ---------------------------------------------------------------------
-$web_design_question = website_dragdrop_question( $individual, $canonical_dated, array( 'exerciseDesign' => 'author_year_title' ) );
-$web_design_fields    = array( 'author' => $individual, 'year' => $canonical_dated['year'], 'title' => $canonical_dated['title'], 'publisher' => $canonical_dated['publisher'], 'url' => $canonical_dated['url'], 'accessedDate' => $canonical_dated['accessedDate'] );
-$web_design_shape     = Citex_Reference_Rules::dragdrop_shape( $WR, $web_design_fields, 'author_year_title' );
-$web_design_question['fixedText']      = $web_design_shape['fixedText'];
-$web_design_question['questionParts']  = $web_design_shape['parts'];
-$web_design_question['confusingWords'] = $web_design_shape['confusingWords'];
+$web_design_question = website_dragdrop_question( $individual, $canonical_dated );
 $web_design_result = Citex_Generated_Validator::validate( $web_design_question );
 check( '[32] a correctly-built real-design Website DragDrop question passes', $web_design_result['status'], 'passed' );
 

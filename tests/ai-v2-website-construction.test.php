@@ -67,6 +67,9 @@ function get_option( $key, $default = null ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
@@ -173,8 +176,15 @@ if ( ! is_wp_error( $result1 ) ) {
 	check( '[19][20] validates and enters the queue as "passed"', $c1['validationStatus'], 'passed' );
 	// Regression: sanitize_text_field()'s real tag-stripping must never eat
 	// the literal "<URL>" in fixedText/reconstructedReference — see
-	// Citex_AI_V2::sanitize_reference_text()'s docblock.
-	check( '[regression] fixedText retains the literal bracketed URL (design "author_year_title" leaves url non-draggable)', false !== strpos( $c1['fixedText'], '<https://www.leeds.ac.uk/study-skills>' ), true );
+	// Citex_AI_V2::sanitize_reference_text()'s docblock. Whether "url" is
+	// drawn as a chip is now seeded-random (Citex_Website_Dragdrop_Parts) —
+	// either way, the angle brackets around it must survive: literally, in
+	// fixedText, when not drawn; as the value of one of the Question Parts,
+	// when drawn.
+	$url_survives = false !== strpos( $c1['fixedText'], '<https://www.leeds.ac.uk/study-skills>' )
+		|| in_array( 'https://www.leeds.ac.uk/study-skills', $c1['questionParts'], true );
+	check( '[regression] the literal URL survives sanitization, either in fixedText or as a Question Part', $url_survives, true );
+	check( '[regression] fixedText\'s angle brackets around the URL segment are never stripped', false !== strpos( $c1['fixedText'], '<' ) && false !== strpos( $c1['fixedText'], '>' ), true );
 	check( '[regression] reconstructedReference contains the full bracketed URL', false !== strpos( $c1['reconstructedReference'], '<https://www.leeds.ac.uk/study-skills>' ), true );
 }
 

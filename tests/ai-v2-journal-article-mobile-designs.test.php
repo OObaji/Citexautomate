@@ -74,6 +74,9 @@ function get_option( $key, $default = null ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
@@ -161,40 +164,35 @@ if ( ! is_wp_error( $result_b ) ) {
 }
 
 // =======================================================================
-// C. Fewer than 3 parts (1) -> FAIL. 'author_only' is MCQ-only (1 part);
-// no real DragDrop-eligible design ever produces exactly 1, so this is
-// exercised via a direct Reference_Rules-level check plus confirming the
-// AI-v2 quality gate independently enforces the same floor for any design
-// a bypassing caller might assign.
+// C/D. DragDrop no longer takes a "design" at all (Citex_Journal_Article_Dragdrop_Parts
+// always draws exactly 3 of 7 fields, seeded per question) — passing an old
+// design id like 'author_only'/'full_reference' to normalise() is simply
+// ignored for DragDrop now (only MCQ still reads it), so the old
+// MCQ-only-design-rejection behaviour no longer applies. The MIN/MAX_PARTS
+// constants still describe the OLD named-design catalogue's own shape
+// (still used by MCQ) and remain 3/3.
 // =======================================================================
 check_true( '[C] Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS is 3', 3 === Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS );
-$result_c = invoke_normalise( array( $item_base ), array( 'JA03' ), array( 'Exercise 1' ), 'DragDrop', $JA, 1, '', '', 'author_only' );
-check( '[C] a design producing only 1 part (below the exactly-3 rule) is rejected', is_wp_error( $result_c ), true );
-check( '[C] rejected because the design is MCQ-only (not DragDrop-eligible)', is_wp_error( $result_c ) ? $result_c->get_error_code() : null, 'citex_ai_journal_article_design_not_dragdrop_eligible' );
-
-// =======================================================================
-// D. More than 3 parts (5, and the 7-part full_reference) -> FAIL.
-// =======================================================================
-$result_d = invoke_normalise( array( $item_base ), array( 'JA04' ), array( 'Exercise 1' ), 'DragDrop', $JA, 1, '', '', 'full_reference' );
-check( '[D] a 7-part design (full_reference) is rejected for DragDrop', is_wp_error( $result_d ), true );
-check( '[D] rejected because the design is MCQ-only (not DragDrop-eligible)', is_wp_error( $result_d ) ? $result_d->get_error_code() : null, 'citex_ai_journal_article_design_not_dragdrop_eligible' );
 check_true( '[D] Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS is 3', 3 === Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS );
+$result_c = invoke_normalise( array( $item_base ), array( 'JA03' ), array( 'Exercise 1' ), 'DragDrop', $JA, 1, '', '', 'author_only' );
+check( '[C] DragDrop ignores an old design id and still succeeds with exactly 3 Citex-drawn parts', is_wp_error( $result_c ) ? null : count( $result_c[0]['questionParts'] ), 3 );
 
-// Directly prove the validator's own explicit range check (requirement 2)
-// independently of which design produced the parts — 5 parts, none of
-// them empty, still fails the hard exactly-3 rule.
-$five_parts_question = array(
-	'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop', 'exerciseDesign' => 'author_year_volume_pages',
+// Directly prove the validator's own exact-match block (Citex_Journal_Article_Dragdrop_Parts::build())
+// catches a malformed/tampered part count for a NEW-style record — a
+// dragdropPartKeys selection that doesn't correspond to the stored parts.
+$mismatched_count_question = array(
+	'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop',
 	'authors' => $one_author, 'year' => '2020', 'articleTitle' => 'A study of referencing', 'journalTitle' => 'Journal of Studies', 'volume' => '12', 'issue' => '3', 'pages' => '45-52',
+	'dragdropPartKeys' => array( 'author_0', 'year', 'volume' ),
 	'fixedText' => '| (||) ||, || pp.||.',
 	'questionParts' => array( 'Smith, A.', '2020', '12', '3', '45-52' ),
 	'confusingWords' => array( '2019', 'A different journal', '46-52' ),
 	'scenario' => 'You are referencing an article titled A study of referencing by Anna Smith, published in 2020 in Journal of Studies, volume 12, issue 3, pages 45-52.',
 	'reconstructedReference' => 'Smith, A. (2020) 12, 3 pp.45-52.',
 );
-$r_five = Citex_Generated_Validator::validate( $five_parts_question );
-check( '[D] the validator independently rejects 5 Question Parts', $r_five['status'], 'failed' );
-check_true( '[D] reports JOURNAL_ARTICLE_PART_COUNT_OUT_OF_RANGE', in_array( 'journal_article_part_count_out_of_range', array_column( $r_five['errors'], 'code' ), true ) );
+$r_five = Citex_Generated_Validator::validate( $mismatched_count_question );
+check( '[D] the validator rejects Question Parts that don\'t match the stored dragdropPartKeys selection', $r_five['status'], 'failed' );
+check_true( '[D] reports JOURNAL_ARTICLE_DRAGDROP_PARTS_MISMATCH', in_array( 'journal_article_dragdrop_parts_mismatch', array_column( $r_five['errors'], 'code' ), true ) );
 
 // =======================================================================
 // E. 3 placeholders + 2 Question Parts -> FAIL (placeholder_count !==
@@ -230,11 +228,15 @@ check( '[F] 2 placeholders + 3 Question Parts fails', $r_f['status'], 'failed' )
 check_true( '[F] reports a placeholder/part count mismatch', in_array( 'placeholder_count_mismatch', array_column( $r_f['errors'], 'code' ), true ) );
 
 // =======================================================================
-// G. Empty Question Part -> FAIL.
+// G. Empty Question Part -> FAIL — now caught generically by
+// self::reconstruct()'s own empty-part rejection plus the
+// Citex_Journal_Article_Dragdrop_Parts exact-match block (an empty part can
+// never match a real, non-empty recomputed value).
 // =======================================================================
 $empty_part = array(
-	'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop', 'exerciseDesign' => 'author_year_issue',
+	'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop',
 	'authors' => $one_author, 'year' => '2020', 'articleTitle' => 'A study of referencing', 'journalTitle' => 'Journal of Studies', 'volume' => '12', 'issue' => '3', 'pages' => '45-52',
+	'dragdropPartKeys' => array( 'author_0', 'year', 'issue' ),
 	'fixedText' => '|, ||, ||.',
 	'questionParts' => array( 'Smith, A.', '', '3' ),
 	'confusingWords' => array( '2019', 'A different journal', '46' ),
@@ -243,7 +245,7 @@ $empty_part = array(
 );
 $r_g = Citex_Generated_Validator::validate( $empty_part );
 check( '[G] a question with an empty Question Part fails', $r_g['status'], 'failed' );
-check_true( '[G] reports JOURNAL_ARTICLE_EMPTY_QUESTION_PART', in_array( 'journal_article_empty_question_part', array_column( $r_g['errors'], 'code' ), true ) );
+check_true( '[G] reports JOURNAL_ARTICLE_DRAGDROP_PARTS_MISMATCH', in_array( 'journal_article_dragdrop_parts_mismatch', array_column( $r_g['errors'], 'code' ), true ) );
 
 // AI-v2 quality gate also refuses to ever construct an empty part in the
 // first place — a real author with a blank surname is caught upstream by
@@ -269,21 +271,16 @@ foreach ( Citex_Reference_Rules::journal_article_dragdrop_designs() as $design )
 }
 
 // =======================================================================
-// I. Oversized Question Part -> FAIL.
+// I. Oversized Question Part -> the underlying rule still detects it.
+// Citex_Journal_Article_Dragdrop_Parts's own normaliser no longer calls
+// part_suitability()/quality_reject() at all for DragDrop (mirrors Book's
+// identical normaliser, which never had these checks either — every part
+// is Citex-authored deterministically, so a Gemini-quality problem can't
+// occur the way it could when Gemini supplied confusingWords) — this is
+// exercised directly against journal_article_mobile_suitability() instead
+// of through generation.
 // =======================================================================
-$item_excessive = array_merge( $item_base, array(
-	'scenario'     => 'You are referencing an article titled Learning Online by Anna Smith, published in 2020 in a journal with an extremely long name, volume 12, issue 3, pages 45-52.',
-	'journalTitle' => 'International Multidisciplinary Journal of Advanced Interdisciplinary Educational Research and Practice Studies',
-) );
-// Validation is decoupled from generation this sprint (QUALITY_GATE_ENABLED
-// = false): an oversized draggable component no longer aborts generation —
-// it is stored, not silently dropped, and can be corrected later via the
-// existing manual Validate mechanism. The underlying rule itself is not
-// weakened: Citex_Reference_Rules::journal_article_mobile_suitability()
-// still detects the exact same problem when called directly.
-$result_i = invoke_normalise( array( $item_excessive ), array( 'JA05' ), array( 'Exercise 1' ), 'DragDrop', $JA, 1, '', '', 'author_year_journal' );
-check( '[I] an oversized draggable component no longer blocks generation (quality gate decoupled)', is_wp_error( $result_i ), false );
-check_true( '[I] the underlying mobile-suitability rule still detects the same oversized component', ! is_wp_error( $result_i ) && null !== Citex_Reference_Rules::journal_article_mobile_suitability( $result_i[0]['questionParts'] ) );
+check_true( '[I] the mobile-suitability rule still detects an oversized component directly', null !== Citex_Reference_Rules::journal_article_mobile_suitability( array( 'Smith, A.', '2020', 'International Multidisciplinary Journal of Advanced Interdisciplinary Educational Research and Practice Studies' ) ) );
 
 // =======================================================================
 // J. Valid 3-part reconstruction (author_year_issue).
@@ -304,15 +301,15 @@ check( '[K] 3-part shape reconstructs correctly', Citex_Reference_Rules::reconst
 check_true( '[K] reconstruction matches its own format regex', 1 === preg_match( Citex_Reference_Rules::format_regex( $JA, 'author_year_volume_pages' ), Citex_Reference_Rules::reconstruct_reference( $shape_k ) ) );
 
 // =======================================================================
-// L. A generated candidate with an invalid structure is rejected — proven
-// end-to-end via generate_questions()'s own quality-gate retry loop: a
-// scenario/design combination that always violates the hard rule (here,
-// an MCQ-only design assigned to a DragDrop request) causes every attempt
-// to fail, exhausting MAX_QUALITY_ATTEMPTS and returning a WP_Error
-// instead of ever storing a bad candidate.
+// L. A generated candidate with a genuinely invalid structure (missing
+// required bibliographic data) is rejected — proven end-to-end: the whole
+// batch fails rather than partially storing a bad candidate. (DragDrop no
+// longer has an "MCQ-only design assigned to DragDrop" failure mode at
+// all, since it ignores the design argument entirely — see [C]/[D] above.)
 // =======================================================================
 check_true( '[L] MAX_GENERATION_ATTEMPTS retry budget exists (regenerate, never store invalid output)', Citex_AI_V2::MAX_GENERATION_ATTEMPTS >= 1 );
-$result_l = invoke_normalise( array( $item_base, $item_base ), array( 'JA06', 'JA07' ), array( 'Exercise 1', 'Exercise 1' ), 'DragDrop', $JA, 1, '', '', 'full_reference' );
+$item_missing_year = array_merge( $item_base, array( 'year' => '' ) );
+$result_l = invoke_normalise( array( $item_base, $item_missing_year ), array( 'JA06', 'JA07' ), array( 'Exercise 1', 'Exercise 1' ), 'DragDrop', $JA, 1, '', '', 'full_reference' );
 check( '[L] an entire batch is rejected (never partially stored) when one candidate structure is invalid', is_wp_error( $result_l ), true );
 
 // =======================================================================

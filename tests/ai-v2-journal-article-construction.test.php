@@ -58,6 +58,9 @@ function get_option( $key, $default = null ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
@@ -174,7 +177,27 @@ foreach ( $author_sets as $count => $names ) {
 		// do; never one chip per author and never "et al." in the
 		// reconstruction.
 		check( "[$count author(s)] exactly 3 draggable Question Parts, for any author count", count( $candidate['questionParts'] ), 3 );
-		check( "[$count author(s)] the first Question Part is only the FIRST author, never the whole joined list", $candidate['questionParts'][0], expected_first_author_chip( $names ) );
+		// Which 3 fields are drawn (and which single author, if any) is now
+		// seeded-random per question (Citex_Journal_Article_Dragdrop_Parts) —
+		// verify Question Parts/Fixed Text exactly match its own
+		// recomputation for this record's stored selection, rather than
+		// assuming the first author is always drawn first.
+		$ja_authors_for_recompute = array_map(
+			function ( $full_name ) {
+				$words   = preg_split( '/\s+/', trim( $full_name ) );
+				$surname = array_pop( $words );
+				$initial = implode( '', array_map( function ( $w ) { return strtoupper( $w[0] ) . '.'; }, $words ) );
+				return array( 'surname' => $surname, 'initials' => $initial, 'fullName' => $full_name );
+			},
+			$names
+		);
+		$expected_ja = Citex_Journal_Article_Dragdrop_Parts::build(
+			$candidate['dragdropPartKeys'],
+			$ja_authors_for_recompute,
+			array( 'year' => '2010', 'articleTitle' => 'A brief guide to Harvard referencing', 'journalTitle' => 'The British Journal of Referencing', 'volume' => '12', 'issue' => '2', 'pages' => '27-35' )
+		);
+		check( "[$count author(s)] Question Parts exactly match Citex_Journal_Article_Dragdrop_Parts::build()'s own recomputation", $candidate['questionParts'], $expected_ja['parts'] );
+		check( "[$count author(s)] Fixed Text exactly matches Citex_Journal_Article_Dragdrop_Parts::build()'s own recomputation", $candidate['fixedText'], $expected_ja['fixedText'] );
 		check( "[$count author(s)] reconstructedReference contains \"et al.\"? (must not)", false !== stripos( $candidate['reconstructedReference'], 'et al' ), false );
 		check( "[$count author(s)] validates and enters the queue as 'passed'", $candidate['validationStatus'], 'passed' );
 	}

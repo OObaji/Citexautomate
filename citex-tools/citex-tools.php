@@ -3,12 +3,12 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — AI generation, import, validation, population and the question bank overview.
- * Version:     0.11.2
+ * Version:     0.12.0
  * Author:      Citex
  * Text Domain: citex-tools
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
-define( 'CITEX_TOOLS_VERSION', '0.11.2' );
+define( 'CITEX_TOOLS_VERSION', '0.12.0' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
@@ -18,6 +18,9 @@ require_once CITEX_TOOLS_PATH . 'includes/class-citex-validator.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-reference-rules.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-book-mcq-variants.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-book-dragdrop-parts.php';
+require_once CITEX_TOOLS_PATH . 'includes/class-citex-edited-book-dragdrop-parts.php';
+require_once CITEX_TOOLS_PATH . 'includes/class-citex-journal-article-dragdrop-parts.php';
+require_once CITEX_TOOLS_PATH . 'includes/class-citex-website-dragdrop-parts.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-question-scenarios.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-question-diversity.php';
 require_once CITEX_TOOLS_PATH . 'includes/class-citex-generated-validator.php';

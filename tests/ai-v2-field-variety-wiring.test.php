@@ -72,6 +72,9 @@ function get_option( $key, $default = null ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
@@ -134,34 +137,25 @@ function make_edited_book_item( $suffix, $place = 'Cambridge', $publisher = 'Pol
 }
 
 // ---------------------------------------------------------------------
-// 1. Without opting in (the default 'full_reference' every pre-existing
-// caller/test relies on), Edited Book DragDrop questions are completely
-// unaffected — always the exact original baseline shape.
+// 1/2. Edited Book DragDrop no longer has an "exercise_design" concept at
+// all (Citex_Edited_Book_Dragdrop_Parts always forces the drawn editor +
+// designation, plus one seeded-random extra field, per question) — the
+// $exercise_design argument passed to normalise() below is simply ignored
+// for DragDrop now (only MCQ still reads it). Verify instead: no
+// exerciseDesign field on the candidate, the designation is always drawn,
+// and a batch of many questions is NOT all identical.
 // ---------------------------------------------------------------------
 $eb_ids = array_map( function ( $i ) { return 'EB' . str_pad( $i, 2, '0', STR_PAD_LEFT ); }, range( 1, 30 ) );
 $eb_items = array_map( function ( $i ) { return make_edited_book_item( $i, diverse_place( $i ), diverse_publisher( $i ) ); }, range( 1, 30 ) );
-$eb_unaffected = invoke_normalise( $eb_items, $eb_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'full_reference' );
-check( '[1] Edited Book: normalise() succeeds with the default exercise_design', is_wp_error( $eb_unaffected ), false );
-if ( ! is_wp_error( $eb_unaffected ) ) {
-	check( '[1] Edited Book: unaffected by default keeps the original baseline shape', $eb_unaffected[0]['questionParts'], array( 'Vance, C.', 'ed.', '2019' ) );
-}
-
-// ---------------------------------------------------------------------
-// 2. With 'random' (generate_questions()'s real production default for
-// this category), a batch of many Edited Book questions is NOT all
-// identical — some test year, some test place, some test publisher, per
-// the user's explicit "make every question different" request.
-// ---------------------------------------------------------------------
 $eb_random = invoke_normalise( $eb_items, $eb_ids, 'medium', array(), 'DragDrop', Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'random' );
-check( '[2] Edited Book: normalise() succeeds with exercise_design "random"', is_wp_error( $eb_random ), false );
+check( '[1] Edited Book: normalise() succeeds', is_wp_error( $eb_random ), false );
 if ( ! is_wp_error( $eb_random ) ) {
-	$known_eb_designs = Citex_Reference_Rules::edited_book_dragdrop_designs();
 	foreach ( $eb_random as $candidate ) {
-		check( '[2] every candidate\'s exerciseDesign is one of the known Edited Book designs', in_array( $candidate['exerciseDesign'], $known_eb_designs, true ), true );
+		check( '[1] no exerciseDesign field at all: ' . $candidate['questionId'], array_key_exists( 'exerciseDesign', $candidate ), false );
 		check( '[2] every candidate still draws the designation as its own Question Part', in_array( 'ed.', $candidate['questionParts'], true ), true );
 	}
-	$eb_designs_seen = array_unique( array_column( $eb_random, 'exerciseDesign' ) );
-	check( '[2] a batch of 30 "random" Edited Book questions is not all the same design', count( $eb_designs_seen ) > 1, true );
+	$eb_selections_seen = array_unique( array_map( function ( $c ) { return implode( ',', $c['dragdropPartKeys'] ); }, $eb_random ) );
+	check( '[2] a batch of 30 Edited Book questions is not all the same selection', count( $eb_selections_seen ) > 1, true );
 }
 
 // ---------------------------------------------------------------------

@@ -62,6 +62,9 @@ function get_option( $key, $default = null ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
@@ -138,8 +141,17 @@ if ( ! is_wp_error( $result ) ) {
 	check( '[1] candidate title names Edited Book', $candidate['title'], 'Harvard | ReferenceList | Edited Book | DragDrop | EB01' );
 	check( '[1] editors array carries the derived surname/initials', $candidate['editors'], array( array( 'fullName' => 'Vincent Miller', 'surname' => 'Miller', 'initials' => 'V.' ) ) );
 	check( '[1] exactly 3 Question Parts', count( $candidate['questionParts'] ), 3 );
-	check( '[1] Question Parts are [editor joined, designation, year]', $candidate['questionParts'], array( 'Miller, V.', 'ed.', '2020' ) );
-	check( '[1] Fixed Text uses the 3-slot designation shape', $candidate['fixedText'], '| (||) (||) Understanding digital culture. London: SAGE Publications.' );
+	check( '[1] the editor and designation are always drawn (never traded away)', $candidate['questionParts'][0] === 'Miller, V.' && in_array( 'ed.', $candidate['questionParts'], true ), true );
+	// The 3rd field is seeded-random (Citex_Edited_Book_Dragdrop_Parts) —
+	// verify Question Parts/Fixed Text exactly match its own recomputation
+	// for this record's stored selection, rather than assuming a fixed field.
+	$expected_one_editor = Citex_Edited_Book_Dragdrop_Parts::build(
+		$candidate['dragdropPartKeys'],
+		array( array( 'fullName' => 'Vincent Miller', 'surname' => 'Miller', 'initials' => 'V.' ) ),
+		array( 'year' => '2020', 'title' => 'Understanding digital culture', 'place' => 'London', 'publisher' => 'SAGE Publications' )
+	);
+	check( '[1] Question Parts exactly match Citex_Edited_Book_Dragdrop_Parts::build()\'s own recomputation', $candidate['questionParts'], $expected_one_editor['parts'] );
+	check( '[1] Fixed Text exactly matches Citex_Edited_Book_Dragdrop_Parts::build()\'s own recomputation', $candidate['fixedText'], $expected_one_editor['fixedText'] );
 	check( '[1] reconstructedReference matches the spec\'s one-editor worked example', $candidate['reconstructedReference'], 'Miller, V. (ed.) (2020) Understanding digital culture. London: SAGE Publications.' );
 	check( '[1] validation passed (pre-queue quality gate)', $candidate['validationStatus'], 'passed' );
 }
@@ -223,8 +235,17 @@ $two_editor_result = invoke_normalise( array( $two_editor_item ), array( 'EB03' 
 check( '[3] normalise() succeeds for a valid two-editor Edited Book DragDrop item', is_wp_error( $two_editor_result ), false );
 if ( ! is_wp_error( $two_editor_result ) ) {
 	$two_editor_candidate = $two_editor_result[0];
-	check( '[3] the first editor is drawn individually (never one joined chunk); designation is "(eds)", never "(ed.)"', $two_editor_candidate['questionParts'], array( 'Smith, J.', 'eds', '2020' ) );
-	check( '[3] the second editor is folded into fixedText as a correct literal continuation', $two_editor_candidate['fixedText'], '| and Jones, A. (||) (||) Understanding digital culture. London: SAGE Publications.' );
+	check( '[3] the drawn editor and "(eds)" designation are always present (never "(ed.)")', in_array( 'eds', $two_editor_candidate['questionParts'], true ), true );
+	$expected_two_editor = Citex_Edited_Book_Dragdrop_Parts::build(
+		$two_editor_candidate['dragdropPartKeys'],
+		array(
+			array( 'fullName' => 'John Smith', 'surname' => 'Smith', 'initials' => 'J.' ),
+			array( 'fullName' => 'Amy Jones', 'surname' => 'Jones', 'initials' => 'A.' ),
+		),
+		array( 'year' => '2020', 'title' => 'Understanding digital culture', 'place' => 'London', 'publisher' => 'SAGE Publications' )
+	);
+	check( '[3] Question Parts exactly match Citex_Edited_Book_Dragdrop_Parts::build()\'s own recomputation', $two_editor_candidate['questionParts'], $expected_two_editor['parts'] );
+	check( '[3] Fixed Text exactly matches Citex_Edited_Book_Dragdrop_Parts::build()\'s own recomputation', $two_editor_candidate['fixedText'], $expected_two_editor['fixedText'] );
 	check( '[3] reconstructedReference uses "(eds)" for two editors', $two_editor_candidate['reconstructedReference'], 'Smith, J. and Jones, A. (eds) (2020) Understanding digital culture. London: SAGE Publications.' );
 	check( '[3] editors array carries both editors in order', $two_editor_candidate['editors'], array(
 		array( 'fullName' => 'John Smith', 'surname' => 'Smith', 'initials' => 'J.' ),

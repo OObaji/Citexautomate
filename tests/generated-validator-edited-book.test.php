@@ -38,6 +38,9 @@ function sanitize_key( $v ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 
 $failures = 0;
@@ -80,13 +83,10 @@ function edited_book_dragdrop_question( $overrides = array() ) {
 		'place'     => 'London',
 		'publisher' => 'SAGE Publications',
 	) );
-	$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array(
-		'editors'   => $editors,
-		'year'      => '2022',
-		'title'     => 'Digital media and society',
-		'place'     => 'London',
-		'publisher' => 'SAGE Publications',
-	) );
+	$eb_fields = array( 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' );
+	$keys      = $overrides['dragdropPartKeys'] ?? Citex_Edited_Book_Dragdrop_Parts::select_parts( 'EB-FIXTURE', $editors );
+	unset( $overrides['dragdropPartKeys'] );
+	$shape = Citex_Edited_Book_Dragdrop_Parts::build( $keys, $editors, $eb_fields );
 	$scenario_names = implode( ' and ', array_column( $editors, 'surname' ) );
 	return array_merge(
 		array(
@@ -100,6 +100,7 @@ function edited_book_dragdrop_question( $overrides = array() ) {
 			'place'                  => 'London',
 			'publisher'              => 'SAGE Publications',
 			'scenario'               => "You are referencing a book edited by {$scenario_names}, titled Digital media and society, published in 2022 by SAGE Publications in London.",
+			'dragdropPartKeys'       => $keys,
 			'fixedText'              => $shape['fixedText'],
 			'questionParts'          => $shape['parts'],
 			'confusingWords'         => $shape['confusingWords'],

@@ -39,6 +39,9 @@ function sanitize_key( $v ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 
 $failures = 0;
@@ -89,10 +92,21 @@ $canonical_fields = array(
 // throughout this file's DragDrop fixtures.
 function journal_article_dragdrop_question( $authors, $fields, $overrides = array() ) {
 	$JA = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE;
-	$design = 'author_year_volume_pages';
 	$full_fields = array_merge( $fields, array( 'authors' => $authors ) );
-	$shape       = Citex_Reference_Rules::dragdrop_shape( $JA, $full_fields, $design );
-	$reference   = Citex_Reference_Rules::reconstruct_reference( $shape );
+	$reference   = Citex_Reference_Rules::build_reference( $JA, $full_fields );
+	// DragDrop no longer takes a named "design" — Citex_Journal_Article_Dragdrop_Parts
+	// always draws exactly 3 of the record's 7 fields, seeded per question.
+	// A handful of tests below still deliberately override fixedText/
+	// questionParts with hand-crafted OLD-shape strings purely to exercise
+	// validate_reference_format()'s regex matching in isolation — those
+	// overrides intentionally disagree with this record's own
+	// dragdropPartKeys (which is harmless: the extra DRAGDROP_PARTS_MISMATCH/
+	// UNKNOWN noise doesn't affect has_error_code() checks for the specific
+	// code each test is actually looking for), so dragdropPartKeys/shape are
+	// only computed here to make the DEFAULT (no-override) fixture fully
+	// self-consistent and error-free.
+	$keys  = Citex_Journal_Article_Dragdrop_Parts::select_parts( 'JA-FIXTURE', $authors );
+	$shape = Citex_Journal_Article_Dragdrop_Parts::build( $keys, $authors, $full_fields );
 	$scenario_names = implode( ' and ', array_map( function ( $a ) { return $a['surname']; }, $authors ) );
 	return array_merge(
 		array(
@@ -100,7 +114,6 @@ function journal_article_dragdrop_question( $authors, $fields, $overrides = arra
 			'group'          => 'ReferenceList',
 			'category'       => 'Journal Article',
 			'type'           => 'DragDrop',
-			'exerciseDesign' => $design,
 			'authors'        => $authors,
 			'year'           => $fields['year'],
 			'articleTitle'   => $fields['articleTitle'],
@@ -108,6 +121,7 @@ function journal_article_dragdrop_question( $authors, $fields, $overrides = arra
 			'volume'         => $fields['volume'],
 			'issue'          => $fields['issue'],
 			'pages'          => $fields['pages'],
+			'dragdropPartKeys' => $keys,
 			'fixedText'      => $shape['fixedText'],
 			'questionParts'  => $shape['parts'],
 			'confusingWords' => $shape['confusingWords'],
@@ -125,7 +139,7 @@ $q1 = journal_article_dragdrop_question( one_author(), $canonical_fields );
 $r1 = Citex_Generated_Validator::validate( $q1 );
 check( '[1] a correct 1-author DragDrop question passes', $r1['status'], 'passed' );
 check( '[1] no errors reported', $r1['errors'], array() );
-check( '[1] the reconstructed reference matches the design\'s own reconstruction', $r1['reconstructedReference'], Citex_Reference_Rules::reconstruct_reference( Citex_Reference_Rules::dragdrop_shape( $JA, array_merge( $canonical_fields, array( 'authors' => one_author() ) ), 'author_year_volume_pages' ) ) );
+check( '[1] the reconstructed reference is the complete build_reference() output', $r1['reconstructedReference'], Citex_Reference_Rules::build_reference( $JA, array_merge( $canonical_fields, array( 'authors' => one_author() ) ) ) );
 
 // ---------------------------------------------------------------------
 // A fully correct 2-author question also passes.
@@ -146,7 +160,7 @@ $q_wrong_initials = journal_article_dragdrop_question( one_author(), $canonical_
 ) );
 $r_wrong_initials = Citex_Generated_Validator::validate( $q_wrong_initials );
 check( '[7] incorrect initials in the reconstructed reference fail', $r_wrong_initials['status'], 'failed' );
-check( '[7] reports JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH', has_error_code( $r_wrong_initials, 'journal_article_reconstruction_mismatch' ), true );
+check( '[7] reports JOURNAL_ARTICLE_DRAGDROP_PARTS_MISMATCH', has_error_code( $r_wrong_initials, 'journal_article_dragdrop_parts_mismatch' ), true );
 
 // ---------------------------------------------------------------------
 // 9. "et al." in the reconstructed reference is rejected outright, for a
@@ -172,7 +186,7 @@ $q_wrong_year = journal_article_dragdrop_question( one_author(), $canonical_fiel
 ) );
 $r_wrong_year = Citex_Generated_Validator::validate( $q_wrong_year );
 check( '[11] an incorrect year fails', $r_wrong_year['status'], 'failed' );
-check( '[11] reports JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH', has_error_code( $r_wrong_year, 'journal_article_reconstruction_mismatch' ), true );
+check( '[11] reports JOURNAL_ARTICLE_DRAGDROP_PARTS_MISMATCH', has_error_code( $r_wrong_year, 'journal_article_dragdrop_parts_mismatch' ), true );
 
 // ---------------------------------------------------------------------
 // 12. Missing comma before "pp." fails the shared format check (shared
@@ -215,7 +229,7 @@ $q_bad_parts = journal_article_dragdrop_question( one_author(), $canonical_field
 ) );
 $r_bad_parts = Citex_Generated_Validator::validate( $q_bad_parts );
 check( '[17] Question Parts not matching the canonical record fail', $r_bad_parts['status'], 'failed' );
-check( '[17] reports JOURNAL_ARTICLE_PARTS_MISMATCH', has_error_code( $r_bad_parts, 'journal_article_parts_mismatch' ), true );
+check( '[17] reports JOURNAL_ARTICLE_DRAGDROP_PARTS_MISMATCH', has_error_code( $r_bad_parts, 'journal_article_dragdrop_parts_mismatch' ), true );
 
 $q_wrong_placeholder_count = journal_article_dragdrop_question( one_author(), $canonical_fields, array(
 	'fixedText' => '| (||).',

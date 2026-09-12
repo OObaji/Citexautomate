@@ -98,35 +98,6 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'QUESTION_PARTS_MISSING', 'Question Parts are missing.' );
 		}
 
-		// HARD RULE, DragDrop-only, Journal Article-only: EXACTLY 3 or 4
-		// Question Parts, every one non-empty. Never applies to MCQ (an MCQ
-		// candidate never reaches validate_dragdrop() at all — see
-		// Citex_Generated_Validator::validate()'s type dispatch) and never
-		// applies to any other category. placeholder_count === question
-		// part count is already enforced generically for every category by
-		// self::reconstruct() below (a slot/part-count mismatch fails that
-		// call outright); this block adds the two checks requirement 2
-		// requires beyond that shared one.
-		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
-			$part_count = count( $question_parts );
-			if ( $part_count < Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS || $part_count > Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS ) {
-				$errors[] = self::error(
-					'JOURNAL_ARTICLE_PART_COUNT_OUT_OF_RANGE',
-					sprintf(
-						'Journal Article DragDrop questions must have between %1$d and %2$d Question Parts; %3$d were provided.',
-						Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MIN_PARTS,
-						Citex_Reference_Rules::JOURNAL_ARTICLE_DRAGDROP_MAX_PARTS,
-						$part_count
-					)
-				);
-			}
-			foreach ( $question_parts as $index => $part ) {
-				if ( '' === trim( (string) $part ) ) {
-					$errors[] = self::error( 'JOURNAL_ARTICLE_EMPTY_QUESTION_PART', sprintf( 'Question Part %d is empty.', $index + 1 ) );
-				}
-			}
-		}
-
 		// HARD RULE, DragDrop-only, Book-only: EXACTLY 3 Question Parts
 		// (Citex_Reference_Rules::BOOK_DRAGDROP_MIN_PARTS/MAX_PARTS) — see
 		// validate_book_mcq_variant()'s own docblock for why this can go
@@ -195,11 +166,10 @@ class Citex_Generated_Validator {
 		// HARD RULE, DragDrop-only, Edited Book/Journal Article/Website:
 		// every Question Part AND every confusing word is now
 		// Citex-authored, deterministically, from the record's own
-		// canonical fields and its stored `exerciseDesign` — via the SAME
-		// Citex_Reference_Rules::dragdrop_shape() call used at generation
-		// time (see that class's "SHARED DETERMINISTIC DISTRACTOR
-		// PRIMITIVES" section) — so, exactly like Book's own block above,
-		// the whole {parts, fixedText, confusingWords} triple can be
+		// canonical fields and its stored `dragdropPartKeys` selection —
+		// via the SAME Citex_<Category>_Dragdrop_Parts::build() call used
+		// at generation time — so, exactly like Book's own block above, the
+		// whole {parts, fixedText, confusingWords} triple can be
 		// recomputed from the record alone and compared exactly, rather
 		// than merely sanity-checked. Records with no canonical data at
 		// all (e.g. externally imported, pre-dating this feature) are
@@ -208,87 +178,104 @@ class Citex_Generated_Validator {
 			$editors_for_shape = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
 			$eb_title          = trim( (string) ( $question['bookTitle'] ?? '' ) );
 			if ( ! ( empty( $editors_for_shape ) && '' === $eb_title ) ) {
-				$eb_design = (string) ( $question['exerciseDesign'] ?? Citex_Reference_Rules::edited_book_dragdrop_designs()[0] );
-				$eb_fields = array(
-					'editors'   => $editors_for_shape,
+				$selected_keys = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$eb_fields     = array(
 					'year'      => trim( (string) ( $question['year'] ?? '' ) ),
 					'title'     => $eb_title,
 					'place'     => trim( (string) ( $question['place'] ?? '' ) ),
 					'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
 				);
-				$expected_shape = empty( $editors_for_shape ) ? null : Citex_Reference_Rules::dragdrop_shape( $category, $eb_fields, $eb_design );
-				if ( null === $expected_shape ) {
-					$errors[] = self::error( 'EDITED_BOOK_DRAGDROP_SHAPE_UNKNOWN', 'Unable to recompute the expected Edited Book DragDrop shape for this record.' );
+				$expected_build = ( empty( $selected_keys ) || empty( $editors_for_shape ) ) ? null : Citex_Edited_Book_Dragdrop_Parts::build( $selected_keys, $editors_for_shape, $eb_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'EDITED_BOOK_DRAGDROP_PARTS_UNKNOWN', 'The Edited Book DragDrop part selection (dragdropPartKeys) is missing, malformed, or names an editor index out of range.' );
 				} else {
-					if ( $fixed_text !== $expected_shape['fixedText'] ) {
-						$errors[] = self::error( 'EDITED_BOOK_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_shape['fixedText'] ) );
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'EDITED_BOOK_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
 					}
-					if ( $question_parts !== $expected_shape['parts'] ) {
-						$errors[] = self::error( 'EDITED_BOOK_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this exercise design.' );
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'EDITED_BOOK_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
 					}
-					if ( $confusing !== $expected_shape['confusingWords'] ) {
-						$errors[] = self::error( 'EDITED_BOOK_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this exercise design.' );
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'EDITED_BOOK_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
 					}
 				}
 			}
 		}
 		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
-			$ja_design = (string) ( $question['exerciseDesign'] ?? 'full_reference' );
-			if ( in_array( $ja_design, Citex_Reference_Rules::journal_article_dragdrop_designs(), true ) ) {
-				$ja_authors = is_array( $question['authors'] ?? null ) && ! empty( $question['authors'] )
-					? $question['authors']
-					: array( array( 'surname' => trim( (string) ( $question['authorSurname'] ?? '' ) ), 'initials' => trim( (string) ( $question['authorInitials'] ?? '' ) ) ) );
-				$ja_fields = array(
-					'authors'      => $ja_authors,
+			$ja_authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+			if ( empty( $ja_authors ) && '' !== trim( (string) ( $question['authorSurname'] ?? '' ) ) ) {
+				$ja_authors = array(
+					array(
+						'surname'  => trim( (string) ( $question['authorSurname'] ?? '' ) ),
+						'initials' => trim( (string) ( $question['authorInitials'] ?? '' ) ),
+						'fullName' => trim( (string) ( $question['authorFullName'] ?? '' ) ),
+					),
+				);
+			}
+			$ja_title = trim( (string) ( $question['articleTitle'] ?? '' ) );
+			if ( ! ( empty( $ja_authors ) && '' === $ja_title ) ) {
+				$selected_keys = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$ja_fields     = array(
 					'year'         => trim( (string) ( $question['year'] ?? '' ) ),
-					'articleTitle' => trim( (string) ( $question['articleTitle'] ?? '' ) ),
+					'articleTitle' => $ja_title,
 					'journalTitle' => trim( (string) ( $question['journalTitle'] ?? '' ) ),
 					'volume'       => trim( (string) ( $question['volume'] ?? '' ) ),
 					'issue'        => trim( (string) ( $question['issue'] ?? '' ) ),
 					'pages'        => trim( (string) ( $question['pages'] ?? '' ) ),
 				);
-				$expected_shape = Citex_Reference_Rules::dragdrop_shape( $category, $ja_fields, $ja_design );
-				if ( $fixed_text !== $expected_shape['fixedText'] ) {
-					$errors[] = self::error( 'JOURNAL_ARTICLE_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_shape['fixedText'] ) );
-				}
-				if ( $question_parts !== $expected_shape['parts'] ) {
-					$errors[] = self::error( 'JOURNAL_ARTICLE_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this exercise design.' );
-				}
-				if ( $confusing !== $expected_shape['confusingWords'] ) {
-					$errors[] = self::error( 'JOURNAL_ARTICLE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this exercise design.' );
+				$expected_build = ( empty( $selected_keys ) || empty( $ja_authors ) ) ? null : Citex_Journal_Article_Dragdrop_Parts::build( $selected_keys, $ja_authors, $ja_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'JOURNAL_ARTICLE_DRAGDROP_PARTS_UNKNOWN', 'The Journal Article DragDrop part selection (dragdropPartKeys) is missing, malformed, or names an author index out of range.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'JOURNAL_ARTICLE_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'JOURNAL_ARTICLE_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'JOURNAL_ARTICLE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
 				}
 			}
 		}
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
-			$web_design = (string) ( $question['exerciseDesign'] ?? 'full_reference' );
-			if ( in_array( $web_design, Citex_Reference_Rules::website_dragdrop_designs(), true ) ) {
-				$web_author_type = (string) ( $question['authorType'] ?? '' );
-				$web_authors     = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
-				$web_author      = array( 'type' => $web_author_type );
+			$web_author_type = (string) ( $question['authorType'] ?? '' );
+			$web_authors_arr = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+			$web_title       = trim( (string) ( $question['title'] ?? '' ) );
+			$has_web_author  = 'individual' === $web_author_type
+				? '' !== trim( (string) ( $web_authors_arr[0]['surname'] ?? '' ) )
+				: ( 'organisation' === $web_author_type && '' !== trim( (string) ( $question['organisationName'] ?? '' ) ) );
+			if ( ! ( ! $has_web_author && '' === $web_title ) ) {
+				$web_author = array( 'type' => $web_author_type );
 				if ( 'individual' === $web_author_type ) {
-					$web_author['fullName'] = trim( (string) ( $web_authors[0]['fullName'] ?? '' ) );
-					$web_author['surname']  = trim( (string) ( $web_authors[0]['surname'] ?? '' ) );
-					$web_author['initials'] = trim( (string) ( $web_authors[0]['initials'] ?? '' ) );
+					$web_author['fullName'] = trim( (string) ( $web_authors_arr[0]['fullName'] ?? '' ) );
+					$web_author['surname']  = trim( (string) ( $web_authors_arr[0]['surname'] ?? '' ) );
+					$web_author['initials'] = trim( (string) ( $web_authors_arr[0]['initials'] ?? '' ) );
 				} else {
 					$web_author['name'] = trim( (string) ( $question['organisationName'] ?? '' ) );
 				}
 				$web_fields = array(
-					'author'       => $web_author,
 					'year'         => trim( (string) ( $question['year'] ?? '' ) ),
-					'title'        => trim( (string) ( $question['title'] ?? '' ) ),
+					'title'        => $web_title,
 					'publisher'    => trim( (string) ( $question['publisher'] ?? '' ) ),
 					'url'          => trim( (string) ( $question['url'] ?? '' ) ),
 					'accessedDate' => trim( (string) ( $question['accessedDate'] ?? '' ) ),
 				);
-				$expected_shape = Citex_Reference_Rules::dragdrop_shape( $category, $web_fields, $web_design );
-				if ( $fixed_text !== $expected_shape['fixedText'] ) {
-					$errors[] = self::error( 'WEBSITE_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_shape['fixedText'] ) );
-				}
-				if ( $question_parts !== $expected_shape['parts'] ) {
-					$errors[] = self::error( 'WEBSITE_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this exercise design.' );
-				}
-				if ( $confusing !== $expected_shape['confusingWords'] ) {
-					$errors[] = self::error( 'WEBSITE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this exercise design.' );
+				$selected_keys  = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$expected_build = ( empty( $selected_keys ) || ! $has_web_author ) ? null : Citex_Website_Dragdrop_Parts::build( $selected_keys, $web_author, $web_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'WEBSITE_DRAGDROP_PARTS_UNKNOWN', 'The Website DragDrop part selection (dragdropPartKeys) is missing or malformed.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'WEBSITE_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'WEBSITE_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'WEBSITE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
 				}
 			}
 		}
@@ -1529,27 +1516,37 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'JOURNAL_ARTICLE_ET_AL_USED', 'The reference list entry must never use "et al." — every author must be listed in full.' );
 		}
 
-		// THIS question's own design-specific expected shape/reference.
-		$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields, $design );
-		$expected_parts = array_map( 'trim', $expected_shape['parts'] );
-		$actual_parts   = array_map( 'trim', (array) $question_parts );
-		if ( $expected_parts !== array_values( $actual_parts ) ) {
-			$errors[] = self::error(
-				'JOURNAL_ARTICLE_PARTS_MISMATCH',
-				'Question Parts do not exactly match the canonical bibliographic record for this exercise design.'
-			);
-		}
+		// THIS question's own design-specific expected shape/reference —
+		// MCQ only. DragDrop now always uses Citex_Journal_Article_Dragdrop_Parts
+		// (a genuinely different mechanism from the old named-design
+		// catalogue dragdrop_shape() still serves here for MCQ), and
+		// validate_dragdrop()'s own dedicated block already recomputes and
+		// exact-matches Question Parts/Fixed Text/Confusing Words from the
+		// record's stored `dragdropPartKeys` — redoing an old-shape-based
+		// comparison here would always mismatch (the new system never
+		// produces the old design's part set).
+		if ( 'DragDrop' !== (string) ( $question['type'] ?? '' ) ) {
+			$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields, $design );
+			$expected_parts = array_map( 'trim', $expected_shape['parts'] );
+			$actual_parts   = array_map( 'trim', (array) $question_parts );
+			if ( $expected_parts !== array_values( $actual_parts ) ) {
+				$errors[] = self::error(
+					'JOURNAL_ARTICLE_PARTS_MISMATCH',
+					'Question Parts do not exactly match the canonical bibliographic record for this exercise design.'
+				);
+			}
 
-		// Independently reconstruct the expected reference for THIS
-		// design and require an exact match — the same "reconstruct from
-		// canonical data, never merely string-match" requirement, applied
-		// per design instead of always to the full reference.
-		$expected_reference = trim( Citex_Reference_Rules::reconstruct_reference( $expected_shape ) );
-		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
-			$errors[] = self::error(
-				'JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH',
-				sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
-			);
+			// Independently reconstruct the expected reference for THIS
+			// design and require an exact match — the same "reconstruct from
+			// canonical data, never merely string-match" requirement, applied
+			// per design instead of always to the full reference.
+			$expected_reference = trim( Citex_Reference_Rules::reconstruct_reference( $expected_shape ) );
+			if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
+				$errors[] = self::error(
+					'JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH',
+					sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
+				);
+			}
 		}
 
 		// Author checks — surname/initials well-formedness is data
@@ -1730,21 +1727,28 @@ class Citex_Generated_Validator {
 
 		// Question Parts must be EXACTLY the shape website_dragdrop_shape()
 		// would build for this canonical author-or-organisation, for
-		// WHICHEVER exercise design this record was generated with (see
-		// Citex_Reference_Rules::website_dragdrop_designs()'s docblock) —
-		// mirrors how validate_journal_article_consistency() reads its own
-		// exerciseDesign field. Defaults to 'full_reference' (the original
-		// always-6-part shape) for any pre-existing record with no
-		// exerciseDesign field at all.
-		$design         = trim( (string) ( $question['exerciseDesign'] ?? 'full_reference' ) );
-		$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields, $design );
-		$expected_parts = array_map( 'trim', $expected_shape['parts'] );
-		$actual_parts   = array_map( 'trim', (array) $question_parts );
-		if ( $expected_parts !== array_values( $actual_parts ) ) {
-			$errors[] = self::error(
-				'WEBSITE_PARTS_MISMATCH',
-				'Question Parts do not exactly match the canonical bibliographic record (author/organisation, year/n.d., title, publisher, URL, accessed date).'
-			);
+		// WHICHEVER exercise design this record was generated with — MCQ
+		// only. DragDrop now always uses Citex_Website_Dragdrop_Parts (a
+		// genuinely different mechanism from the old named-design
+		// catalogue dragdrop_shape() still serves here for MCQ), and
+		// validate_dragdrop()'s own dedicated block already recomputes and
+		// exact-matches Question Parts/Fixed Text/Confusing Words from the
+		// record's stored `dragdropPartKeys` — redoing an old-shape-based
+		// comparison here would always mismatch (the new system never
+		// produces the old design's part set). Defaults to 'full_reference'
+		// (the original always-6-part shape) for any pre-existing MCQ
+		// record with no exerciseDesign field at all.
+		if ( 'DragDrop' !== (string) ( $question['type'] ?? '' ) ) {
+			$design         = trim( (string) ( $question['exerciseDesign'] ?? 'full_reference' ) );
+			$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields, $design );
+			$expected_parts = array_map( 'trim', $expected_shape['parts'] );
+			$actual_parts   = array_map( 'trim', (array) $question_parts );
+			if ( $expected_parts !== array_values( $actual_parts ) ) {
+				$errors[] = self::error(
+					'WEBSITE_PARTS_MISMATCH',
+					'Question Parts do not exactly match the canonical bibliographic record (author/organisation, year/n.d., title, publisher, URL, accessed date).'
+				);
+			}
 		}
 
 		// Independently reconstruct the expected reference from canonical

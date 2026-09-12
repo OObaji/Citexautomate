@@ -64,6 +64,9 @@ function get_option( $key, $default = null ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generated-validator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-scenarios.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-question-diversity.php';
@@ -191,7 +194,16 @@ $ja_dragdrop = array(
 );
 $r5 = invoke_normalise( array( $ja_dragdrop ), array( 'JA01' ), 'medium', array( 'Exercise 1' ), 'DragDrop', $JA, null, '', '', 'author_year_journal' );
 check( '[5] Journal Article DragDrop: an oversized component no longer blocks generation', is_wp_error( $r5 ), false );
-check_true( '[5] Citex_Reference_Rules::journal_article_mobile_suitability() itself still flags the same component (rule not weakened)', ! is_wp_error( $r5 ) && null !== Citex_Reference_Rules::journal_article_mobile_suitability( $r5[0]['questionParts'] ) );
+// Citex_Journal_Article_Dragdrop_Parts's own normaliser no longer calls
+// part_suitability()/quality_reject() at all for DragDrop (mirrors Book's
+// identical normaliser) — every part is Citex-authored deterministically,
+// so a Gemini-quality problem can't occur the way it could when Gemini
+// supplied confusingWords. The underlying rule itself is not weakened:
+// journal_article_mobile_suitability() still detects an oversized
+// component when called directly (whether THIS generated question's own
+// seeded-random 3-field selection happens to include the long journal
+// title is beside the point).
+check_true( '[5] Citex_Reference_Rules::journal_article_mobile_suitability() itself still flags an oversized component (rule not weakened)', null !== Citex_Reference_Rules::journal_article_mobile_suitability( array( 'Smith, A.', '2020', $ja_dragdrop['journalTitle'] ) ) );
 
 // =======================================================================
 // 6. Journal Article, MCQ — same oversized-component problem applied to a
