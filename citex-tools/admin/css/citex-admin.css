@@ -1,0 +1,373 @@
+/*
+ * Citex Tools — admin styling.
+ * Loaded only on Citex admin screens (see Citex_Admin::enqueue_assets).
+ * Deliberately small and framework-free; relies on native WP admin
+ * classes (.wrap, .button, .form-table, .wp-list-table) wherever
+ * possible.
+ */
+
+.citex-wrap {
+	max-width: 1200px;
+}
+
+/*
+ * Action feedback toast. Reuses WordPress's own dismissible-notice markup
+ * and behaviour (admin/js/common.js already wires the "×" button and
+ * `is-dismissible` class) — this only repositions that same notice as a
+ * floating, auto-disappearing toast near the top-right of the screen
+ * instead of an inline banner, so it always appears in the same place
+ * whether the request succeeded or failed.
+ */
+.citex-action-notice {
+	position: fixed;
+	top: 40px;
+	right: 20px;
+	z-index: 100000;
+	max-width: 420px;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+	animation: citex-toast-in 0.2s ease-out;
+}
+
+.citex-action-notice.citex-toast-hide {
+	animation: citex-toast-out 0.2s ease-in forwards;
+}
+
+@keyframes citex-toast-in {
+	from { opacity: 0; transform: translateY(-8px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes citex-toast-out {
+	from { opacity: 1; }
+	to { opacity: 0; }
+}
+
+.citex-page-title {
+	margin-bottom: 16px;
+}
+
+/* Stat cards */
+
+.citex-stat-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+	gap: 16px;
+	margin: 20px 0;
+}
+
+.citex-stat-cards-compact {
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	margin: 16px 0;
+}
+
+.citex-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	padding: 16px 18px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.citex-card-label {
+	font-size: 13px;
+	color: #646970;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+}
+
+.citex-card-value {
+	font-size: 28px;
+	font-weight: 600;
+	color: #1d2327;
+	line-height: 1.2;
+}
+
+/* Quick actions */
+
+.citex-quick-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-bottom: 28px;
+}
+
+/* Tables */
+
+.citex-table {
+	margin-top: 8px;
+}
+
+/* Forms */
+
+.citex-form .form-table th {
+	width: 220px;
+}
+
+.citex-inline-form {
+	margin: 16px 0;
+	display: flex;
+	gap: 10px;
+}
+
+/* Filter bar */
+
+.citex-filter-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 16px 0;
+	padding: 12px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+}
+
+.citex-search-input {
+	min-width: 220px;
+	flex: 1 1 220px;
+}
+
+/* Status badges */
+
+.citex-badge {
+	display: inline-block;
+	padding: 2px 10px;
+	border-radius: 12px;
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1.8;
+	text-transform: capitalize;
+}
+
+.citex-badge-valid {
+	background: #edfaef;
+	color: #1a7f37;
+}
+
+.citex-badge-error {
+	background: #fcedee;
+	color: #a4222f;
+}
+
+.citex-badge-not_validated {
+	background: #f0f0f1;
+	color: #50575e;
+}
+
+.citex-badge-pending {
+	background: #fef8ee;
+	color: #9a6700;
+}
+
+.citex-badge-passed {
+	background: #edfaef;
+	color: #1a7f37;
+}
+
+.citex-badge-failed {
+	background: #fcedee;
+	color: #a4222f;
+}
+
+.citex-badge-warning {
+	background: #fef8ee;
+	color: #9a6700;
+}
+
+.citex-badge-unsupported {
+	background: #f0f0f1;
+	color: #50575e;
+}
+
+/* Actions column */
+
+.citex-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+/* Validation results */
+
+.citex-validation-results {
+	margin-top: 12px;
+}
+
+.citex-result-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-left: 4px solid #a4222f;
+	border-radius: 4px;
+	padding: 14px 16px;
+	max-width: 480px;
+}
+
+.citex-result-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+.citex-result-errors {
+	margin: 0 0 12px 18px;
+	list-style: decimal;
+}
+
+.citex-error-code {
+	color: #646970;
+	font-size: 12px;
+}
+
+.citex-detail-row td {
+	background: #f6f7f7;
+	padding: 12px 16px;
+}
+
+/* Routing diagnostics (Validation page Details panel) */
+
+.citex-diagnostics {
+	margin-top: 14px;
+	padding-top: 12px;
+	border-top: 1px solid #dcdcde;
+}
+
+.citex-diagnostics-table {
+	width: 100%;
+	max-width: 720px;
+	border-collapse: collapse;
+	margin: 8px 0;
+	font-size: 12.5px;
+}
+
+.citex-diagnostics-table th,
+.citex-diagnostics-table td {
+	text-align: left;
+	padding: 5px 10px;
+	border-bottom: 1px solid #e2e2e4;
+}
+
+.citex-diagnostics-table code {
+	font-size: 12px;
+}
+
+/* Version badge (Dashboard) */
+
+.citex-version-badge {
+	margin-top: 28px;
+	color: #8c8f94;
+	font-size: 12px;
+}
+
+/* Scan panel (Dashboard + Questions) */
+
+.citex-scan-panel {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	padding: 14px 16px;
+	margin-bottom: 24px;
+}
+
+.citex-scan-meta {
+	margin: 0 0 10px;
+	color: #1d2327;
+}
+
+.citex-scan-status {
+	margin: 10px 0 0;
+	color: #646970;
+	font-size: 13px;
+	min-height: 18px;
+}
+
+.citex-scan-settings {
+	margin-top: 14px;
+	border-top: 1px solid #dcdcde;
+	padding-top: 12px;
+}
+
+.citex-scan-settings summary {
+	cursor: pointer;
+	font-weight: 600;
+	margin-bottom: 8px;
+}
+
+.citex-scan-settings .citex-inline-form {
+	margin: 8px 0 6px;
+	align-items: center;
+}
+
+.citex-scan-settings input.citex-input {
+	min-width: 360px;
+	max-width: 100%;
+}
+
+.citex-settings-status {
+	font-size: 13px;
+	color: #646970;
+}
+
+/* Question Bank Overview breakdowns */
+
+.citex-breakdown-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+	gap: 16px;
+	margin-top: 8px;
+}
+
+.citex-breakdown-card h3 {
+	margin: 0 0 8px;
+	font-size: 14px;
+}
+
+.citex-breakdown-table {
+	margin-top: 0;
+}
+
+/* Question Bank pagination */
+
+.citex-pagination {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 14px 0;
+}
+
+.citex-page-link {
+	display: inline-block;
+	min-width: 28px;
+	text-align: center;
+	padding: 4px 8px;
+	border: 1px solid #dcdcde;
+	border-radius: 3px;
+	background: #fff;
+	text-decoration: none;
+	font-size: 13px;
+}
+
+.citex-page-link.is-current {
+	background: #2271b1;
+	border-color: #2271b1;
+	color: #fff;
+}
+
+@media screen and (max-width: 782px) {
+	.citex-card-value {
+		font-size: 22px;
+	}
+
+	.citex-filter-bar {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.citex-scan-settings input.citex-input {
+		min-width: 0;
+		width: 100%;
+	}
+}
