@@ -421,7 +421,21 @@ class Citex_Generator {
 			$id = strtoupper( trim( (string) ( $question['questionId'] ?? '' ) ) );
 			if ( '' !== $id ) { $used[ $id ] = true; }
 		}
-		$scan = Citex_Scanner::get_last_scan();
+		// A cached last-scan snapshot goes stale the moment a population run
+		// creates new Reference List posts after it was taken — the classic
+		// failure mode this caused: a fresh generate batch reused an ID
+		// (e.g. WR01) that a PRIOR population had already created in
+		// WordPress, so every one of them failed at population time with
+		// "a record with this exact title already exists", 0 created. Always
+		// re-sync fresh here (a fast, local get_posts() query — see
+		// Citex_Scanner::sync_from_wordpress() — not an external call) so a
+		// new batch can never reuse an ID already live in the real Reference
+		// List; fall back to the cached scan only if a fresh sync can't run
+		// (e.g. the Reference List URL isn't configured yet).
+		$scan = Citex_Scanner::sync_from_wordpress();
+		if ( is_wp_error( $scan ) ) {
+			$scan = Citex_Scanner::get_last_scan();
+		}
 		foreach ( ( $scan['questions'] ?? array() ) as $question ) {
 			$id = strtoupper( trim( (string) ( $question['questionId'] ?? '' ) ) );
 			if ( '' !== $id ) { $used[ $id ] = true; }
