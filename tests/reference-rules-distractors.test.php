@@ -83,7 +83,7 @@ $ja_expected = array(
 	'author_year_volume_pages' => array( 'Bennett, S', '2022', '14' ),
 	'author_year_issue'        => array( 'Bennett, S', '2022', '4' ),
 	'author_year_journal'      => array( 'Bennett, S', '2022', 'Cities' ),
-	'volume_issue_pages'       => array( '14', '4', '43-50' ),
+	'volume_issue_pages'       => array( '14', '4', '43–50' ),
 	'journal_volume_issue'     => array( 'Cities', '14', '4' ),
 	'year_volume_issue_pages'  => array( '2022', '14', '4' ),
 );
@@ -118,7 +118,7 @@ check_true( '[2b] the draggable author chip stays short regardless of author cou
 check(
 	'[2b] the reconstructed reference still correctly joins all 6 authors, with "and" before the last',
 	Citex_Reference_Rules::reconstruct_reference( $ja_six_shape ),
-	'Evans, C., Scott, L., Patel, M., Brooks, O., Flores, N. and Wright, T. (2020) 12, pp.45-52.'
+	'Evans, C., Scott, L., Patel, M., Brooks, O., Flores, N. and Wright, T. (2020) 12, pp. 45–52.'
 );
 check_true( '[2b] "et al." never appears in the reconstruction (Harvard reference-list rule always lists every author)', false === stripos( Citex_Reference_Rules::reconstruct_reference( $ja_six_shape ), 'et al' ) );
 

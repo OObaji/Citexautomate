@@ -1582,7 +1582,12 @@ class Citex_Generated_Validator {
 				'journalTitle' => array( $journal_title, 'journal title' ),
 				'volume'       => array( $volume, 'volume' ),
 				'issue'        => array( $issue, 'issue' ),
-				'pages'        => array( $pages, 'page range' ),
+				// The reconstructed reference renders the page range with a
+				// typographic en dash (see Citex_Reference_Rules::
+				// format_page_range()), never the plain-hyphen form the
+				// canonical `pages` field itself is stored as — check against
+				// the same rendered form the reference actually contains.
+				'pages'        => array( Citex_Reference_Rules::format_page_range( $pages ), 'page range' ),
 			) as $key => $pair
 		) {
 			if ( ! in_array( $key, $design_fields, true ) ) {

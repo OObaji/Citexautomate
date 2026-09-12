@@ -163,24 +163,45 @@ class Citex_Reference_Rules {
 
 	/**
 	 * Liverpool Hope Harvard — Journal Articles: Author surname(s), initial(s).
-	 * (Year) Article title. Journal title, Volume(Issue), pp.xx-xx. — ALL
-	 * authors are always listed in full (join_people()'s exact joining
-	 * algorithm, same as Book/Edited Book), "et al." is NEVER used in the
-	 * reference list, and there is no place/publisher concept for a journal
-	 * article (unlike Book/Edited Book) — volume, issue and the page range
-	 * replace them entirely.
+	 * (Year) 'Article title', Journal title, Volume(Issue), pp. xx–xx. — the
+	 * article title is wrapped in single quotation marks and followed by a
+	 * comma (never a full stop) before the journal title, and the page
+	 * range uses an en dash with "pp. " (a space after the full stop) —
+	 * this is Cite Them Right's Harvard style for a journal article, the
+	 * one convention this whole category exists to teach, distinct from
+	 * Book/Edited Book's plain, unquoted title. ALL authors are always
+	 * listed in full (join_people()'s exact joining algorithm, same as
+	 * Book/Edited Book), "et al." is NEVER used in the reference list, and
+	 * there is no place/publisher concept for a journal article (unlike
+	 * Book/Edited Book) — volume, issue and the page range replace them
+	 * entirely.
 	 */
 	private static function build_journal_article_reference( array $fields ) {
 		return sprintf(
-			'%s (%s) %s. %s, %s(%s), pp.%s.',
+			'%s (%s) ‘%s’, %s, %s(%s), pp. %s.',
 			self::join_people( $fields['authors'] ),
 			$fields['year'],
 			$fields['articleTitle'],
 			$fields['journalTitle'],
 			$fields['volume'],
 			$fields['issue'],
-			$fields['pages']
+			self::format_page_range( $fields['pages'] )
 		);
+	}
+
+	/**
+	 * A page range rendered with the correct Harvard typographic en dash
+	 * ("410–425") instead of a plain hyphen — the STORED `pages` field
+	 * itself stays a plain-hyphen "410-425" (a simpler shape for Gemini to
+	 * supply and for the validator to parse via a plain \d+-\d+ regex);
+	 * this conversion happens only at render time, applied identically
+	 * everywhere a page range reaches a reference string or a draggable
+	 * chip, so DragDrop/MCQ construction and Citex_Generated_Validator's
+	 * later recomputation can never silently disagree about which dash
+	 * character is correct.
+	 */
+	public static function format_page_range( $pages ) {
+		return str_replace( '-', '–', (string) $pages );
 	}
 
 	/**
@@ -558,7 +579,7 @@ class Citex_Reference_Rules {
 	 * - author_year_issue (3 parts): author(s), year, issue.
 	 * - author_year_journal (3 parts): author(s), year, journal title.
 	 * - volume_issue_pages (3 parts): volume, issue, pages — a genuine
-	 *   contiguous Harvard fragment, "Volume(Issue), pp.Start-End.".
+	 *   contiguous Harvard fragment, "Volume(Issue), pp. Start–End.".
 	 * - journal_volume_issue (3 parts): journal title, volume, issue — a
 	 *   genuine contiguous Harvard fragment, "Journal title, Volume(Issue)".
 	 * - year_volume_issue_pages (3 parts, despite the name, no author at
@@ -629,7 +650,7 @@ class Citex_Reference_Rules {
 	 * ending in a real Harvard full stop, or a fragment that legitimately
 	 * stops mid-reference with no full stop at that point (only
 	 * 'journal_volume_issue's "Journal title, Volume(Issue)" — the real
-	 * reference has no punctuation there before ", pp.Start-End." follows).
+	 * reference has no punctuation there before ", pp. Start–End." follows).
 	 * Every comma-separated field-combo design (author_year_volume_pages,
 	 * author_year_issue, author_year_journal, year_volume_issue_pages)
 	 * deliberately ends its own list with a real full stop, precisely so
@@ -710,16 +731,16 @@ class Citex_Reference_Rules {
 			$author_distractor = self::combined_person_distractor( $author_drawn[0], $other_author_full, $authors[0]['fullName'] ?? '', $authors[0]['surname'], $record_seed . '|authors' );
 
 			if ( 'author_year_volume_pages' === $design ) {
-				// "Author (Year) Volume, pp.Start-End." — real Harvard
-				// punctuation throughout (parentheses for the year, "pp."
-				// prefix), just skipping the title/journal/issue segment.
-				// Pages is baked into fixedText as literal text (see this
-				// design's own docblock entry in journal_article_designs())
-				// rather than drawn, so the design stays within the
-				// exactly-3-part rule.
+				// "Author (Year) Volume, pp. Start–End." — real Harvard
+				// punctuation throughout (parentheses for the year, "pp. "
+				// prefix with an en dash — see format_page_range()), just
+				// skipping the title/journal/issue segment. Pages is baked
+				// into fixedText as literal text (see this design's own
+				// docblock entry in journal_article_designs()) rather than
+				// drawn, so the design stays within the exactly-3-part rule.
 				return array(
 					'parts'          => array( $author_drawn[0], $fields['year'], $fields['volume'] ),
-					'fixedText'      => sprintf( '%s (||) ||, pp.%s.', $author_template, $fields['pages'] ),
+					'fixedText'      => sprintf( '%s (||) ||, pp. %s.', $author_template, self::format_page_range( $fields['pages'] ) ),
 					'confusingWords' => array(
 						$author_distractor,
 						self::year_distractor( $fields['year'], $record_seed . '|year' ),
@@ -755,12 +776,12 @@ class Citex_Reference_Rules {
 		}
 		if ( 'volume_issue_pages' === $design ) {
 			return array(
-				'parts'          => array( $fields['volume'], $fields['issue'], $fields['pages'] ),
-				'fixedText'      => '|(||), pp.||.',
+				'parts'          => array( $fields['volume'], $fields['issue'], self::format_page_range( $fields['pages'] ) ),
+				'fixedText'      => '|(||), pp. ||.',
 				'confusingWords' => array(
 					self::small_integer_distractor( $fields['volume'], $record_seed . '|volume' ),
 					self::small_integer_distractor( $fields['issue'], $record_seed . '|issue' ),
-					self::page_range_distractor( $fields['pages'], $record_seed . '|pages' ),
+					self::format_page_range( self::page_range_distractor( $fields['pages'], $record_seed . '|pages' ) ),
 				),
 			);
 		}
@@ -779,13 +800,14 @@ class Citex_Reference_Rules {
 			// A plain fact list, not styled as a Harvard fragment (same
 			// style as author_year_issue/author_year_journal above) — pages
 			// stays a bare number range with no "pp." prefix, exactly as it
-			// always has been for this design. Pages is baked into
+			// always has been for this design, but still uses the correct
+			// en dash (see format_page_range()). Pages is baked into
 			// fixedText as literal text (see this design's own docblock
 			// entry in journal_article_designs()), not drawn, so only
 			// year/volume/issue are draggable — exactly 3 parts.
 			return array(
 				'parts'          => array( $fields['year'], $fields['volume'], $fields['issue'] ),
-				'fixedText'      => sprintf( '|, ||, ||, %s.', $fields['pages'] ),
+				'fixedText'      => sprintf( '|, ||, ||, %s.', self::format_page_range( $fields['pages'] ) ),
 				'confusingWords' => array(
 					self::year_distractor( $fields['year'], $record_seed . '|year' ),
 					self::small_integer_distractor( $fields['volume'], $record_seed . '|volume' ),
@@ -806,9 +828,9 @@ class Citex_Reference_Rules {
 				$fields['journalTitle'],
 				$fields['volume'],
 				$fields['issue'],
-				$fields['pages'],
+				self::format_page_range( $fields['pages'] ),
 			),
-			'fixedText'      => '| (||) ||. ||, ||(||), pp.||.',
+			'fixedText'      => '| (||) ‘||’, ||, ||(||), pp. ||.',
 			'confusingWords' => array(),
 		);
 	}
@@ -1090,9 +1112,12 @@ class Citex_Reference_Rules {
 			// One or more "Surname, Initials" author groups (same join_people()
 			// grammar as Book/Edited Book — a comma-joined-throughout list with
 			// no final "and", or an "et al." abbreviation, both fail to match),
-			// followed by (Year) Article title. Journal title, Volume(Issue),
-			// pp.Start-End.
-			return '/^[^,]+,\s+(?:[A-Z]\.\s*)+(?:(?:,\s+[^,]+,\s+(?:[A-Z]\.\s*)+)*\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+)?\(\d{4}\)\s+.+\.\s+.+,\s+\d+\(\d+\),\s+pp\.\d+-\d+\.\s*$/u';
+			// followed by (Year) 'Article title', Journal title, Volume(Issue),
+			// pp. Start–End. — the article title is single-quoted and followed
+			// by a comma (never a full stop), and the page range uses an en
+			// dash with a space after "pp." (see build_journal_article_reference()
+			// and format_page_range()).
+			return '/^[^,]+,\s+(?:[A-Z]\.\s*)+(?:(?:,\s+[^,]+,\s+(?:[A-Z]\.\s*)+)*\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+)?\(\d{4}\)\s+‘.+?’,\s+.+,\s+\d+\(\d+\),\s+pp\.\s\d+–\d+\.\s*$/u';
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
 			// Author/Organisation (Year|n.d.) Title [online]. Publisher.
@@ -1147,9 +1172,9 @@ class Citex_Reference_Rules {
 			return '/^' . $author_group . '$/u';
 		}
 		if ( 'author_year_volume_pages' === $design ) {
-			// "Author(s) (Year) Volume, pp.Start-End." — a genuine complete
+			// "Author(s) (Year) Volume, pp. Start–End." — a genuine complete
 			// sentence, ending in a real full stop.
-			return '/^' . $author_group . '\s+\(\d{4}\)\s+\d+,\s+pp\.\d+-\d+\.$/u';
+			return '/^' . $author_group . '\s+\(\d{4}\)\s+\d+,\s+pp\.\s\d+–\d+\.$/u';
 		}
 		if ( 'author_year_issue' === $design ) {
 			// "Author(s), Year, Issue." — a plain fact list, not styled as
@@ -1161,17 +1186,17 @@ class Citex_Reference_Rules {
 			return '/^' . $author_group . ',\s+\d{4},\s+.+\.$/u';
 		}
 		if ( 'volume_issue_pages' === $design ) {
-			// "Volume(Issue), pp.Start-End." — no author/year/title at all.
-			return '/^\d+\(\d+\),\s+pp\.\d+-\d+\.$/u';
+			// "Volume(Issue), pp. Start–End." — no author/year/title at all.
+			return '/^\d+\(\d+\),\s+pp\.\s\d+–\d+\.$/u';
 		}
 		if ( 'journal_volume_issue' === $design ) {
 			// "Journal title, Volume(Issue)" — no trailing full stop: the
-			// real reference continues straight into ", pp.Start-End."
+			// real reference continues straight into ", pp. Start–End."
 			return '/^.+,\s+\d+\(\d+\)$/u';
 		}
 		if ( 'year_volume_issue_pages' === $design ) {
 			// "Year, Volume, Issue, Pages." — a plain fact list, no author.
-			return '/^\d{4},\s+\d+,\s+\d+,\s+\d+-\d+\.$/u';
+			return '/^\d{4},\s+\d+,\s+\d+,\s+\d+–\d+\.$/u';
 		}
 		// An unrecognised design id must never accidentally match
 		// everything — fail closed, not open.
@@ -1210,11 +1235,14 @@ class Citex_Reference_Rules {
 				'Using the author\'s full first name instead of initials, for example "John Smith" instead of "Smith, J.".',
 				'Placing the initials before the surname, for example "J. Smith" instead of "Smith, J.".',
 				'Placing the year outside its parentheses, or in the wrong position relative to the author.',
-				'Missing the full stop after the article title, or an extra comma before the year.',
+				'Missing the single quotation marks around the article title, for example Digital culture instead of \'Digital culture\'.',
+				'Using a full stop instead of a comma after the closing quotation mark of the article title, for example \'Digital culture.\' Studies instead of \'Digital culture\', Studies.',
 				'Missing the comma after the journal title, before the volume.',
 				'Swapping the volume and issue, or placing the issue outside its parentheses, for example "(2)12" instead of "12(2)".',
 				'Missing the "pp." prefix before the page range, or using "p." instead of "pp.".',
-				'Reversing the page range, for example "pp.35-27" instead of "pp.27-35".',
+				'Missing the space after "pp.", for example "pp.27–35" instead of "pp. 27–35".',
+				'Using a plain hyphen instead of an en dash in the page range, for example "pp. 27-35" instead of "pp. 27–35".',
+				'Reversing the page range, for example "pp. 35–27" instead of "pp. 27–35".',
 				'Missing the final full stop at the end of the reference.',
 				'For two or more authors, joining them with "&" instead of "and".',
 				'For two or more authors, omitting "and" before the final author and using a comma instead.',

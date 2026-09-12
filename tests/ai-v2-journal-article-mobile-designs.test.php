@@ -300,7 +300,7 @@ check_true( '[J] reconstruction matches its own format regex', 1 === preg_match(
 // =======================================================================
 $shape_k = Citex_Reference_Rules::dragdrop_shape( $JA, array_merge( $base_fields, array( 'authors' => $one_author ) ), 'author_year_volume_pages' );
 check( '[K] 3-part shape has exactly 3 parts', count( $shape_k['parts'] ), 3 );
-check( '[K] 3-part shape reconstructs correctly', Citex_Reference_Rules::reconstruct_reference( $shape_k ), 'Smith, A. (2020) 12, pp.45-52.' );
+check( '[K] 3-part shape reconstructs correctly', Citex_Reference_Rules::reconstruct_reference( $shape_k ), 'Smith, A. (2020) 12, pp. 45–52.' );
 check_true( '[K] reconstruction matches its own format regex', 1 === preg_match( Citex_Reference_Rules::format_regex( $JA, 'author_year_volume_pages' ), Citex_Reference_Rules::reconstruct_reference( $shape_k ) ) );
 
 // =======================================================================
@@ -361,7 +361,7 @@ $mcq_full = array(
 $result_mcq_full = invoke_normalise( array( $mcq_full ), array( 'JA08' ), array( 'Exercise 1' ), 'MCQ', $JA, null, '', '', 'full_reference' );
 check( '[11] complete-reference MCQ still succeeds, unaffected by the DragDrop hard rule', is_wp_error( $result_mcq_full ), false );
 if ( ! is_wp_error( $result_mcq_full ) ) {
-	check( '[11] the correct answer is the full reference, not a short segment', $result_mcq_full[0]['reconstructedReference'], 'Mitchell, S. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.' );
+	check( '[11] the correct answer is the full reference, not a short segment', $result_mcq_full[0]['reconstructedReference'], 'Mitchell, S. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.' );
 }
 $mcq_initials = array(
 	'authorFullNames' => array( 'Sarah Brown' ), 'year' => '2022', 'articleTitle' => 'Reading strategies', 'journalTitle' => 'Learning Studies', 'volume' => '9', 'issue' => '1', 'pages' => '12-20',

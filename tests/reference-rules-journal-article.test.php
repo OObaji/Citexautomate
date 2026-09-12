@@ -60,27 +60,27 @@ $category = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE;
 check(
 	'[1] one author matches the confirmed Liverpool Hope example',
 	Citex_Reference_Rules::build_reference( $category, array_merge( $base_fields, array( 'authors' => $one ) ) ),
-	'Mitchell, S. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.'
+	'Mitchell, S. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.'
 );
 check(
 	'[2] two authors: joined with "and"',
 	Citex_Reference_Rules::build_reference( $category, array_merge( $base_fields, array( 'authors' => $two ) ) ),
-	'Mitchell, S. and Evans, D. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.'
+	'Mitchell, S. and Evans, D. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.'
 );
 check(
 	'[3] three authors: commas then a final "and"',
 	Citex_Reference_Rules::build_reference( $category, array_merge( $base_fields, array( 'authors' => $three ) ) ),
-	'Mitchell, S., Evans, D. and Brown, T. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.'
+	'Mitchell, S., Evans, D. and Brown, T. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.'
 );
 check(
 	'[4] four authors: still every author, no et-al cutoff',
 	Citex_Reference_Rules::build_reference( $category, array_merge( $base_fields, array( 'authors' => $four ) ) ),
-	'Mitchell, S., Evans, D., Brown, T. and Williams, R. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.'
+	'Mitchell, S., Evans, D., Brown, T. and Williams, R. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.'
 );
 check(
 	'[5] five authors: still every author listed in full',
 	Citex_Reference_Rules::build_reference( $category, array_merge( $base_fields, array( 'authors' => $five ) ) ),
-	'Mitchell, S., Evans, D., Brown, T., Williams, R. and Davies, K. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.'
+	'Mitchell, S., Evans, D., Brown, T., Williams, R. and Davies, K. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.'
 );
 check(
 	'[9] "et al." never appears for any author count, including 5',
@@ -96,8 +96,8 @@ check(
 // DragDrop rule; see Citex_Reference_Rules::journal_article_designs()).
 // ---------------------------------------------------------------------
 $shape_one = Citex_Reference_Rules::dragdrop_shape( $category, array_merge( $base_fields, array( 'authors' => $one ) ) );
-check( '[17] one author: exactly 7 parts, author list as ONE part (not split into surname/initials)', $shape_one['parts'], array( 'Mitchell, S.', '2010', 'A brief guide to Harvard referencing', 'The British Journal of Referencing', '12', '2', '27-35' ) );
-check( '[17] fixedText matches the confirmed Liverpool Hope grammar', $shape_one['fixedText'], '| (||) ||. ||, ||(||), pp.||.' );
+check( '[17] one author: exactly 7 parts, author list as ONE part (not split into surname/initials)', $shape_one['parts'], array( 'Mitchell, S.', '2010', 'A brief guide to Harvard referencing', 'The British Journal of Referencing', '12', '2', '27–35' ) );
+check( '[17] fixedText matches the confirmed Liverpool Hope grammar', $shape_one['fixedText'], '| (||) ‘||’, ||, ||(||), pp. ||.' );
 
 $shape_five = Citex_Reference_Rules::dragdrop_shape( $category, array_merge( $base_fields, array( 'authors' => $five ) ) );
 check( '[17] five authors: still exactly 7 parts (constant shape), author list as ONE compact chip', count( $shape_five['parts'] ), 7 );
@@ -143,16 +143,16 @@ check(
 // author list, and rejects a missing "pp." prefix.
 // ---------------------------------------------------------------------
 $ja_regex = Citex_Reference_Rules::format_regex( $category );
-$good_one = 'Mitchell, S. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.';
-$good_two = 'Mitchell, S. and Evans, D. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.';
+$good_one = 'Mitchell, S. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.';
+$good_two = 'Mitchell, S. and Evans, D. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.';
 check( '[format] 1 author matches', 1 === preg_match( $ja_regex, $good_one ), true );
 check( '[format] 2 authors match', 1 === preg_match( $ja_regex, $good_two ), true );
-check( '[9] "et al." does NOT match — never valid in the reference list', 1 === preg_match( $ja_regex, 'Mitchell et al. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.' ), false );
-check( '[format] "&" joining does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S. & Evans, D. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.' ), false );
-check( '[format] comma-joined throughout with no final "and" does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S., Evans, D. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp.27-35.' ), false );
-check( '[16] missing "pp." prefix does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), 27-35.' ), false );
-check( '[format] "p." instead of "pp." does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), p.27-35.' ), false );
-check( '[format] missing comma after journal title does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S. (2010) A brief guide to Harvard referencing. The British Journal of Referencing 12(2), pp.27-35.' ), false );
+check( '[9] "et al." does NOT match — never valid in the reference list', 1 === preg_match( $ja_regex, 'Mitchell et al. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.' ), false );
+check( '[format] "&" joining does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S. & Evans, D. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.' ), false );
+check( '[format] comma-joined throughout with no final "and" does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S., Evans, D. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), pp. 27–35.' ), false );
+check( '[16] missing "pp." prefix does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), 27-35.' ), false );
+check( '[format] "p." instead of "pp." does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing, 12(2), p.27-35.' ), false );
+check( '[format] missing comma after journal title does NOT match', 1 === preg_match( $ja_regex, 'Mitchell, S. (2010) ‘A brief guide to Harvard referencing’, The British Journal of Referencing 12(2), pp. 27–35.' ), false );
 
 // ---------------------------------------------------------------------
 // id_prefix(), mcq_question_stem(), mcq_hint() are all category-specific
