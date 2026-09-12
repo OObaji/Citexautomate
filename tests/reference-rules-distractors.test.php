@@ -227,5 +227,40 @@ $shape_a = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGOR
 $shape_b = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array_merge( $eb_fields, array( 'editors' => $eb_editors_one ) ), 'editor_designation_title' );
 check( '[5] Edited Book: recomputing from identical inputs reproduces identical confusingWords', $shape_a['confusingWords'], $shape_b['confusingWords'] );
 
+// =======================================================================
+// 6. combined_person_distractor()'s three same-person mistake flavours —
+// given-name-spelled-out, missing-full-stop, and the newer
+// surname/initials ORDER SWAP (e.g. "L., Cole" instead of "Cole, L.") —
+// are all genuinely reachable across a seed sweep, and none of them is
+// ever identical to the correct value.
+// =======================================================================
+$cp_value    = 'Cole, L.';
+$cp_fullname = 'Liam Cole';
+$cp_surname  = 'Cole';
+$cp_seen_swap        = false;
+$cp_seen_given_name   = false;
+$cp_seen_missing_stop = false;
+$cp_never_equals_value = true;
+for ( $i = 0; $i < 60; $i++ ) {
+	$out = Citex_Reference_Rules::combined_person_distractor( $cp_value, null, $cp_fullname, $cp_surname, 'combined-person-seed-' . $i );
+	if ( $out === $cp_value ) {
+		$cp_never_equals_value = false;
+	}
+	if ( 'L., Cole' === $out ) {
+		$cp_seen_swap = true;
+	}
+	if ( 'Cole, Liam' === $out ) {
+		$cp_seen_given_name = true;
+	}
+	if ( 'Cole, L' === $out ) {
+		$cp_seen_missing_stop = true;
+	}
+}
+check( '[6] combined_person_distractor(): the surname/initials order-swap flavour ("L., Cole") is reachable', $cp_seen_swap, true );
+check( '[6] combined_person_distractor(): the given-name-spelled-out flavour ("Cole, Liam") is reachable', $cp_seen_given_name, true );
+check( '[6] combined_person_distractor(): the missing-full-stop flavour ("Cole, L") is reachable', $cp_seen_missing_stop, true );
+check( '[6] combined_person_distractor(): never equals the correct value across 60 seeds', $cp_never_equals_value, true );
+check( '[6] surname/initials order-swap: exact expected output for a known seed', Citex_Reference_Rules::combined_person_distractor( $cp_value, null, $cp_fullname, $cp_surname, 'test-seed-1' ), 'L., Cole' );
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

@@ -83,7 +83,13 @@ check(
 );
 $always_three   = true;
 $all_valid_keys = true;
-$valid_keys     = array( 'author', 'year', 'title', 'publisher', 'url', 'accessed_date' );
+$never_url      = true;
+// `url` is deliberately excluded from select_parts()'s own pool — it needs
+// no Harvard-format transformation, so drawing it as a blank would just
+// repeat the scenario's own text verbatim; build() itself still accepts
+// it if explicitly supplied (see checks 4-5 below), for backward
+// compatibility with any already-stored dragdropPartKeys.
+$valid_keys     = array( 'author', 'year', 'title', 'publisher', 'accessed_date' );
 for ( $i = 1; $i <= 60; $i++ ) {
 	$keys = Citex_Website_Dragdrop_Parts::select_parts( 'WR' . $i );
 	if ( 3 !== count( $keys ) ) {
@@ -93,14 +99,18 @@ for ( $i = 1; $i <= 60; $i++ ) {
 		if ( ! in_array( $key, $valid_keys, true ) ) {
 			$all_valid_keys = false;
 		}
+		if ( 'url' === $key ) {
+			$never_url = false;
+		}
 	}
 }
 check( '[2] select_parts() always returns exactly 3 keys across 60 seeds', $always_three, true );
-check( '[2] select_parts() only ever returns the 6 known candidate keys', $all_valid_keys, true );
+check( '[2] select_parts() only ever returns the 5 eligible candidate keys', $all_valid_keys, true );
+check( '[2] select_parts() never draws url', $never_url, true );
 
 // ---------------------------------------------------------------------
-// 3. Every one of the 6 fields is drawn at least once across a wide seed
-// sweep (genuine variety, no field left permanently untestable).
+// 3. Every one of the 5 eligible fields is drawn at least once across a
+// wide seed sweep (genuine variety, no field left permanently untestable).
 // ---------------------------------------------------------------------
 $seen = array_fill_keys( $valid_keys, false );
 for ( $i = 1; $i <= 100; $i++ ) {
@@ -108,7 +118,7 @@ for ( $i = 1; $i <= 100; $i++ ) {
 		$seen[ $key ] = true;
 	}
 }
-check( '[3] every one of the 6 fields is drawn at least once across 100 seeds', array_filter( $seen ), $seen );
+check( '[3] every one of the 5 eligible fields is drawn at least once across 100 seeds', array_filter( $seen ), $seen );
 
 // ---------------------------------------------------------------------
 // 4. build(): exact output for hand-picked key sets.

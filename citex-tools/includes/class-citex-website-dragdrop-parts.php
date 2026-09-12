@@ -11,13 +11,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  * DragDrop already uses (see Citex_Book_Dragdrop_Parts): the complete
  * reference — "Author/Org (Year) Title [online]. Publisher. Available
  * from: <URL> [accessed Date]." — is always rendered in full, and exactly
- * 3 of its 6 fields are seeded-randomly chosen as draggable blanks; every
- * other field stays visible as literal text.
+ * 3 of 5 eligible fields are seeded-randomly chosen as draggable blanks
+ * (author, year, title, publisher, accessed date — `url` is always shown
+ * as literal text, never draggable; see content_slots()'s own docblock for
+ * why); every other field stays visible as literal text.
  *
  * This is the simplest of the three new classes: Website has no
  * author-joining rule at all (always exactly one author-or-organisation —
  * see Citex_Reference_Rules::format_website_author()) and no structural
- * filler word like "and" — all 6 candidates are pure content, so
+ * filler word like "and" — all 5 eligible candidates are pure content, so
  * select_parts() is a straight seeded-shuffle-and-take-3 with no special
  * "content floor" logic needed.
  *
@@ -33,9 +35,17 @@ class Citex_Website_Dragdrop_Parts {
 
 	/**
 	 * @return string[]
+	 *
+	 * `url` is deliberately excluded from the draggable pool: unlike every
+	 * other field, a URL needs no Harvard-format transformation at all — it
+	 * appears in the scenario and the reference in exactly the same form —
+	 * so drawing it as a blank is pure copy-paste recognition, not a real
+	 * test, and reads as the same text being shown twice for no reason.
+	 * `url` still always appears in the built reference as ordinary fixed
+	 * text; it just never becomes one of the 3 draggable parts.
 	 */
 	private static function content_slots() {
-		return array( 'author', 'year', 'title', 'publisher', 'url', 'accessed_date' );
+		return array( 'author', 'year', 'title', 'publisher', 'accessed_date' );
 	}
 
 	/**
@@ -64,8 +74,9 @@ class Citex_Website_Dragdrop_Parts {
 
 	/**
 	 * Deterministically, but effectively unpredictably, picks exactly which
-	 * 3 of the 6 candidate keys to draw for one question, seeded by that
-	 * question's own id — a straight seeded shuffle-and-take-3 of all 6
+	 * 3 of the 5 eligible candidate keys to draw for one question (`url` is
+	 * never eligible — see content_slots()'s docblock), seeded by that
+	 * question's own id — a straight seeded shuffle-and-take-3 of all 5
 	 * (every candidate is real content, so no special content-floor step is
 	 * needed, unlike Book/Edited Book), returned in REFERENCE order.
 	 *

@@ -1689,7 +1689,10 @@ class Citex_Reference_Rules {
 	 *   this reference actually belong to", and
 	 * - a mistake on THIS SAME person's own name: the given name spelled
 	 *   out in full instead of the initial (e.g. "Smith, John" instead of
-	 *   "Smith, J."), or the initial's full stop dropped ("Smith, J").
+	 *   "Smith, J."), the initial's full stop dropped ("Smith, J"), or the
+	 *   surname/initial ORDER swapped (e.g. "J., Smith" instead of "Smith,
+	 *   J.") — a genuinely convincing, common real mistake, since it keeps
+	 *   every correct token and only reorders them.
 	 *
 	 * @param string      $value          The correct "Surname, I." chip.
 	 * @param string|null $other_combined Another real person's own "Surname, I." from the same record, or null when there is none.
@@ -1703,14 +1706,41 @@ class Citex_Reference_Rules {
 			&& 0 === ( abs( crc32( $seed_key . '|other' ) ) % 2 ) ) {
 			return (string) $other_combined;
 		}
-		if ( 0 === ( abs( crc32( $seed_key . '|flavor' ) ) % 2 ) ) {
+		$flavor = abs( crc32( $seed_key . '|flavor' ) ) % 3;
+		if ( 0 === $flavor ) {
 			$given = self::given_name_portion( $full_name, $surname );
 			if ( '' !== $given && false === strpos( $value, $given ) ) {
 				return sprintf( '%s, %s', $surname, $given );
 			}
 		}
+		if ( 1 === $flavor ) {
+			$swapped = self::surname_initials_order_swap( $value, $surname );
+			if ( null !== $swapped ) {
+				return $swapped;
+			}
+		}
 		$stripped = str_replace( '.', '', $value );
 		return $stripped !== $value ? $stripped : $value . "'s";
+	}
+
+	/**
+	 * Reorders a correct "Surname, Initials" chip (e.g. "Cole, L.") into the
+	 * common mistake of writing the initials first (e.g. "L., Cole") —
+	 * every correct token is kept, only its position changes, which is what
+	 * makes this distractor genuinely convincing rather than obviously
+	 * wrong. Returns null when $value does not actually start with
+	 * "$surname, " (so there is nothing sensible to swap).
+	 */
+	private static function surname_initials_order_swap( $value, $surname ) {
+		$prefix = $surname . ', ';
+		if ( '' === trim( (string) $surname ) || 0 !== strpos( $value, $prefix ) ) {
+			return null;
+		}
+		$initials = trim( substr( $value, strlen( $prefix ) ) );
+		if ( '' === $initials ) {
+			return null;
+		}
+		return sprintf( '%s, %s', $initials, $surname );
 	}
 
 	/**
