@@ -469,40 +469,63 @@ class Citex_Reference_Rules {
 	 * chip plus designation plus exactly one further field, keeping every
 	 * design at exactly 3 parts.
 	 *
-	 * @return array{parts: string[], fixedText: string}
+	 * `confusingWords` is now also computed HERE, deterministically from the
+	 * record's own fields — never Gemini-authored (see the "SHARED
+	 * DETERMINISTIC DISTRACTOR PRIMITIVES" section at the bottom of this
+	 * class) — so Citex_AI_V2's generation-time candidate and
+	 * Citex_Generated_Validator's later recomputation can never silently
+	 * disagree, exactly like `parts`/`fixedText` already couldn't.
+	 *
+	 * @return array{parts: string[], fixedText: string, confusingWords: string[]}
 	 */
 	private static function edited_book_dragdrop_shape_variant( $design, array $editors, array $fields ) {
-		$designation = self::designation_for_editor_count( count( $editors ) );
+		$designation    = self::designation_for_editor_count( count( $editors ) );
+		$record_seed    = 'edited_book_dragdrop|' . implode( '|', array( (string) $fields['year'], (string) $fields['title'], (string) $fields['place'], (string) $fields['publisher'] ) );
+		$other          = isset( $editors[1] ) ? $editors[1] : null;
+		$other_combined = null !== $other ? sprintf( '%s, %s', $other['surname'], $other['initials'] ) : null;
+
 		list( $drawn, $joiners, $overflow ) = self::person_parts( $editors, 1 );
+
 		if ( 'editor_split_designation' === $design ) {
+			$surname_distractor  = self::split_person_distractor( 'surname', $editors[0]['surname'], null !== $other ? $other['surname'] : null, $editors[0]['fullName'] ?? '', $record_seed . '|surname' );
+			$initials_distractor = self::split_person_distractor( 'initials', $editors[0]['initials'], null !== $other ? $other['initials'] : null, '', $record_seed . '|initials' );
 			return array(
-				'parts'     => array( $editors[0]['surname'], $editors[0]['initials'], $designation ),
-				'fixedText' => sprintf( '|, ||%s (||) (%s) %s. %s: %s.', $overflow, $fields['year'], $fields['title'], $fields['place'], $fields['publisher'] ),
+				'parts'          => array( $editors[0]['surname'], $editors[0]['initials'], $designation ),
+				'fixedText'      => sprintf( '|, ||%s (||) (%s) %s. %s: %s.', $overflow, $fields['year'], $fields['title'], $fields['place'], $fields['publisher'] ),
+				'confusingWords' => array( $surname_distractor, $initials_distractor, self::designation_mistake_distractor( $designation, count( $editors ), $record_seed . '|designation' ) ),
 			);
 		}
-		$editor_template = self::name_template( $drawn, $joiners ) . $overflow;
+
+		$editor_template        = self::name_template( $drawn, $joiners ) . $overflow;
+		$editor_distractor      = self::combined_person_distractor( $drawn[0], $other_combined, $editors[0]['fullName'] ?? '', $editors[0]['surname'], $record_seed . '|editor' );
+		$designation_distractor = self::designation_mistake_distractor( $designation, count( $editors ), $record_seed . '|designation' );
+
 		if ( 'editor_designation_title' === $design ) {
 			return array(
-				'parts'     => array_merge( $drawn, array( $designation, $fields['title'] ) ),
-				'fixedText' => sprintf( '%s (||) (%s) ||. %s: %s.', $editor_template, $fields['year'], $fields['place'], $fields['publisher'] ),
+				'parts'          => array_merge( $drawn, array( $designation, $fields['title'] ) ),
+				'fixedText'      => sprintf( '%s (||) (%s) ||. %s: %s.', $editor_template, $fields['year'], $fields['place'], $fields['publisher'] ),
+				'confusingWords' => array( $editor_distractor, $designation_distractor, self::title_like_distractor( $fields['title'], $fields['year'], $record_seed . '|title' ) ),
 			);
 		}
 		if ( 'editor_designation_place' === $design ) {
 			return array(
-				'parts'     => array_merge( $drawn, array( $designation, $fields['place'] ) ),
-				'fixedText' => sprintf( '%s (||) (%s) %s. ||: %s.', $editor_template, $fields['year'], $fields['title'], $fields['publisher'] ),
+				'parts'          => array_merge( $drawn, array( $designation, $fields['place'] ) ),
+				'fixedText'      => sprintf( '%s (||) (%s) %s. ||: %s.', $editor_template, $fields['year'], $fields['title'], $fields['publisher'] ),
+				'confusingWords' => array( $editor_distractor, $designation_distractor, self::pick_from_pool( self::place_pool(), array( $fields['place'] ), $record_seed . '|place' ) ?? 'n.p.' ),
 			);
 		}
 		if ( 'editor_designation_publisher' === $design ) {
 			return array(
-				'parts'     => array_merge( $drawn, array( $designation, $fields['publisher'] ) ),
-				'fixedText' => sprintf( '%s (||) (%s) %s. %s: ||.', $editor_template, $fields['year'], $fields['title'], $fields['place'] ),
+				'parts'          => array_merge( $drawn, array( $designation, $fields['publisher'] ) ),
+				'fixedText'      => sprintf( '%s (||) (%s) %s. %s: ||.', $editor_template, $fields['year'], $fields['title'], $fields['place'] ),
+				'confusingWords' => array( $editor_distractor, $designation_distractor, self::pick_from_pool( self::publisher_pool(), array( $fields['publisher'] ), $record_seed . '|publisher' ) ?? 'n.pub.' ),
 			);
 		}
 		// 'editor_designation_year' (baseline).
 		return array(
-			'parts'     => array_merge( $drawn, array( $designation, $fields['year'] ) ),
-			'fixedText' => sprintf( '%s (||) (||) %s. %s: %s.', $editor_template, $fields['title'], $fields['place'], $fields['publisher'] ),
+			'parts'          => array_merge( $drawn, array( $designation, $fields['year'] ) ),
+			'fixedText'      => sprintf( '%s (||) (||) %s. %s: %s.', $editor_template, $fields['title'], $fields['place'], $fields['publisher'] ),
+			'confusingWords' => array( $editor_distractor, $designation_distractor, self::year_distractor( $fields['year'], $record_seed . '|year' ) ),
 		);
 	}
 
@@ -646,18 +669,28 @@ class Citex_Reference_Rules {
 	 * from 3 non-author fields when the design has no author at all.
 	 * There is no place/publisher to bake into the fixed template for any
 	 * design — this category has none.
+	 *
+	 * `confusingWords` is now also computed HERE, deterministically from the
+	 * record's own fields — never Gemini-authored (see the "SHARED
+	 * DETERMINISTIC DISTRACTOR PRIMITIVES" section at the bottom of this
+	 * class). Only the 6 real DragDrop-eligible designs populate it with a
+	 * meaningful value; 'author_only'/'full_reference' are MCQ-only (their
+	 * own mechanic builds its own distractor options elsewhere) and return
+	 * an empty array here.
 	 */
 	private static function journal_article_dragdrop_shape( array $fields, $design = null ) {
-		$design  = $design ?: 'full_reference';
-		$authors = $fields['authors'];
+		$design      = $design ?: 'full_reference';
+		$authors     = $fields['authors'];
+		$record_seed = 'journal_article_dragdrop|' . implode( '|', array( (string) $fields['year'], (string) $fields['articleTitle'], (string) $fields['journalTitle'], (string) $fields['volume'], (string) $fields['issue'], (string) $fields['pages'] ) );
 
 		if ( 'author_only' === $design ) {
 			// Always exactly 1 real author by construction (see
 			// journal_article_design_author_bounds()) — a single combined
 			// part, same as ever.
 			return array(
-				'parts'     => array( sprintf( '%s, %s', $authors[0]['surname'], $authors[0]['initials'] ) ),
-				'fixedText' => '|',
+				'parts'          => array( sprintf( '%s, %s', $authors[0]['surname'], $authors[0]['initials'] ) ),
+				'fixedText'      => '|',
+				'confusingWords' => array(),
 			);
 		}
 		if ( 'author_year_volume_pages' === $design ) {
@@ -678,9 +711,15 @@ class Citex_Reference_Rules {
 			// assumed a whole-list chip. part_suitability()'s length gate
 			// (Citex_AI_V2::normalise()) is the backstop against a
 			// genuinely oversized real author list.
+			$joined = self::join_people( $authors );
 			return array(
-				'parts'     => array( self::join_people( $authors ), $fields['year'], $fields['volume'] ),
-				'fixedText' => sprintf( '| (||) ||, pp.%s.', $fields['pages'] ),
+				'parts'          => array( $joined, $fields['year'], $fields['volume'] ),
+				'fixedText'      => sprintf( '| (||) ||, pp.%s.', $fields['pages'] ),
+				'confusingWords' => array(
+					self::joining_mistake_distractor( $authors, $joined, $record_seed . '|authors' ),
+					self::year_distractor( $fields['year'], $record_seed . '|year' ),
+					self::small_integer_distractor( $fields['volume'], $record_seed . '|volume' ),
+				),
 			);
 		}
 		if ( 'author_year_issue' === $design ) {
@@ -691,30 +730,52 @@ class Citex_Reference_Rules {
 			// WHOLE author list is drawn as ONE joined chip via
 			// join_people() — see author_year_volume_pages's docblock entry
 			// above for why.
+			$joined = self::join_people( $authors );
 			return array(
-				'parts'     => array( self::join_people( $authors ), $fields['year'], $fields['issue'] ),
-				'fixedText' => '|, ||, ||.',
+				'parts'          => array( $joined, $fields['year'], $fields['issue'] ),
+				'fixedText'      => '|, ||, ||.',
+				'confusingWords' => array(
+					self::joining_mistake_distractor( $authors, $joined, $record_seed . '|authors' ),
+					self::year_distractor( $fields['year'], $record_seed . '|year' ),
+					self::small_integer_distractor( $fields['issue'], $record_seed . '|issue' ),
+				),
 			);
 		}
 		if ( 'author_year_journal' === $design ) {
 			// The WHOLE author list is drawn as ONE joined chip via
 			// join_people() — see author_year_volume_pages's docblock entry
 			// above for why.
+			$joined = self::join_people( $authors );
 			return array(
-				'parts'     => array( self::join_people( $authors ), $fields['year'], $fields['journalTitle'] ),
-				'fixedText' => '|, ||, ||.',
+				'parts'          => array( $joined, $fields['year'], $fields['journalTitle'] ),
+				'fixedText'      => '|, ||, ||.',
+				'confusingWords' => array(
+					self::joining_mistake_distractor( $authors, $joined, $record_seed . '|authors' ),
+					self::year_distractor( $fields['year'], $record_seed . '|year' ),
+					self::pick_from_pool( self::journal_pool(), array( $fields['journalTitle'] ), $record_seed . '|journal' ) ?? 'n.j.',
+				),
 			);
 		}
 		if ( 'volume_issue_pages' === $design ) {
 			return array(
-				'parts'     => array( $fields['volume'], $fields['issue'], $fields['pages'] ),
-				'fixedText' => '|(||), pp.||.',
+				'parts'          => array( $fields['volume'], $fields['issue'], $fields['pages'] ),
+				'fixedText'      => '|(||), pp.||.',
+				'confusingWords' => array(
+					self::small_integer_distractor( $fields['volume'], $record_seed . '|volume' ),
+					self::small_integer_distractor( $fields['issue'], $record_seed . '|issue' ),
+					self::page_range_distractor( $fields['pages'], $record_seed . '|pages' ),
+				),
 			);
 		}
 		if ( 'journal_volume_issue' === $design ) {
 			return array(
-				'parts'     => array( $fields['journalTitle'], $fields['volume'], $fields['issue'] ),
-				'fixedText' => '|, ||(||)',
+				'parts'          => array( $fields['journalTitle'], $fields['volume'], $fields['issue'] ),
+				'fixedText'      => '|, ||(||)',
+				'confusingWords' => array(
+					self::pick_from_pool( self::journal_pool(), array( $fields['journalTitle'] ), $record_seed . '|journal' ) ?? 'n.j.',
+					self::small_integer_distractor( $fields['volume'], $record_seed . '|volume' ),
+					self::small_integer_distractor( $fields['issue'], $record_seed . '|issue' ),
+				),
 			);
 		}
 		if ( 'year_volume_issue_pages' === $design ) {
@@ -726,8 +787,13 @@ class Citex_Reference_Rules {
 			// entry in journal_article_designs()), not drawn, so only
 			// year/volume/issue are draggable — exactly 3 parts.
 			return array(
-				'parts'     => array( $fields['year'], $fields['volume'], $fields['issue'] ),
-				'fixedText' => sprintf( '|, ||, ||, %s.', $fields['pages'] ),
+				'parts'          => array( $fields['year'], $fields['volume'], $fields['issue'] ),
+				'fixedText'      => sprintf( '|, ||, ||, %s.', $fields['pages'] ),
+				'confusingWords' => array(
+					self::year_distractor( $fields['year'], $record_seed . '|year' ),
+					self::small_integer_distractor( $fields['volume'], $record_seed . '|volume' ),
+					self::small_integer_distractor( $fields['issue'], $record_seed . '|issue' ),
+				),
 			);
 		}
 		// full_reference (MCQ-only — see journal_article_dragdrop_designs()):
@@ -736,7 +802,7 @@ class Citex_Reference_Rules {
 		// compute the correct reconstructed STRING for MCQ option
 		// comparison.
 		return array(
-			'parts'     => array(
+			'parts'          => array(
 				self::join_people( $authors ),
 				$fields['year'],
 				$fields['articleTitle'],
@@ -745,7 +811,8 @@ class Citex_Reference_Rules {
 				$fields['issue'],
 				$fields['pages'],
 			),
-			'fixedText' => '| (||) ||. ||, ||(||), pp.||.',
+			'fixedText'      => '| (||) ||. ||, ||(||), pp.||.',
+			'confusingWords' => array(),
 		);
 	}
 
@@ -918,8 +985,21 @@ class Citex_Reference_Rules {
 		// original fixed 6-part template used.
 		$connectors = array( ' (', ') ', ' [online]. ', '. Available from: <', '> [accessed ', '].' );
 
-		$parts = array();
-		$fixed = '';
+		// `confusingWords` is now also computed HERE, deterministically from
+		// the record's own fields — never Gemini-authored (see the "SHARED
+		// DETERMINISTIC DISTRACTOR PRIMITIVES" section at the bottom of this
+		// class). $exclude_values is every field ACTUALLY drawn this
+		// question (not just each distractor's own field) so a pool-based
+		// pick (organisation_pool()) can never accidentally collide with a
+		// different correct part in the same question — e.g.
+		// author_year_publisher draws both the author and the publisher, so
+		// each one's distractor pool excludes the OTHER's correct value too.
+		$record_seed          = 'website_dragdrop|' . implode( '|', array( (string) $fields['year'], (string) $fields['title'], (string) $fields['publisher'], (string) $fields['url'], (string) $fields['accessedDate'] ) );
+		$drawn_correct_values = array_values( array_intersect_key( $values, array_flip( $draggable ) ) );
+
+		$parts     = array();
+		$confusing = array();
+		$fixed     = '';
 		foreach ( $values as $index => $value ) {
 			if ( in_array( $index, $draggable, true ) ) {
 				$parts[] = $value;
@@ -928,16 +1008,45 @@ class Citex_Reference_Rules {
 				// start of Fixed Text is a single "|"; only possible for
 				// index 0 (author), the only draggable field that can ever
 				// be the very first character emitted here.
-				$fixed .= ( '' === $fixed ) ? '|' : '||';
+				$fixed      .= ( '' === $fixed ) ? '|' : '||';
+				$confusing[] = self::website_distractor_for_index( $index, $value, $fields, $drawn_correct_values, $record_seed );
 			} else {
 				$fixed .= $value;
 			}
 			$fixed .= $connectors[ $index ];
 		}
 		return array(
-			'parts'     => $parts,
-			'fixedText' => $fixed,
+			'parts'          => $parts,
+			'fixedText'      => $fixed,
+			'confusingWords' => $confusing,
 		);
+	}
+
+	/**
+	 * One deterministic wrong chip for a drawn Website candidate, keyed by
+	 * its position in website_dragdrop_shape()'s own 0-5 index map.
+	 */
+	private static function website_distractor_for_index( $index, $value, array $fields, array $exclude_values, $record_seed ) {
+		switch ( $index ) {
+			case 0:
+				$author = $fields['author'];
+				if ( 'organisation' === ( $author['type'] ?? '' ) ) {
+					return self::pick_from_pool( self::organisation_pool(), $exclude_values, $record_seed . '|author' ) ?? 'Unknown Organisation';
+				}
+				return self::combined_person_distractor( $value, null, $author['fullName'] ?? '', $author['surname'] ?? '', $record_seed . '|author' );
+			case 1:
+				return self::year_or_undated_distractor( $value, $record_seed . '|year' );
+			case 2:
+				return self::title_like_distractor( $value, $fields['year'], $record_seed . '|title' );
+			case 3:
+				return self::pick_from_pool( self::organisation_pool(), $exclude_values, $record_seed . '|publisher' ) ?? 'Unknown Publisher';
+			case 4:
+				return self::url_distractor( $value, $record_seed . '|url' );
+			case 5:
+				return self::date_distractor( $value, $record_seed . '|accessed' );
+			default:
+				return $value . '?';
+		}
 	}
 
 	/**
@@ -1302,5 +1411,471 @@ class Citex_Reference_Rules {
 			return 'Think about how the editor designation and the joining of multiple editor names change (or don\'t change) as the editor count grows, and remember this is the reference-list rule, not the separate in-text-citation convention.';
 		}
 		return 'Think about how the joining of multiple author names changes (or doesn\'t change) as the author count grows, and remember this is the reference-list rule, not the separate in-text-citation convention (which does use "et al.").';
+	}
+
+	// =====================================================================
+	// SHARED DETERMINISTIC DISTRACTOR PRIMITIVES
+	//
+	// Edited Book, Journal Article and Website DragDrop questions used to
+	// ask Gemini for `confusingWords` via prompt instructions — the exact
+	// "prompt-only enforcement" pattern already proven unreliable elsewhere
+	// in this codebase (see e.g. Citex_AI_V2's hard "no examples" and
+	// place/publisher-diversity checks, both originally prompt-only too).
+	// In practice this produced distractors that were too easy to spot
+	// (wildly different values, generic wording) instead of genuine
+	// Harvard-referencing mistakes a student might actually make. Book
+	// already solved this for its own DragDrop mechanic by having Citex
+	// author every distractor itself, deterministically, from the real
+	// record (see Citex_Book_Dragdrop_Parts) — the methods below generalise
+	// that same philosophy for the 3 remaining categories, whose
+	// dragdrop_shape() methods now also return a `confusingWords` array
+	// alongside `parts`/`fixedText`, computed by the SAME method called at
+	// both generation time (Citex_AI_V2) and validation time
+	// (Citex_Generated_Validator) — so a question's distractors can never
+	// silently disagree with the record they came from, exactly like every
+	// other part of this class.
+	//
+	// Every generator below is seeded from the record's OWN fields only
+	// (never an external per-call random seed), so recomputing from the
+	// same stored fields always reproduces the exact same distractors.
+	// =====================================================================
+
+	/**
+	 * A fixed pool of real, globally recognised places of publication —
+	 * duplicated from Citex_Book_Dragdrop_Parts's own identical pool (kept
+	 * self-contained there, per this codebase's established convention for
+	 * small per-file helpers), for use by Edited Book here.
+	 *
+	 * @return string[]
+	 */
+	private static function place_pool() {
+		return array(
+			'London', 'Oxford', 'Cambridge', 'Manchester', 'Edinburgh', 'Dublin',
+			'New York', 'Boston', 'Chicago', 'San Francisco', 'Toronto', 'Vancouver',
+			'Sydney', 'Melbourne', 'Singapore', 'Delhi', 'Mumbai', 'Tokyo',
+			'Paris', 'Berlin', 'Amsterdam', 'Cape Town',
+		);
+	}
+
+	/**
+	 * A fixed pool of real, globally recognised academic publishers —
+	 * duplicated from Citex_Book_Dragdrop_Parts's own identical pool, for
+	 * use by Edited Book here.
+	 *
+	 * @return string[]
+	 */
+	private static function publisher_pool() {
+		return array(
+			'Routledge', 'Pearson', 'SAGE', 'Palgrave Macmillan', 'Oxford University Press',
+			'Cambridge University Press', 'Wiley', 'Wiley-Blackwell', 'Springer', 'Elsevier',
+			'Taylor & Francis', 'Bloomsbury', 'McGraw-Hill', 'Harvard University Press',
+			'Yale University Press', 'University of Chicago Press',
+		);
+	}
+
+	/**
+	 * A fixed pool of real, well-known academic journals spanning multiple
+	 * disciplines — Journal Article's journalTitle distractor pool, the
+	 * same role place_pool()/publisher_pool() play for Book/Edited Book.
+	 *
+	 * @return string[]
+	 */
+	private static function journal_pool() {
+		return array(
+			'Nature', 'Science', 'The Lancet', 'BMJ', 'Cell', 'PNAS',
+			'Journal of Applied Psychology', 'American Economic Review',
+			'Journal of Marketing', 'Harvard Business Review',
+			'British Journal of Sociology', 'Journal of Educational Psychology',
+			'Cities', 'Urban Studies', 'Journal of Media Studies',
+			'International Journal of Human-Computer Studies',
+		);
+	}
+
+	/**
+	 * A fixed pool of real, well-known organisations — Website's distractor
+	 * pool for BOTH an organisation-author mix-up and a publisher mix-up (a
+	 * webpage's "publisher" is itself an organisation), the same role
+	 * place_pool()/publisher_pool() play elsewhere.
+	 *
+	 * @return string[]
+	 */
+	private static function organisation_pool() {
+		return array(
+			'World Health Organization', 'United Nations', 'UNESCO', 'World Bank',
+			'NHS', 'British Council', 'European Commission', 'UNICEF',
+			'Department for Education', 'Office for National Statistics',
+			'University of Oxford', 'University of Cambridge', 'Harvard University',
+			'Public Health England', 'Royal Society', 'World Economic Forum',
+		);
+	}
+
+	/**
+	 * Deterministically (crc32-seeded) picks one entry from $pool, having
+	 * removed every value in $exclude (case-insensitively) first — same
+	 * algorithm as Citex_Book_Dragdrop_Parts::pick_from_pool(), duplicated
+	 * here so Edited Book/Journal Article/Website can share ONE copy
+	 * amongst themselves without reaching into Book's own file. Returns
+	 * null only if every pool entry was excluded.
+	 *
+	 * @param string[] $pool
+	 * @param string[] $exclude
+	 * @param string   $seed_key
+	 * @return string|null
+	 */
+	private static function pick_from_pool( array $pool, array $exclude, $seed_key ) {
+		$exclude_lower = array_map( 'strtolower', array_map( 'strval', $exclude ) );
+		$eligible      = array_values(
+			array_filter(
+				$pool,
+				function ( $candidate ) use ( $exclude_lower ) {
+					return ! in_array( strtolower( $candidate ), $exclude_lower, true );
+				}
+			)
+		);
+		if ( empty( $eligible ) ) {
+			return null;
+		}
+		usort(
+			$eligible,
+			function ( $a, $b ) use ( $seed_key ) {
+				$hash_a = crc32( $seed_key . '|' . $a );
+				$hash_b = crc32( $seed_key . '|' . $b );
+				return ( $hash_a <=> $hash_b ) ?: strcmp( $a, $b );
+			}
+		);
+		return $eligible[0];
+	}
+
+	/**
+	 * A near-miss year distractor — rotates deterministically (seeded by
+	 * $seed_key) between a nearby wrong year (+/- 1 or +/- 2, never the
+	 * real year) and a transposed-digit mistake (swapping the last two
+	 * digits, e.g. "2021" -> "2012") — both genuine "close but wrong"
+	 * mistakes, never a wildly different value.
+	 */
+	private static function year_distractor( $value, $seed_key ) {
+		$numeric = ctype_digit( (string) $value ) ? (int) $value : null;
+		if ( null === $numeric ) {
+			return $value . '?';
+		}
+		$flavor = abs( crc32( $seed_key . '|flavor' ) ) % 2;
+		if ( 0 === $flavor ) {
+			$deltas    = array( -2, -1, 1, 2 );
+			$delta     = $deltas[ abs( crc32( $seed_key . '|delta' ) ) % count( $deltas ) ];
+			$candidate = (string) ( $numeric + $delta );
+			if ( $candidate !== (string) $value ) {
+				return $candidate;
+			}
+		}
+		$digits = str_split( (string) $value );
+		$count  = count( $digits );
+		if ( $count >= 2 ) {
+			$transposed                 = $digits;
+			$transposed[ $count - 1 ]   = $digits[ $count - 2 ];
+			$transposed[ $count - 2 ]   = $digits[ $count - 1 ];
+			$candidate                  = implode( '', $transposed );
+			if ( $candidate !== (string) $value ) {
+				return $candidate;
+			}
+		}
+		return (string) ( $numeric + 1 );
+	}
+
+	/**
+	 * A genuine title-boundary/content mistake — never a random
+	 * character-level misspelling — rotating deterministically (seeded by
+	 * $seed_key) between four flavours, mirroring
+	 * Citex_Book_Dragdrop_Parts::title_distractor()'s identical technique:
+	 * - a full stop wrongly attached to the title itself,
+	 * - a comma wrongly attached the same way,
+	 * - $fold_in (typically the record's own year) wrongly folded into the
+	 *   title chip in parentheses, and
+	 * - a subtle wording alteration (a plural/singular flip on the title's
+	 *   last word).
+	 */
+	private static function title_like_distractor( $value, $fold_in, $seed_key ) {
+		$flavor = abs( crc32( $seed_key . '|flavor' ) ) % 4;
+		if ( 0 === $flavor ) {
+			$candidate = $value . '.';
+		} elseif ( 1 === $flavor ) {
+			$candidate = $value . ',';
+		} elseif ( 2 === $flavor && '' !== trim( (string) $fold_in ) ) {
+			$candidate = $value . ' (' . (string) $fold_in . ')';
+		} else {
+			$words = preg_split( '/\s+/', trim( (string) $value ) );
+			$last  = array_pop( $words );
+			if ( null === $last ) {
+				$last = '';
+			}
+			if ( '' !== $last && 's' === strtolower( substr( $last, -1 ) ) ) {
+				$last = substr( $last, 0, -1 );
+			} else {
+				$last .= 's';
+			}
+			$words[]   = $last;
+			$candidate = trim( implode( ' ', $words ) );
+		}
+		return ( '' !== $candidate && $candidate !== $value ) ? $candidate : $value . '.';
+	}
+
+	/**
+	 * A near-miss page-range distractor — shifts BOTH the start and end
+	 * page of a "NN-NN" range by the same small deterministic delta, so
+	 * the range's own length (a real, checkable fact) stays correct and
+	 * only the actual numbers are wrong — a genuine "close but wrong"
+	 * mistake, never an absurd range.
+	 */
+	private static function page_range_distractor( $value, $seed_key ) {
+		if ( 1 !== preg_match( '/^(\d+)-(\d+)$/', (string) $value, $matches ) ) {
+			return $value . '?';
+		}
+		$start     = (int) $matches[1];
+		$end       = (int) $matches[2];
+		$length    = max( 1, $end - $start );
+		$deltas    = array( -3, -2, -1, 1, 2, 3 );
+		$delta     = $deltas[ abs( crc32( $seed_key . '|delta' ) ) % count( $deltas ) ];
+		$new_start = max( 1, $start + $delta );
+		$candidate = $new_start . '-' . ( $new_start + $length );
+		return $candidate !== $value ? $candidate : ( $new_start + 1 ) . '-' . ( $new_start + 1 + $length );
+	}
+
+	/**
+	 * A small near-miss integer distractor — used for volume/issue numbers,
+	 * clamped to stay at least 1 (never zero or negative, which would never
+	 * be a real volume/issue number).
+	 */
+	private static function small_integer_distractor( $value, $seed_key, array $deltas = array( -2, -1, 1, 2 ) ) {
+		if ( ! ctype_digit( (string) $value ) ) {
+			return $value . '?';
+		}
+		$numeric   = (int) $value;
+		$delta     = $deltas[ abs( crc32( $seed_key . '|delta' ) ) % count( $deltas ) ];
+		$candidate = max( 1, $numeric + $delta );
+		return (string) $candidate !== (string) $value ? (string) $candidate : (string) ( $numeric + 1 );
+	}
+
+	/**
+	 * A single combined "Surname, I." chip's distractor (used when a
+	 * person's whole name is drawn as ONE part, e.g. Edited Book's baseline
+	 * designs or Website's individual author) — rotates deterministically
+	 * between:
+	 * - the OTHER person's own combined name (when one exists — e.g. a
+	 *   second editor not drawn this question), testing "which person does
+	 *   this reference actually belong to", and
+	 * - a mistake on THIS SAME person's own name: the given name spelled
+	 *   out in full instead of the initial (e.g. "Smith, John" instead of
+	 *   "Smith, J."), or the initial's full stop dropped ("Smith, J").
+	 *
+	 * @param string      $value          The correct "Surname, I." chip.
+	 * @param string|null $other_combined Another real person's own "Surname, I." from the same record, or null when there is none.
+	 * @param string      $full_name      This person's own full name (for the given-name flavour).
+	 * @param string      $surname        This person's own surname (to isolate the given-name portion of $full_name).
+	 * @param string      $seed_key
+	 */
+	private static function combined_person_distractor( $value, $other_combined, $full_name, $surname, $seed_key ) {
+		if ( null !== $other_combined && '' !== trim( (string) $other_combined )
+			&& 0 !== strcasecmp( (string) $other_combined, $value )
+			&& 0 === ( abs( crc32( $seed_key . '|other' ) ) % 2 ) ) {
+			return (string) $other_combined;
+		}
+		if ( 0 === ( abs( crc32( $seed_key . '|flavor' ) ) % 2 ) ) {
+			$given = self::given_name_portion( $full_name, $surname );
+			if ( '' !== $given && false === strpos( $value, $given ) ) {
+				return sprintf( '%s, %s', $surname, $given );
+			}
+		}
+		$stripped = str_replace( '.', '', $value );
+		return $stripped !== $value ? $stripped : $value . "'s";
+	}
+
+	/**
+	 * A split surname/initials chip's distractor (used when a person's name
+	 * is drawn as two SEPARATE parts, e.g. Edited Book's
+	 * editor_split_designation design) — mirrors
+	 * Citex_Book_Dragdrop_Parts::author_surname_distractor()/
+	 * author_initials_distractor() exactly: rotates between the OTHER
+	 * person's corresponding field (when one exists) and a same-person
+	 * mistake (given-name confusion for a surname, missing full stop for
+	 * initials).
+	 *
+	 * @param string      $kind        'surname' or 'initials'.
+	 * @param string      $value       The correct value.
+	 * @param string|null $other_value The other person's own value for this same kind, or null.
+	 * @param string      $full_name   This person's own full name (surname kind only).
+	 * @param string      $seed_key
+	 */
+	private static function split_person_distractor( $kind, $value, $other_value, $full_name, $seed_key ) {
+		if ( null !== $other_value && '' !== trim( (string) $other_value )
+			&& 0 !== strcasecmp( (string) $other_value, $value )
+			&& 0 === ( abs( crc32( $seed_key . '|' . $kind . '|other' ) ) % 2 ) ) {
+			return (string) $other_value;
+		}
+		if ( 'initials' === $kind ) {
+			$stripped = str_replace( '.', '', $value );
+			return ( '' !== $stripped && $stripped !== $value ) ? $stripped : $value . "'";
+		}
+		$given = self::given_name_portion( $full_name, $value );
+		return ( '' !== $given && $given !== $value ) ? $given : $value . "'s";
+	}
+
+	/**
+	 * Extracts the given-name portion of a full name once its surname is
+	 * known — e.g. ("Andrew Brown", "Brown") -> "Andrew" — duplicated from
+	 * Citex_Book_Dragdrop_Parts's identical helper to keep this shared
+	 * section self-contained.
+	 */
+	private static function given_name_portion( $full_name, $surname ) {
+		$full_name = trim( (string) $full_name );
+		$surname   = trim( (string) $surname );
+		if ( '' !== $surname && '' !== $full_name && strlen( $full_name ) > strlen( $surname )
+			&& 0 === strcasecmp( substr( $full_name, -strlen( $surname ) ), $surname ) ) {
+			return trim( substr( $full_name, 0, strlen( $full_name ) - strlen( $surname ) ) );
+		}
+		$words = preg_split( '/\s+/', $full_name );
+		if ( count( $words ) > 1 ) {
+			array_pop( $words );
+			return implode( ' ', $words );
+		}
+		return '' !== $full_name ? $full_name : $surname;
+	}
+
+	/**
+	 * A whole-author-list chip's distractor — the joined list itself is the
+	 * draggable part for Journal Article (never split per-author — see
+	 * journal_article_dragdrop_shape()'s docblock), so its distractors test
+	 * the JOINING rule itself, the single most common real mistake this
+	 * exact chip exists to catch: rotates deterministically between:
+	 * - "&" instead of "and" (only when there are 2+ authors),
+	 * - a comma-throughout join with no "and" at all before the last name
+	 *   (the other common real mistake for 3+ authors), and
+	 * - the Harvard IN-TEXT-CITATION convention ("et al.") wrongly used in
+	 *   the reference list — always eligible, and the fallback for a
+	 *   single-author list that has no "and" to mistake in the first place.
+	 *
+	 * @param array  $people       array<{surname, initials}>, 1 or more — the ORIGINAL person records, never parsed back out of $joined_value, so a comma inside any one person's own "Surname, I." can never be mistaken for a person separator.
+	 * @param string $joined_value The correct joined chip (join_people($people)).
+	 * @param string $seed_key
+	 */
+	private static function joining_mistake_distractor( array $people, $joined_value, $seed_key ) {
+		$has_and = count( $people ) >= 2;
+		$flavor  = abs( crc32( $seed_key . '|flavor' ) ) % ( $has_and ? 3 : 1 );
+		if ( $has_and && 0 === $flavor ) {
+			$candidate = preg_replace( '/ and ([^,]+)$/', ' & $1', $joined_value, 1 );
+			if ( null !== $candidate && $candidate !== $joined_value ) {
+				return $candidate;
+			}
+		}
+		if ( $has_and && 1 === $flavor ) {
+			$candidate = str_replace( ' and ', ', ', $joined_value );
+			if ( $candidate !== $joined_value ) {
+				return $candidate;
+			}
+		}
+		$candidate = sprintf( '%s, %s et al.', $people[0]['surname'], $people[0]['initials'] );
+		return $candidate !== $joined_value ? $candidate : $joined_value . '.';
+	}
+
+	/**
+	 * A plausible URL mistake — rotates deterministically between:
+	 * - dropping the protocol scheme entirely (a very common real mistake:
+	 *   "www.example.com/page" instead of the full "https://..." address),
+	 * - swapping "https" for the insecure "http", and
+	 * - truncating the final path segment (linking to the site's home page
+	 *   instead of the actual specific page).
+	 */
+	private static function url_distractor( $value, $seed_key ) {
+		$flavor = abs( crc32( $seed_key . '|flavor' ) ) % 3;
+		if ( 0 === $flavor ) {
+			$candidate = preg_replace( '#^https?://(www\.)?#i', '', (string) $value );
+			if ( null !== $candidate && '' !== $candidate && $candidate !== $value ) {
+				return $candidate;
+			}
+		}
+		if ( 1 === $flavor && 0 === stripos( (string) $value, 'https://' ) ) {
+			return 'http://' . substr( $value, strlen( 'https://' ) );
+		}
+		$trimmed    = rtrim( (string) $value, '/' );
+		$scheme_end = strpos( $trimmed, '//' );
+		$last_slash = strrpos( $trimmed, '/' );
+		if ( false !== $scheme_end && false !== $last_slash && $last_slash > $scheme_end + 2 ) {
+			$candidate = substr( $trimmed, 0, $last_slash );
+			if ( '' !== $candidate && $candidate !== $value ) {
+				return $candidate;
+			}
+		}
+		return $value . '/';
+	}
+
+	/**
+	 * A plausible "accessed" date mistake — rotates deterministically
+	 * between two real formatting mistakes (never a wildly different date):
+	 * - the American month-first order with a comma ("March 5, 2024"
+	 *   instead of Harvard's "5 March 2024"), and
+	 * - a numeric slash-separated date ("5/3/2024").
+	 * $value is always Citex's own computed 'j F Y' date (see
+	 * Citex_AI_V2::current_accessed_date()), so the parse below is never
+	 * expected to fail in practice.
+	 */
+	private static function date_distractor( $value, $seed_key ) {
+		$date = DateTime::createFromFormat( 'j F Y', (string) $value );
+		if ( false === $date ) {
+			return $value . '?';
+		}
+		$flavor = abs( crc32( $seed_key . '|flavor' ) ) % 2;
+		return 0 === $flavor ? $date->format( 'F j, Y' ) : $date->format( 'j/n/Y' );
+	}
+
+	/**
+	 * Website's year-or-"(n.d.)" distractor — the two real mistakes this
+	 * field actually invites are assuming a date exists when the source is
+	 * genuinely undated, or the reverse (assuming "n.d." when the source
+	 * does have a real date): when $value is a real year, rotates between a
+	 * near-miss year (year_distractor()) and the literal "n.d."; when
+	 * $value is "n.d." itself, returns a plausible fabricated year instead
+	 * (a small deterministic pool of recent years, never today's actual
+	 * year, which would be an unfairly easy tell).
+	 */
+	private static function year_or_undated_distractor( $value, $seed_key ) {
+		if ( 'n.d.' === $value ) {
+			$years = array( '2018', '2019', '2020', '2021', '2022' );
+			return $years[ abs( crc32( $seed_key . '|nd_year' ) ) % count( $years ) ];
+		}
+		if ( 0 === ( abs( crc32( $seed_key . '|nd_flavor' ) ) % 2 ) ) {
+			return 'n.d.';
+		}
+		return self::year_distractor( $value, $seed_key );
+	}
+
+	/**
+	 * The editor designation's distractor — rotates deterministically
+	 * between the 4 real mistakes explicitly called out for this category
+	 * (see build_prompt_edited_book()'s own DISTRACTORS guidance, now made
+	 * deterministic instead of Gemini-authored):
+	 * - the WRONG designation for this question's actual editor count
+	 *   ("eds" for one editor, "ed." for two or more),
+	 * - the unabbreviated word "editor" (never actually correct — Harvard
+	 *   always abbreviates),
+	 * - the wrong role entirely, "author", and
+	 * - a punctuation mistake on the correct designation itself ("ed"
+	 *   missing its full stop, or "eds." with a stray one).
+	 */
+	private static function designation_mistake_distractor( $value, $editor_count, $seed_key ) {
+		$wrong_count_designation = $editor_count > 1 ? 'ed.' : 'eds';
+		$punctuation_mistake     = 'ed.' === $value ? 'ed' : 'eds.';
+		$flavors                = array( $wrong_count_designation, 'editor', 'author', $punctuation_mistake );
+		$eligible                = array_values(
+			array_unique(
+				array_filter(
+					$flavors,
+					function ( $candidate ) use ( $value ) {
+						return $candidate !== $value;
+					}
+				)
+			)
+		);
+		if ( empty( $eligible ) ) {
+			return $value . '?';
+		}
+		return $eligible[ abs( crc32( $seed_key . '|flavor' ) ) % count( $eligible ) ];
 	}
 }

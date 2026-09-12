@@ -110,7 +110,7 @@ function journal_article_dragdrop_question( $authors, $fields, $overrides = arra
 			'pages'          => $fields['pages'],
 			'fixedText'      => $shape['fixedText'],
 			'questionParts'  => $shape['parts'],
-			'confusingWords' => array( '2015', 'A different journal name', '99-100' ),
+			'confusingWords' => $shape['confusingWords'],
 			'scenario'       => "You are referencing a journal article titled {$fields['articleTitle']} by {$scenario_names}, published in {$fields['year']} in {$fields['journalTitle']}, volume {$fields['volume']}, issue {$fields['issue']}, pages {$fields['pages']}.",
 			'reconstructedReference' => $reference,
 		),
@@ -320,6 +320,20 @@ check( '[21] Journal Article is a supported generated category (no UNSUPPORTED_G
 
 $unsupported = Citex_Generated_Validator::validate( array( 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Not A Real Category', 'type' => 'DragDrop' ) );
 check( '[21] an unrecognised category is still rejected as unsupported (no accidental wildcard match)', has_error_code( $unsupported, 'unsupported_generated_format' ), true );
+
+// ---------------------------------------------------------------------
+// 22. CRITICAL — confusingWords is now Citex-authored, deterministically,
+// from the record + exerciseDesign (see
+// Citex_Reference_Rules::journal_article_dragdrop_shape()'s "SHARED
+// DETERMINISTIC DISTRACTOR PRIMITIVES" section), and the validator
+// recomputes and exact-matches it — a tampered confusingWords entry must
+// fail even though every other field is untouched and correct.
+// ---------------------------------------------------------------------
+$tampered_confusing = journal_article_dragdrop_question( one_author(), $canonical_fields );
+$tampered_confusing['confusingWords'][0] = 'Totally Wrong Distractor';
+$tampered_confusing_result = Citex_Generated_Validator::validate( $tampered_confusing );
+check( '[22] a tampered confusingWords entry fails', $tampered_confusing_result['status'], 'failed' );
+check( '[22] reports JOURNAL_ARTICLE_DRAGDROP_CONFUSING_WORDS_MISMATCH', has_error_code( $tampered_confusing_result, 'journal_article_dragdrop_confusing_words_mismatch' ), true );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

@@ -346,13 +346,39 @@ $journal_article_regression = Citex_Generated_Validator::validate( array_merge(
 	array(
 		'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'type' => 'DragDrop', 'exerciseDesign' => 'author_year_volume_pages',
 		'fixedText' => $ja_shape['fixedText'], 'questionParts' => $ja_shape['parts'],
-		'confusingWords' => array( '2015', 'A different journal', '11' ),
+		'confusingWords' => $ja_shape['confusingWords'],
 		'scenario' => 'You are referencing a journal article titled A brief guide to Harvard referencing by Sarah Mitchell, published in 2010 in The British Journal of Referencing, volume 12, issue 2, pages 27-35.',
 		'reconstructedReference' => Citex_Reference_Rules::reconstruct_reference( $ja_shape ),
 	),
 	$ja_regression_fields
 ) );
 check( '[31] existing Journal Article validation is completely unaffected by Website support', $journal_article_regression['status'], 'passed' );
+
+// ---------------------------------------------------------------------
+// 32. CRITICAL — confusingWords is now Citex-authored, deterministically,
+// from the record + exerciseDesign (see
+// Citex_Reference_Rules::website_dragdrop_shape()'s "SHARED DETERMINISTIC
+// DISTRACTOR PRIMITIVES" section), and the validator recomputes and
+// exact-matches it — a tampered confusingWords entry must fail even though
+// every other field is untouched and correct. Uses a real 3-part
+// DragDrop-eligible design (website_dragdrop_question()'s own default has
+// no exerciseDesign at all, which the validator treats as MCQ-only
+// 'full_reference' and skips this exact-match check for).
+// ---------------------------------------------------------------------
+$web_design_question = website_dragdrop_question( $individual, $canonical_dated, array( 'exerciseDesign' => 'author_year_title' ) );
+$web_design_fields    = array( 'author' => $individual, 'year' => $canonical_dated['year'], 'title' => $canonical_dated['title'], 'publisher' => $canonical_dated['publisher'], 'url' => $canonical_dated['url'], 'accessedDate' => $canonical_dated['accessedDate'] );
+$web_design_shape     = Citex_Reference_Rules::dragdrop_shape( $WR, $web_design_fields, 'author_year_title' );
+$web_design_question['fixedText']      = $web_design_shape['fixedText'];
+$web_design_question['questionParts']  = $web_design_shape['parts'];
+$web_design_question['confusingWords'] = $web_design_shape['confusingWords'];
+$web_design_result = Citex_Generated_Validator::validate( $web_design_question );
+check( '[32] a correctly-built real-design Website DragDrop question passes', $web_design_result['status'], 'passed' );
+
+$tampered_confusing = $web_design_question;
+$tampered_confusing['confusingWords'][0] = 'Totally Wrong Distractor';
+$tampered_confusing_result = Citex_Generated_Validator::validate( $tampered_confusing );
+check( '[32] a tampered confusingWords entry fails', $tampered_confusing_result['status'], 'failed' );
+check( '[32] reports WEBSITE_DRAGDROP_CONFUSING_WORDS_MISMATCH', has_error_code( $tampered_confusing_result, 'website_dragdrop_confusing_words_mismatch' ), true );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

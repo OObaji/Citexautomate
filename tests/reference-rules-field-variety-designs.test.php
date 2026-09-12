@@ -44,6 +44,14 @@ function author( $surname, $initials ) {
 	return array( 'surname' => $surname, 'initials' => $initials );
 }
 
+// dragdrop_shape() now also returns 'confusingWords' (Citex-authored
+// distractors — see tests/reference-rules-distractors.test.php for
+// dedicated coverage of those); this file only ever asserted 'parts'/
+// 'fixedText', so every exact-shape check below compares just that subset.
+function shape_subset( $shape ) {
+	return array( 'parts' => $shape['parts'], 'fixedText' => $shape['fixedText'] );
+}
+
 // The reconstructed reference from a shape must exactly match
 // build_reference()'s own output — DragDrop and the correct MCQ answer can
 // never silently disagree, for ANY design.
@@ -89,32 +97,32 @@ foreach ( Citex_Reference_Rules::edited_book_dragdrop_designs() as $design ) {
 
 check(
 	'[1] editor_designation_year (1 editor, baseline): title/place/publisher baked, year drawn',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_year' ),
+	shape_subset( Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_year' ) ),
 	array( 'parts' => array( 'Vance, C.', 'ed.', '2019' ), 'fixedText' => '| (||) (||) Urban Ecology. Cambridge: Polity.' )
 );
 check(
 	'[1] editor_designation_title (1 editor): year baked, title drawn, place/publisher baked',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_title' ),
+	shape_subset( Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_title' ) ),
 	array( 'parts' => array( 'Vance, C.', 'ed.', 'Urban Ecology' ), 'fixedText' => '| (||) (2019) ||. Cambridge: Polity.' )
 );
 check(
 	'[1] editor_designation_place (1 editor): year/title baked, place drawn, publisher baked',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_place' ),
+	shape_subset( Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_place' ) ),
 	array( 'parts' => array( 'Vance, C.', 'ed.', 'Cambridge' ), 'fixedText' => '| (||) (2019) Urban Ecology. ||: Polity.' )
 );
 check(
 	'[1] editor_designation_publisher (1 editor): year/title/place baked, publisher drawn',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_publisher' ),
+	shape_subset( Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_designation_publisher' ) ),
 	array( 'parts' => array( 'Vance, C.', 'ed.', 'Polity' ), 'fixedText' => '| (||) (2019) Urban Ecology. Cambridge: ||.' )
 );
 check(
 	'[1] editor_split_designation (1 editor): surname/initials split, designation always drawn, year/title/place/publisher baked',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_split_designation' ),
+	shape_subset( Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one, 'editor_split_designation' ) ),
 	array( 'parts' => array( 'Vance', 'C.', 'ed.' ), 'fixedText' => '|, || (||) (2019) Urban Ecology. Cambridge: Polity.' )
 );
 check(
 	'[1] editor_split_designation (2 editors): first editor split, 2nd folds in as a literal continuation, designation still for the whole pair',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_two, 'editor_split_designation' ),
+	shape_subset( Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_two, 'editor_split_designation' ) ),
 	array( 'parts' => array( 'Vance', 'C.', 'eds' ), 'fixedText' => '|, || and Shaw, D. (||) (2019) Urban Ecology. Cambridge: Polity.' )
 );
 
@@ -142,7 +150,7 @@ check( '[2] edited_book_dragdrop_design_for() picks more than one distinct desig
 // ---------------------------------------------------------------------
 check(
 	'[3] Edited Book: no design argument at all matches the pre-existing baseline exactly',
-	Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one ),
+	shape_subset( Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, $eb_fields_one ) ),
 	array( 'parts' => array( 'Vance, C.', 'ed.', '2019' ), 'fixedText' => '| (||) (||) Urban Ecology. Cambridge: Polity.' )
 );
 

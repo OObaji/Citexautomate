@@ -102,7 +102,7 @@ function edited_book_dragdrop_question( $overrides = array() ) {
 			'scenario'               => "You are referencing a book edited by {$scenario_names}, titled Digital media and society, published in 2022 by SAGE Publications in London.",
 			'fixedText'              => $shape['fixedText'],
 			'questionParts'          => $shape['parts'],
-			'confusingWords'         => array( 'author', 'editor', '2019' ),
+			'confusingWords'         => $shape['confusingWords'],
 			'reconstructedReference' => $reference,
 		),
 		$overrides
@@ -390,6 +390,21 @@ check( '[10] Book validation is completely unaffected by Edited Book support', $
 $unknown_category = Citex_Generated_Validator::validate( edited_book_dragdrop_question( array( 'category' => 'Not A Real Category' ) ) );
 check( '[11] an unrecognised category still fails UNSUPPORTED_GENERATED_FORMAT', $unknown_category['status'], 'failed' );
 check( '[11] reports UNSUPPORTED_GENERATED_FORMAT', has_error_code( $unknown_category, 'unsupported_generated_format' ), true );
+
+// ---------------------------------------------------------------------
+// 12. CRITICAL — confusingWords is now Citex-authored, deterministically,
+// from the record + exerciseDesign (see
+// Citex_Reference_Rules::edited_book_dragdrop_shape_variant()'s "SHARED
+// DETERMINISTIC DISTRACTOR PRIMITIVES" section), and the validator
+// recomputes and exact-matches it, exactly like Book's own dragdropPartKeys
+// check — a tampered confusingWords entry must fail even though every
+// other field is untouched and correct.
+// ---------------------------------------------------------------------
+$tampered_confusing = edited_book_dragdrop_question();
+$tampered_confusing['confusingWords'][0] = 'Totally Wrong Distractor';
+$tampered_confusing_result = Citex_Generated_Validator::validate( $tampered_confusing );
+check( '[12] a tampered confusingWords entry fails', $tampered_confusing_result['status'], 'failed' );
+check( '[12] reports EDITED_BOOK_DRAGDROP_CONFUSING_WORDS_MISMATCH', has_error_code( $tampered_confusing_result, 'edited_book_dragdrop_confusing_words_mismatch' ), true );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
