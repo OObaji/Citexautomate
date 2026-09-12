@@ -243,18 +243,19 @@ class Citex_Question_Scenarios {
 	 * author-type/dated-ness constraints instead of using target_count_for().
 	 */
 	private static function website_buckets() {
-		// exerciseDesign routes each bucket to one of
-		// Citex_Reference_Rules::website_dragdrop_designs()' 3-part
-		// field-subset shapes (see that method's docblock) — every design
-		// still reconstructs the same complete, correct 6-field reference,
-		// just varying which 3 fields are draggable. The undated bucket
-		// is paired with the one design that draggable-tests the year
-		// field, since that is exactly where the "n.d." mechanic is tested.
+		// No `exerciseDesign` key here (unlike Journal Article's buckets):
+		// Website MCQ has never had a partial-reference concept — it always
+		// builds the complete reference via build_reference() — and
+		// DragDrop now always shows the complete reference too, drawing a
+		// random 3 of its 6 fields as blanks per question
+		// (Citex_Website_Dragdrop_Parts) rather than following a
+		// bucket-assigned field subset. Neither consumer reads this bucket
+		// for a design id at all.
 		return array(
-			array( 'id' => 'individual_author_dated', 'ruleTested' => 'date_handling', 'targetCounts' => array( 1 ), 'label' => 'Individual author, dated', 'exerciseDesign' => 'author_year_title' ),
-			array( 'id' => 'individual_author_undated', 'ruleTested' => 'date_handling', 'targetCounts' => array( 1 ), 'label' => 'Individual author, undated (n.d.)', 'exerciseDesign' => 'year_publisher_accessed' ),
-			array( 'id' => 'organisation_author_dated', 'ruleTested' => 'author_type', 'targetCounts' => array( 1 ), 'label' => 'Organisation author, dated', 'exerciseDesign' => 'author_year_publisher' ),
-			array( 'id' => 'organisation_author_undated', 'ruleTested' => 'author_type', 'targetCounts' => array( 1 ), 'label' => 'Organisation author, undated (n.d.)', 'exerciseDesign' => 'title_publisher_url' ),
+			array( 'id' => 'individual_author_dated', 'ruleTested' => 'date_handling', 'targetCounts' => array( 1 ), 'label' => 'Individual author, dated' ),
+			array( 'id' => 'individual_author_undated', 'ruleTested' => 'date_handling', 'targetCounts' => array( 1 ), 'label' => 'Individual author, undated (n.d.)' ),
+			array( 'id' => 'organisation_author_dated', 'ruleTested' => 'author_type', 'targetCounts' => array( 1 ), 'label' => 'Organisation author, dated' ),
+			array( 'id' => 'organisation_author_undated', 'ruleTested' => 'author_type', 'targetCounts' => array( 1 ), 'label' => 'Organisation author, undated (n.d.)' ),
 		);
 	}
 
