@@ -3,12 +3,12 @@
  * Plugin Name: Citex Tools
  * Plugin URI:  https://github.com/oobaji/citexautomate
  * Description: Citex admin tools for managing academic referencing questions — AI generation, import, validation, population and the question bank overview.
- * Version:     0.12.1
+ * Version:     0.12.2
  * Author:      Citex
  * Text Domain: citex-tools
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
-define( 'CITEX_TOOLS_VERSION', '0.12.1' );
+define( 'CITEX_TOOLS_VERSION', '0.12.2' );
 define( 'CITEX_TOOLS_FILE', __FILE__ );
 define( 'CITEX_TOOLS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CITEX_TOOLS_URL', plugin_dir_url( __FILE__ ) );
