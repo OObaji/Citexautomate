@@ -127,6 +127,31 @@ check( '[8] organisation: correct answer is the plain name', $author_format_org[
 check( '[8] organisation: the comma-inverted distractor "Council, British" is present', in_array( 'Council, British', $author_format_org['wrongOptions'], true ), true );
 
 // ---------------------------------------------------------------------
+// 8b. CRITICAL — a real reported bug: an ALL-CAPS distractor is
+// case-insensitively IDENTICAL to the correct answer, so
+// Citex_Generated_Validator's (case-insensitive) MCQ_OPTION_MATCHES_ANSWER
+// check always flagged it as a duplicate of the answer, failing the whole
+// question every time. None of the organisation distractors may ever be a
+// pure case transformation of the correct name — every option must differ
+// by more than case, for a range of organisation names including a
+// SINGLE-WORD one (where a naive "reverse word order" distractor would
+// also collapse to the same string as the correct answer).
+// ---------------------------------------------------------------------
+foreach ( array( 'Health Action', 'British Council', 'NASA', 'WHO' ) as $org_name ) {
+	$built = Citex_Website_Mcq_Variants::build( 'author_or_organisation_format', array(
+		'author' => array( 'type' => 'organisation', 'name' => $org_name ),
+		'year' => '2020', 'title' => 'Report', 'publisher' => 'WHO', 'url' => 'https://www.who.int', 'accessedDate' => '12 September 2026',
+	) );
+	foreach ( $built['wrongOptions'] as $index => $option ) {
+		check(
+			"[8b] \"$org_name\": distractor $index is not merely a case transformation of the correct answer",
+			strtolower( trim( preg_replace( '/\s+/', ' ', $option ) ) ) === strtolower( trim( preg_replace( '/\s+/', ' ', $built['correctAnswer'] ) ) ),
+			false
+		);
+	}
+}
+
+// ---------------------------------------------------------------------
 // 9. identify_the_error: the stem embeds a reference with exactly one
 // structural mistake, and the correct answer is a statement (not a
 // reference string).

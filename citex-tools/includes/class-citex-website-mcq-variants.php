@@ -230,12 +230,6 @@ class Citex_Website_Mcq_Variants {
 		return sprintf( '%s, %s', $last, implode( ' ', $words ) );
 	}
 
-	/** "Rest Last" reversed to "Last Rest" — word order reversed, no comma. */
-	private static function organisation_word_order_reversed( $name ) {
-		$words = preg_split( '/\s+/', trim( (string) $name ) );
-		return implode( ' ', array_reverse( $words ) );
-	}
-
 	// -----------------------------------------------------------------
 	// Variant 1 — Complete Reference (the original baseline mechanic).
 	// -----------------------------------------------------------------
@@ -348,8 +342,8 @@ class Citex_Website_Mcq_Variants {
 				'stem'          => "Which option correctly formats the organisation's name?",
 				'wrongOptions'  => array(
 					self::organisation_comma_inverted( $name ),
-					self::organisation_word_order_reversed( $name ),
-					strtoupper( $name ),
+					'The ' . $name,
+					$name . '.',
 				),
 				'correctAnswer' => $name,
 			);
