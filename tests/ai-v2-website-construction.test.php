@@ -66,6 +66,7 @@ function get_option( $key, $default = null ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-mcq-variants.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-website-mcq-variants.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-edited-book-dragdrop-parts.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-journal-article-dragdrop-parts.php';
@@ -262,6 +263,15 @@ check( '[25] a duplicated distractor pair no longer blocks generation (quality g
 // ---------------------------------------------------------------------
 // 24. MCQ: normalise() constructs a correct MCQ candidate.
 // ---------------------------------------------------------------------
+// Website MCQ is now built entirely by Citex_Website_Mcq_Variants (see
+// tests/reference-rules-website-mcq-variants.test.php and
+// tests/ai-v2-website-mcq-variant-wiring.test.php for the dedicated,
+// per-variant coverage) — Gemini supplies only the canonical record, so
+// this fixture no longer needs (and no longer reads) a `distractors` field
+// at all. "WR02" is deliberately chosen because it is known (see the
+// wiring test) to land on the 'complete_reference' variant, which still
+// produces a bracketed-URL full reference — keeping this regression
+// check meaningful.
 $mcq_item = array(
 	'authorType'      => 'individual',
 	'authorFullName'  => 'Sarah Mitchell',
@@ -269,18 +279,14 @@ $mcq_item = array(
 	'title'           => 'Study skills guide',
 	'publisher'       => 'University of Leeds',
 	'url'             => 'https://www.leeds.ac.uk/study-skills',
-	'distractors'     => array(
-		array( 'reference' => 'Mitchell, S. (2024) Study skills guide University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 3 September 2026].', 'errorReason' => 'Missing [online].' ),
-		array( 'reference' => 'Mitchell, S. (2024) Study skills guide [online]. University of Leeds. Available from <https://www.leeds.ac.uk/study-skills> [accessed 3 September 2026].', 'errorReason' => 'Missing colon after Available from.' ),
-		array( 'reference' => 'Mitchell, S. (2024) Study skills guide [online]. University of Leeds. Available from: https://www.leeds.ac.uk/study-skills [accessed 3 September 2026].', 'errorReason' => 'URL not in angle brackets.' ),
-	),
 );
-$mcq_result = invoke_normalise( array( $mcq_item ), array( 'WR01' ), 'medium', array( 'Exercise 1' ), 'MCQ', $WR );
+$mcq_result = invoke_normalise( array( $mcq_item ), array( 'WR02' ), 'medium', array( 'Exercise 1' ), 'MCQ', $WR );
 check( '[24] normalise() succeeds for MCQ', is_wp_error( $mcq_result ), false );
 if ( ! is_wp_error( $mcq_result ) ) {
 	$mc = $mcq_result[0];
 	check( '[24] category is Website', $mc['category'], 'Website' );
-	check( '[24] scenario is Citex\'s own fixed stem', $mc['scenario'], Citex_Reference_Rules::mcq_question_stem( $WR ) );
+	check( '[24] mcqPattern is website_mcq_variant', $mc['mcqPattern'], 'website_mcq_variant' );
+	check( '[24] variant is complete_reference for this seed', $mc['websiteMcqVariant'], 'complete_reference' );
 	check( '[24] exactly 4 options, option 4 blank', count( $mc['options'] ) . '|' . $mc['options'][3], '4|' );
 	check( '[24] the correct answer is never duplicated into an option', in_array( $mc['reconstructedReference'], array_slice( $mc['options'], 0, 3 ), true ), false );
 	check( '[24] validates and enters the queue as passed', $mc['validationStatus'], 'passed' );

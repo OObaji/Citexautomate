@@ -280,6 +280,9 @@ class Citex_AI_V2 {
 			if ( 'book_mcq_variant' === $mcq_pattern && in_array( $candidate['bookMcqVariant'] ?? '', Citex_Book_Mcq_Variants::book_independent_answer_variants(), true ) ) {
 				continue;
 			}
+			if ( 'website_mcq_variant' === $mcq_pattern && in_array( $candidate['websiteMcqVariant'] ?? '', Citex_Website_Mcq_Variants::website_independent_answer_variants(), true ) ) {
+				continue;
+			}
 			$reference = (string) ( $candidate['reconstructedReference'] ?? '' );
 			if ( Citex_Question_Diversity::is_duplicate_reference( $reference, $existing_references ) || Citex_Question_Diversity::is_duplicate_reference( $reference, $seen_in_batch ) ) {
 				return $reference;
@@ -319,7 +322,7 @@ class Citex_AI_V2 {
 		}
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			return 'MCQ' === $type
-				? self::build_prompt_website_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+				? self::build_prompt_website_mcq_variant( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
 				: self::build_prompt_website( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 		}
 		return 'MCQ' === $type
@@ -403,7 +406,7 @@ class Citex_AI_V2 {
 			return 'MCQ' === $type ? self::schema_journal_article_mcq() : self::schema_journal_article();
 		}
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
-			return 'MCQ' === $type ? self::schema_website_mcq() : self::schema_website();
+			return 'MCQ' === $type ? self::schema_website_mcq_variant() : self::schema_website();
 		}
 		return 'MCQ' === $type ? self::schema_book_mcq_variant() : self::schema_book_dragdrop();
 	}
@@ -463,7 +466,7 @@ class Citex_AI_V2 {
 	 */
 	private static function system_instruction_website( $type ) {
 		return 'MCQ' === $type
-			? 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Website/Web Resource multiple-choice questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — the webpage, document, author/organisation name, year and URL may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical, real, currently-accessible webpage or downloadable document (e.g. a PDF): authorType ("individual" or "organisation") plus either authorFullName or organisationName, year (a real 4-digit year, or exactly "n.d." if — and only if — no publication/creation date can be identified for the real source; never guess a year, and never use "n.d." for a source that does have an identifiable date), title, publisher and url must all describe the same internally-consistent source. You are NOT asked for a scenario, question text, or accessed date at all — Citex supplies the entire student-facing question itself (a fixed "Which of the following is the correct Harvard reference for a website?" stem) and computes the accessed date itself, so there is nothing for you to write and nothing for you to leak the answer through. Citex constructs the single correctly-formatted Harvard reference itself from authorType/authorFullName-or-organisationName/year/title/publisher/url/accessedDate — including deriving an individual author\'s surname and initials itself (never provide them separately) and rendering an organisation\'s name exactly as given (never comma-inverted) — you only ever provide THREE plausible but incorrectly-formatted `distractors`, each as {reference, errorReason} naming the SPECIFIC Harvard rule it breaks, never the correct one itself. Your goal is never "make four references that look different" — it is "one correct reference, three references each with one deliberate, identifiable Harvard error" (e.g. missing "[online]", missing or uncolonised "Available from", a URL not wrapped in angle brackets, a missing accessed date, or the year/"n.d." not enclosed in parentheses). Two mistake types are NEVER valid distractors, however tempting given the batch\'s author-type/date constraints, because they remain fully correct under every Harvard format rule and will always be rejected as a second correct answer: (1) swapping a real year for "n.d." or vice versa — both are independently valid year values, not a format error; (2) writing an individual author\'s full name unformatted in direct order (e.g. "John Smith") — this still reads as a perfectly valid organisation-authored reference, since the author field is legitimately either an inverted "Surname, I." person or a plain organisation name. For every distractor, re-read it end-to-end against the full correct format before returning it: a distractor that is wrong in your head but technically satisfies every Harvard rule when read literally must be rebuilt, since Citex independently re-validates every option and rejects the whole question if more than one is fully valid. Before returning each question, perform a strict self-check: authorType/authorFullName-or-organisationName, year, title, publisher and url all describe the same real, currently-accessible source with no contradictions; and all three distractors are clearly wrong with a specific errorReason each, mutually distinct from each other, and distinct from the correct reference you did not provide. Return only the requested JSON.'
+			? 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Website/Web Resource bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — the webpage, document, author/organisation name, year and URL may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical, real, currently-accessible webpage or downloadable document (e.g. a PDF): authorType ("individual" or "organisation") plus either authorFullName or organisationName, year (a real 4-digit year, or exactly "n.d." if — and only if — no publication/creation date can be identified for the real source; never guess a year, and never use "n.d." for a source that does have an identifiable date), title, publisher and url must all describe the same internally-consistent source. You are NOT asked for a scenario, question text, options, a correct answer, or an accessed date at all; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, drawing on a fixed catalogue of Harvard website-formatting rules (year/date formatting, "[online]"/"Available from:" placement, URL formatting, accessed-date formatting, author-or-organisation-name formatting, overall reference structure, and more) that varies from question to question, and computes the accessed date itself. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: authorType/authorFullName-or-organisationName, year, title, publisher and url all describe the same real, currently-accessible source with no contradictions. Return only the requested JSON.'
 			: 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Website/Web Resource DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — the webpage, document, author/organisation name, year and URL may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical, real, currently-accessible webpage or downloadable document: authorType ("individual" or "organisation") plus either authorFullName or organisationName, year (a real 4-digit year, or exactly "n.d." if — and only if — no publication/creation date can be identified; never guess a year, and never use "n.d." for a source that does have an identifiable date), title, publisher and url must all describe the same internally-consistent source, and the scenario text must explicitly name that same title, the author\'s full name or the organisation\'s name, the year (or state plainly that no date is available, without using the words "n.d.", "no date", or "undated"), the publisher and the url — never a different page or a different source. Citex derives an individual author\'s surname and initials itself from authorFullName — you never provide them separately — computes the accessed date itself (never ask for or invent one), and constructs Question Parts and Fixed Text itself: the complete reference (author-or-organisation, year-or-"n.d.", title, publisher, url, accessed date) is always shown in full, with exactly 3 of the 5 eligible fields (author-or-organisation, year-or-"n.d.", title, publisher, accessed date) drawn as draggable parts each time, chosen at random per question — the rest remain fixed, correctly-formatted literal text alongside them, together with "[online]" and "Available from:", which are never draggable. The url is NEVER one of the draggable parts either — it needs no Harvard-format transformation, so it always stays as plain fixed text. Your questionParts and fixedText values are for your own self-check only and are not read as authoritative. CRITICAL — the scenario must state the author\'s full real name OR the organisation\'s real name naturally, the real title, publisher and url, and must NEVER state, label, or abbreviate the author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference, must NEVER use the words "initial" or "surname", and must NEVER use the words "n.d.", "no date", or "undated" even when the source genuinely has no identifiable date — the student must recognise the absence of a date themselves and derive "(n.d.)". Before returning each question, perform a strict self-check: scenario, authorType/author-or-organisation-name, year, title, publisher and url must all describe the same internally-consistent source with no contradictions; the scenario must not reveal any answer value or state "(n.d.)"/"no date"/"undated" directly; and every confusing word must be unique and different from every correct Question Part. Return only the requested JSON.';
 	}
 
@@ -680,19 +683,16 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Website MCQ prompt — modelled on build_prompt_book_mcq_variant()/build_prompt_journal_article_mcq(),
-	 * reusing distractor_prompt_section() with this category's own
-	 * mcq_distractor_patterns() catalogue and correct-format description.
+	 * Website MCQ prompt — mirrors build_prompt_book_mcq_variant() exactly:
+	 * Gemini supplies ONLY the canonical record (same fields DragDrop
+	 * already asks for), and Citex_Website_Mcq_Variants builds the entire
+	 * question — stem, all 4 options, and the answer — deterministically
+	 * from it. Replaces the previous "Gemini supplies 3 distractors"
+	 * mechanic entirely, after a request for more question variety
+	 * matching what Book's own 16-variant catalogue already provides.
 	 */
-	private static function build_prompt_website_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
-		$difficulty_guidance = array(
-			'easy'   => "Easy: the 3 distractors should each contain one obvious, easy-to-spot mistake (e.g. missing \"[online]\", or no angle brackets around the URL) — testing basic recognition of the Harvard Website structure.",
-			'medium' => "Medium: the 3 distractors should each contain one specific, realistic mistake a student could plausibly make (e.g. the year or \"n.d.\" missing its parentheses, or \"Available from\" missing its colon) — testing the ability to spot ONE particular error type per option.",
-			'hard'   => "Hard: the 3 distractors should be very close to correctly formatted, differing from the correct one by only a small, easy-to-miss detail (e.g. a single misplaced space, comma, or full stop) — testing careful side-by-side comparison of near-identical references.",
-		);
-		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Website (Web Resource) multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ". " . ( $difficulty_guidance[ sanitize_key( $difficulty ) ] ?? $difficulty_guidance['medium'] ) . "\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible source if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL WEB SOURCE — CRITICAL:\n- authorType, year, title, publisher and url must all describe ONE single, internally consistent webpage or downloadable document.\n- authorType must be exactly \"individual\" or \"organisation\". If \"individual\", provide authorFullName — do NOT provide a surname or initials separately; Citex derives both itself and constructs the one correct Harvard reference from them. If \"organisation\", provide organisationName, used exactly as given.\n- year must be a plausible 4-digit year, or exactly \"n.d.\" if the source has no identifiable date — never use \"n.d.\" for a dated source.\n- url must be AS SHORT AS POSSIBLE: JUST a domain, with NO path at all after it (e.g. \"https://www.sage.com\", \"https://www.who.int\", \"https://www.mit.edu\", \"https://www.bbc.co.uk\" — never \"/guide\", \"/about\", or any other word, slug, or subpage). The domain's own name (the part before the .com/.org/.edu/.ac.uk/etc.) must be 5 CHARACTERS OR FEWER — e.g. \"sage\", \"who\", \"mit\", \"bbc\", \"ibm\", \"nasa\", \"un\", \"nhs\" — never a longer one like \"leeds\" or \"routledge\". It does not need to be the publisher's literal real-world domain — invent a short, genuine-looking one for the same kind of organisation if the real one is longer, as long as it uses a normal domain ending.\n- Do NOT provide an accessed date — Citex supplies it itself.\n- You are NOT asked for a scenario or question text — Citex supplies the entire student-facing question itself (a fixed \"Which of the following is the correct Harvard reference for a website?\" stem), so there is nothing for you to write and nothing for you to leak the answer through."
-			. self::distractor_prompt_section( Citex_Reference_Rules::CATEGORY_WEBSITE, 'Surname, I. (YYYY|n.d.) Title [online]. Publisher. Available from: <URL> [accessed DD Month YYYY]. — or, for an organisation author, Organisation Name (YYYY|n.d.) Title [online]. Publisher. Available from: <URL> [accessed DD Month YYYY].' )
-			. "\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorType, author-or-organisation-name, year (or \"n.d.\"), title, publisher and url all describe the exact same real source — no contradictions.\n2. Exactly 3 distractors are provided, each with a non-empty, specific errorReason naming the Harvard rule it breaks.\n3. Every distractor, re-read end-to-end against the full correct format, genuinely still breaks the rule named in its errorReason — none of them accidentally also satisfies every Harvard rule.\n4. All 3 distractors are mutually distinct from each other and from the correct reference, and exactly one reference overall (the one Citex will construct) is fully correct.\n5. None of the distractors uses a guessed year in place of a genuine \"n.d.\", or vice versa, as if either were valid — that mistake is never correct here.\n6. None of the distractors writes an individual author's name unformatted in direct order (e.g. \"John Smith\" instead of \"Smith, J.\") as its only change — the author field can validly be either an inverted \"Surname, I.\" person OR a plain organisation name, so an unformatted full name is NOT a genuine format break: it still reads as a valid organisation-authored reference and will be rejected as a second correct answer. If you want an author-related distractor, break the punctuation instead (e.g. \"Smith J\" with no comma or full stop, or the initial before the surname).\n7. Only return questions that pass all seven checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+	private static function build_prompt_website_mcq_variant( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Website (Web Resource) bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL WEB SOURCE — CRITICAL:\n- authorType, year, title, publisher and url must all describe ONE single, internally consistent webpage or downloadable document. Do not mix facts from a different page or a different source.\n- authorType must be exactly \"individual\" or \"organisation\". If \"individual\", provide authorFullName — do NOT provide a surname or initials separately; Citex derives both itself. If \"organisation\", provide organisationName, used exactly as given.\n- year must be a plausible 4-digit year, or exactly \"n.d.\" if the source has no identifiable date — never use \"n.d.\" for a dated source.\n- url must be AS SHORT AS POSSIBLE: JUST a domain, with NO path at all after it (e.g. \"https://www.sage.com\", \"https://www.who.int\", \"https://www.mit.edu\", \"https://www.bbc.co.uk\" — never \"/guide\", \"/about\", or any other word, slug, or subpage). The domain's own name (the part before the .com/.org/.edu/.ac.uk/etc.) must be 5 CHARACTERS OR FEWER — e.g. \"sage\", \"who\", \"mit\", \"bbc\", \"ibm\", \"nasa\", \"un\", \"nhs\" — never a longer one like \"leeds\" or \"routledge\". It does not need to be the publisher's literal real-world domain — invent a short, genuine-looking one for the same kind of organisation if the real one is longer, as long as it uses a normal domain ending.\n- Do NOT provide an accessed date — Citex supplies it itself.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself (the stem and all 4 options) from this canonical record alone, covering a range of different Harvard website-formatting rules across the batch. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorType, author-or-organisation-name, year (or \"n.d.\"), title, publisher and url all describe the exact same real source — no contradictions.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::publisher_diversity_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
@@ -958,16 +958,19 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Website MCQ schema — no `scenario`, same "Citex authors the fixed
-	 * stem" principle as every other category's MCQ schema.
+	 * Website MCQ schema — mirrors schema_book_mcq_variant() exactly:
+	 * Gemini supplies ONLY the canonical record (the same fields DragDrop
+	 * already asks for). No `distractors` property at all —
+	 * Citex_Website_Mcq_Variants::build() constructs the entire question —
+	 * stem, all 4 options, and the answer — deterministically from this
+	 * record alone.
 	 */
-	private static function schema_website_mcq() {
+	private static function schema_website_mcq_variant() {
 		$s   = array( 'type' => 'string' );
 		$url = array( 'type' => 'string', 'maxLength' => 28 );
 		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
 			'questionId' => $s, 'authorType' => $s, 'authorFullName' => $s, 'organisationName' => $s, 'year' => $s, 'title' => $s, 'publisher' => $s, 'url' => $url,
-			'distractors' => self::distractor_schema()
-		), 'required' => array( 'questionId','authorType','year','title','publisher','url','distractors' ) ) ) ), 'required' => array( 'questions' ) );
+		), 'required' => array( 'questionId','authorType','year','title','publisher','url' ) ) ) ), 'required' => array( 'questions' ) );
 	}
 
 	/**
@@ -1276,7 +1279,7 @@ class Citex_AI_V2 {
 				}
 
 				$candidate = 'MCQ' === $type
-					? self::normalise_website_mcq_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $scenario, $exercise, $difficulty )
+					? self::normalise_website_mcq_variant_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $exercise, $difficulty )
 					: self::normalise_website_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $scenario, $exercise, $difficulty );
 			} else {
 				if ( '' === $scenario || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
@@ -2059,59 +2062,49 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Website counterpart to normalise_book_mcq_variant_item()/normalise_journal_article_mcq_item():
-	 * same "Citex builds the one correct option, Gemini only ever supplies 3
-	 * incorrect ones" principle, using Citex_Reference_Rules::build_reference()
-	 * for this category's format.
+	 * Website counterpart to normalise_book_mcq_variant_item(): same
+	 * "Citex builds the ENTIRE question — stem, all 4 options, and the
+	 * answer — deterministically from one canonical record; Gemini
+	 * supplies nothing beyond that record" principle, using
+	 * Citex_Website_Mcq_Variants (replaces the old "Gemini supplies 3
+	 * distractors" mechanic entirely).
 	 *
 	 * @return array|WP_Error
 	 */
-	private static function normalise_website_mcq_item( $item, $id, $author, $year, $title, $publisher, $url, $scenario, $exercise, $difficulty ) {
-		$distractors = self::extract_mcq_distractors( $item, $id );
-		if ( is_wp_error( $distractors ) ) {
-			return $distractors;
-		}
-		$incorrect = array_column( $distractors, 'reference' );
+	private static function normalise_website_mcq_variant_item( $item, $id, $author, $year, $title, $publisher, $url, $exercise, $difficulty ) {
 		$accessed_date = self::current_accessed_date();
-		$fields = array( 'author' => $author, 'year' => $year, 'title' => $title, 'publisher' => $publisher, 'url' => $url, 'accessedDate' => $accessed_date );
-		$reference = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields );
-		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $reference ) ) );
-		$seen = array( $correct_normal => true );
-		foreach ( $incorrect as $option ) {
-			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', $option ) ) );
-			if ( $normal === $correct_normal ) {
-				$rejection = self::quality_reject( 'citex_ai_mcq_option_matches_correct', sprintf( __( 'Question %s has an "incorrect" reference option identical to the correct one.', 'citex-tools' ), $id ) );
-				if ( $rejection ) { return $rejection; }
-			}
-			if ( isset( $seen[ $normal ] ) ) {
-				$rejection = self::quality_reject( 'citex_ai_mcq_duplicate_option', sprintf( __( 'Question %s has a duplicate incorrect reference option.', 'citex-tools' ), $id ) );
-				if ( $rejection ) { return $rejection; }
-			}
-			$seen[ $normal ] = true;
+		$fields  = array( 'author' => $author, 'year' => $year, 'title' => $title, 'publisher' => $publisher, 'url' => $url, 'accessedDate' => $accessed_date );
+		$variant = Citex_Website_Mcq_Variants::variant_for( $id );
+		$built   = Citex_Website_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_website_mcq_variant_unknown', sprintf( __( 'Question %1$s: unrecognised Website MCQ variant "%2$s".', 'citex-tools' ), $id, $variant ) );
 		}
 
-		// Option 1-3 hold the 3 distractors; Option 4 is ALWAYS blank — see
-		// normalise_book_mcq_variant_item()'s matching comment for the full rationale.
-		$options = $incorrect;
+		// Option 1-3 hold the 3 Citex-authored wrong options; Option 4 is
+		// ALWAYS left blank — see normalise_book_mcq_variant_item()'s
+		// matching comment for the full rationale.
+		$options = $built['wrongOptions'];
 		$options[] = '';
-		$option_reasons = array_map( 'sanitize_text_field', array_column( $distractors, 'errorReason' ) );
-		$option_reasons[] = null;
 
+		// Citex — not Gemini — writes the hint too, deterministically from
+		// the category's own fixed, non-revealing clue (unchanged from the
+		// mechanic this replaces).
 		$hint = Citex_Reference_Rules::mcq_hint( Citex_Reference_Rules::CATEGORY_WEBSITE );
-		$answer_explanation = 'The correct reference follows the required Harvard Web Resource structure: Author/Organisation (Year|n.d.) Title [online]. Publisher. Available from: <URL> [accessed date].';
+		$answer_explanation = sprintf( 'This question tests the "%s" Harvard Website formatting rule.', $variant );
 
 		return array(
 			'key' => wp_generate_uuid4(), 'questionId' => $id,
 			'title' => sprintf( 'Harvard | ReferenceList | Website | MCQ | %s', $id ),
 			'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Website', 'exercise' => $exercise, 'type' => 'MCQ',
-			'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'scenario' => sanitize_textarea_field( $scenario ),
+			'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'website_mcq_variant', 'websiteMcqVariant' => sanitize_key( $variant ),
+			'scenario' => sanitize_textarea_field( $built['stem'] ),
 			'authorType' => $author['type'],
 			'authors' => 'individual' === $author['type'] ? array( array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ) ) : array(),
 			'organisationName' => 'organisation' === $author['type'] ? sanitize_text_field( $author['name'] ) : '',
 			'year' => sanitize_text_field( $year ), 'pageTitle' => sanitize_text_field( $title ), 'publisher' => sanitize_text_field( $publisher ), 'url' => sanitize_text_field( $url ), 'accessedDate' => sanitize_text_field( $accessed_date ),
-			'options' => array_values( array_map( array( __CLASS__, 'sanitize_reference_text' ), $options ) ), 'optionErrorReasons' => $option_reasons,
+			'options' => array_values( array_map( array( __CLASS__, 'sanitize_reference_text' ), $options ) ),
 			'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ),
-			'reconstructedReference' => self::sanitize_reference_text( $reference ),
+			'reconstructedReference' => self::sanitize_reference_text( $built['correctAnswer'] ),
 			'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ),
 		);
 	}
