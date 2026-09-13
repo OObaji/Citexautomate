@@ -111,13 +111,19 @@ class Citex_Populator {
 	// Shared fields visible on the real "Add New Reference" edit screen for
 	// EVERY question (both DragDrop and MCQ) — Question Class and Hint —
 	// also confirmed via Citex Diagnostics. Both write_mcq_acf_values() and
-	// write_dragdrop_acf_values() set Question Class explicitly (fixed,
-	// lowercase "harvard" — matches the site's own convention, confirmed
-	// live: the field's ACF default renders as "Harvard" with a capital H,
-	// but every already-published record uses lowercase). DragDrop was
-	// previously left to rely on Question Class's ACF default instead of
-	// writing it — reported live (student app never showed a newly-populated
-	// DragDrop question as "harvard" until an admin opened it in wp-admin
+	// write_dragdrop_acf_values() set Question Class explicitly, to the
+	// question's OWN referencing style (Harvard, MLA, APA, MHRA or
+	// Chicago — see question_class_value(), lowercased to match the
+	// site's own convention: the field's ACF default renders as "Harvard"
+	// with a capital H, but every already-published record uses
+	// lowercase). This must always track the record's actual `source`
+	// field, never a fixed literal — a real reported bug (every question,
+	// including MLA ones, was silently written as "harvard" regardless of
+	// its real style) that misclassified every non-Harvard question the
+	// moment a second style existed. DragDrop was previously left to rely
+	// on Question Class's ACF default instead of writing it — reported
+	// live (student app never showed a newly-populated DragDrop question
+	// with any Question Class at all until an admin opened it in wp-admin
 	// and clicked Update): an ACF field's
 	// "default value" is only ever applied when the field is RENDERED in
 	// the edit-screen form and that form is then submitted — it is never
@@ -483,7 +489,7 @@ class Citex_Populator {
 		}
 
 		$this->write_acf_value( $new_id, $field_map['scenario'], (string) ( $question['scenario'] ?? '' ) );
-		$this->write_acf_value( $new_id, $field_map['questionClass'], 'harvard' );
+		$this->write_acf_value( $new_id, $field_map['questionClass'], self::question_class_value( $question ) );
 
 		return array( 'partsShape' => $parts_shape, 'confusingShape' => $confusing_shape );
 	}
@@ -504,7 +510,7 @@ class Citex_Populator {
 			}
 
 			$stored_question_class = get_field( $field_map['questionClass'], $new_id, false );
-			$diagnostics['questionClassVerified'] = 'harvard' === trim( (string) $stored_question_class );
+			$diagnostics['questionClassVerified'] = self::question_class_value( $question ) === trim( (string) $stored_question_class );
 			if ( ! $diagnostics['questionClassVerified'] ) {
 				throw new Exception( 'Question Class did not persist to the new Reference List record.' );
 			}
@@ -531,11 +537,11 @@ class Citex_Populator {
 	 * non-revealing clue — see Citex_Reference_Rules::mcq_hint() — there is
 	 * no separate "explanation" field on this site; Hint is the real,
 	 * confirmed field, and it is shown to the student BEFORE they answer,
-	 * so it must never identify the correct option), Question Class (fixed
-	 * lowercase "harvard" — see FIELD_QUESTION_CLASS's own docblock for why
-	 * this must be written explicitly rather than left to an ACF default),
-	 * and the
-	 * Answer field.
+	 * so it must never identify the correct option), Question Class (the
+	 * record's own style, lowercased — see question_class_value() and
+	 * FIELD_QUESTION_CLASS's own docblock for why this must be written
+	 * explicitly, and dynamically per record, rather than left to an ACF
+	 * default or a fixed literal), and the Answer field.
 	 *
 	 * Option 1-3 hold the 3 distractors; Option 4 is ALWAYS blank. The
 	 * Answer field holds the FULL TEXT of the correct reference — never a
@@ -574,7 +580,7 @@ class Citex_Populator {
 
 		$hint = (string) ( $question['hint'] ?? '' );
 		$this->write_acf_value( $new_id, $field_map['hint'], $hint );
-		$this->write_acf_value( $new_id, $field_map['questionClass'], 'harvard' );
+		$this->write_acf_value( $new_id, $field_map['questionClass'], self::question_class_value( $question ) );
 
 		$this->write_acf_value( $new_id, $field_map['answer'], $answer_value );
 
@@ -1111,6 +1117,21 @@ class Citex_Populator {
 
 	private function write_acf_value( $post_id, $field_key, $value ) {
 		update_field( $field_key, $value, $post_id );
+	}
+
+	/**
+	 * The value written to the "Question Class" field — the question's own
+	 * referencing style (Harvard, MLA, APA, MHRA, Chicago, or whichever
+	 * further style is added later), lowercased to match the site's own
+	 * convention (see FIELD_QUESTION_CLASS's own docblock). Always read
+	 * from the record's own `source` field rather than a fixed literal, so
+	 * this tracks whatever style actually generated the question — never
+	 * hardcoded to one style — with no per-style list to keep updated as
+	 * new styles are added.
+	 */
+	private static function question_class_value( $question ) {
+		$source = trim( (string) ( $question['source'] ?? '' ) );
+		return '' !== $source ? strtolower( $source ) : 'harvard';
 	}
 
 	/**

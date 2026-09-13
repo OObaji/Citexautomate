@@ -418,5 +418,23 @@ check( '[end-to-end] result reports Question Parts verified 4/4', $result['quest
 check( '[question class] "harvard" is written explicitly for a DragDrop question, not left to an ACF default', $GLOBALS['__acf_values'][ $new_id ][ Citex_Populator::FIELD_QUESTION_CLASS ] ?? null, 'harvard' );
 check( '[question class] result reports it verified', $result['questionClassVerified'] ?? null, true );
 
+// ---------------------------------------------------------------------
+// Reported bug: Question Class was hardcoded to the literal "harvard"
+// for every question regardless of its own referencing style — so an
+// MLA (or any other non-Harvard) question was silently mislabeled as
+// Harvard in the real Reference List the moment a second style existed.
+// Question Class must always track the record's own `source` field,
+// lowercased — proven here for an MLA record, and must hold for any
+// future style (APA, MHRA, Chicago) the same way, with no per-style list
+// to keep updated in Citex_Populator itself.
+// ---------------------------------------------------------------------
+reset_environment();
+$mla_question = array_merge( $question, array( 'key' => 'k-mla', 'questionId' => 'MB-GEERTZ', 'source' => 'MLA' ) );
+$mla_result   = invoke_private( $populator, 'populate_one', array( $mla_question, 'question', 0, $field_map, 'draft' ) );
+check( '[question class] populate_one() succeeds for an MLA-sourced DragDrop question', is_wp_error( $mla_result ), false );
+$mla_new_id = is_array( $mla_result ) ? $mla_result['postId'] : null;
+check( '[question class] "mla" is written for an MLA-sourced question, never "harvard"', $GLOBALS['__acf_values'][ $mla_new_id ][ Citex_Populator::FIELD_QUESTION_CLASS ] ?? null, 'mla' );
+check( '[question class] result reports it verified for the MLA record too', $mla_result['questionClassVerified'] ?? null, true );
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

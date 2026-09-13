@@ -386,6 +386,22 @@ if ( ! is_wp_error( $result ) ) {
 }
 
 // ---------------------------------------------------------------------
+// Reported bug: Question Class was hardcoded to the literal "harvard"
+// for every question regardless of its own `source` field, so any
+// non-Harvard question (MLA, and any future APA/MHRA/Chicago question)
+// was silently mislabeled as Harvard once populated. It must always
+// track the record's own style instead — proven here for MLA.
+// ---------------------------------------------------------------------
+reset_environment();
+$mla_mcq_question = mcq_question( array( 'source' => 'MLA' ) );
+$mla_mcq_result   = invoke_private( $populator, 'populate_one', array( $mla_mcq_question, 'question', 0, $field_map, 'draft' ) );
+check( '[1b] MCQ population succeeds for an MLA-sourced question', is_wp_error( $mla_mcq_result ), false );
+if ( ! is_wp_error( $mla_mcq_result ) ) {
+	$mla_post_id = $mla_mcq_result['postId'];
+	check( '[1b] Question Class is set to "mla" for an MLA-sourced question, never "harvard"', $GLOBALS['__acf_values'][ $mla_post_id ][ Citex_Populator::FIELD_QUESTION_CLASS ], 'mla' );
+}
+
+// ---------------------------------------------------------------------
 // 2. CRITICAL — the Answer field holds the FULL correct option text
 // regardless of the field's own ACF configuration, even when Answer is
 // (unexpectedly) a choice-type field with a small fixed choice list that
