@@ -80,7 +80,7 @@ function web_dragdrop_question( $keys, $built, $author, $fields, $overrides = ar
 			'fixedText'              => $built['fixedText'],
 			'questionParts'          => $built['parts'],
 			'confusingWords'         => $built['confusingWords'],
-			'reconstructedReference' => 'Mitchell, S. (2022) Study skills guide [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 12 September 2026].',
+			'reconstructedReference' => 'Mitchell, S. (2022) Study skills guide. Available at: https://www.leeds.ac.uk/study-skills (Accessed: 12 September 2026).',
 			'authorType'             => $author['type'],
 			'authors'                => $authors,
 			'organisationName'       => 'organisation' === $author['type'] ? $author['name'] : '',
@@ -99,7 +99,7 @@ function web_dragdrop_question( $keys, $built, $author, $fields, $overrides = ar
 // ---------------------------------------------------------------------
 $result = Citex_Generated_Validator::validate( web_dragdrop_question( $keys, $built, $author, $fields ) );
 check( '[1] a correctly-built Website DragDrop question passes', $result['status'], 'passed' );
-check( '[1] the reconstructed value is the correct reference', $result['reconstructedReference'], 'Mitchell, S. (2022) Study skills guide [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 12 September 2026].' );
+check( '[1] the reconstructed value is the correct reference', $result['reconstructedReference'], 'Mitchell, S. (2022) Study skills guide. Available at: https://www.leeds.ac.uk/study-skills (Accessed: 12 September 2026).' );
 
 // ---------------------------------------------------------------------
 // 2. A tampered Question Part fails.
@@ -115,7 +115,7 @@ check( '[2] reports WEBSITE_DRAGDROP_PARTS_MISMATCH', has_error_code( $tampered_
 // 3. A tampered Fixed Text fails.
 // ---------------------------------------------------------------------
 $tampered_fixed = web_dragdrop_question( $keys, $built, $author, $fields, array(
-	'fixedText' => str_replace( 'University of Leeds', 'Open University', $built['fixedText'] ),
+	'fixedText' => str_replace( 'Available at:', 'Available from:', $built['fixedText'] ),
 ) );
 $tampered_fixed_result = Citex_Generated_Validator::validate( $tampered_fixed );
 check( '[3] a tampered Fixed Text fails', $tampered_fixed_result['status'], 'failed' );
@@ -150,10 +150,10 @@ $no_canonical = Citex_Generated_Validator::validate( array(
 	'category'               => 'Website',
 	'type'                   => 'DragDrop',
 	'authorType'             => '',
-	'fixedText'              => '| (||) Example Guide [online]. Example Press. Available from: <https://example.com> [accessed ||].',
+	'fixedText'              => '| (||) Example Guide. Available at: https://example.com (Accessed: ||).',
 	'questionParts'          => array( 'Smith, J.', '2020', '1 January 2021' ),
 	'confusingWords'         => array( 'Brown, K', '2018', '1/1/2021' ),
-	'reconstructedReference' => 'Smith, J. (2020) Example Guide [online]. Example Press. Available from: <https://example.com> [accessed 1 January 2021].',
+	'reconstructedReference' => 'Smith, J. (2020) Example Guide. Available at: https://example.com (Accessed: 1 January 2021).',
 ) );
 check( '[6] no WEBSITE_DRAGDROP_PARTS_UNKNOWN for a record with no canonical data at all', has_error_code( $no_canonical, 'website_dragdrop_parts_unknown' ), false );
 
@@ -167,7 +167,7 @@ $org_keys    = array( 'author', 'title', 'accessed_date' );
 $org_built   = Citex_Website_Dragdrop_Parts::build( $org_keys, $org_author, $org_fields );
 $org_question = web_dragdrop_question( $org_keys, $org_built, $org_author, $org_fields, array(
 	'scenario'               => 'You are referencing a webpage titled Guidance on nutrition published by World Health Organization, available at https://www.who.int/nutrition.',
-	'reconstructedReference' => 'World Health Organization (n.d.) Guidance on nutrition [online]. WHO. Available from: <https://www.who.int/nutrition> [accessed 1 January 2026].',
+	'reconstructedReference' => 'World Health Organization (n.d.) Guidance on nutrition. Available at: https://www.who.int/nutrition (Accessed: 1 January 2026).',
 ) );
 check( '[7] a different valid organisation-author selection also passes', Citex_Generated_Validator::validate( $org_question )['status'], 'passed' );
 

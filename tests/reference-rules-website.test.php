@@ -1,13 +1,13 @@
 <?php
 /**
  * Regression tests for Citex_Reference_Rules' Website/Web Resource support
- * — Liverpool Hope's confirmed website/webpage format: Author/Organisation
- * (Year|n.d.) Title [online]. Publisher. Available from: <URL> [accessed
- * date]. Unlike every other category, there is only ONE author-or-
- * organisation (no multi-person joining rule), no place/publisher-as-
- * fixed-text convention (publisher IS draggable here), and the DragDrop
- * shape is a CONSTANT 6 parts. Pure, no WordPress/ACF dependency, so this
- * file needs no stub environment.
+ * — the confirmed website/webpage format: Author/Organisation (Year|n.d.)
+ * Title. Available at: URL (Accessed: Day Month Year). Unlike every other
+ * category, there is only ONE author-or-organisation (no multi-person
+ * joining rule), and there is no publisher element in the reference at all
+ * (see build_website_reference()'s own docblock — the record's own
+ * `publisher` field, when present, is simply never rendered). Pure, no
+ * WordPress/ACF dependency, so this file needs no stub environment.
  *
  * Repo-level only, run with plain `php tests/reference-rules-website.test.php`
  * — not shipped in citex-tools.zip.
@@ -40,9 +40,9 @@ $organisation = array( 'type' => 'organisation', 'name' => 'University of Leeds'
 // ---------------------------------------------------------------------
 $dated_fields = array( 'author' => $individual, 'year' => '2024', 'title' => 'Study skills guide', 'publisher' => 'University of Leeds', 'url' => 'https://www.leeds.ac.uk/study-skills', 'accessedDate' => '2 September 2026' );
 check(
-	'[1][3] individual author, dated webpage matches the Liverpool Hope structure',
+	'[1][3] individual author, dated webpage matches the confirmed structure',
 	Citex_Reference_Rules::build_reference( $WR, $dated_fields ),
-	'Mitchell, S. (2024) Study skills guide [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 2 September 2026].'
+	'Mitchell, S. (2024) Study skills guide. Available at: https://www.leeds.ac.uk/study-skills (Accessed: 2 September 2026).'
 );
 
 // ---------------------------------------------------------------------
@@ -51,9 +51,9 @@ check(
 // ---------------------------------------------------------------------
 $undated_fields = array( 'author' => $organisation, 'year' => 'n.d.', 'title' => 'About us', 'publisher' => 'University of Leeds', 'url' => 'https://www.leeds.ac.uk/about', 'accessedDate' => '2 September 2026' );
 check(
-	'[2][4] organisation author, undated ("n.d.") webpage matches the Liverpool Hope structure',
+	'[2][4] organisation author, undated ("n.d.") webpage matches the confirmed structure',
 	Citex_Reference_Rules::build_reference( $WR, $undated_fields ),
-	'University of Leeds (n.d.) About us [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/about> [accessed 2 September 2026].'
+	'University of Leeds (n.d.) About us. Available at: https://www.leeds.ac.uk/about (Accessed: 2 September 2026).'
 );
 
 // ---------------------------------------------------------------------
@@ -73,46 +73,23 @@ $pdf_fields = array(
 check(
 	'[5] a PDF document reference uses the identical structure as a webpage',
 	Citex_Reference_Rules::build_reference( $WR, $pdf_fields ),
-	'Department for Business Innovation and Skills (2009) Higher ambitions: the future of universities in a knowledge economy [online]. Department for Business Innovation and Skills. Available from: <https://www.gov.uk/government/publications/higher-ambitions> [accessed 20 May 2025].'
+	'Department for Business Innovation and Skills (2009) Higher ambitions: the future of universities in a knowledge economy. Available at: https://www.gov.uk/government/publications/higher-ambitions (Accessed: 20 May 2025).'
 );
 
 // ---------------------------------------------------------------------
-// 17 & 20. dragdrop_shape(): a CONSTANT 6-part shape, and the reconstructed
-// reference from that shape matches build_reference()'s own output exactly
-// — DragDrop and MCQ can never silently disagree.
-// ---------------------------------------------------------------------
-$shape = Citex_Reference_Rules::dragdrop_shape( $WR, $dated_fields );
-check( '[17] exactly 6 draggable parts, in Liverpool Hope order', $shape['parts'], array( 'Mitchell, S.', '2024', 'Study skills guide', 'University of Leeds', 'https://www.leeds.ac.uk/study-skills', '2 September 2026' ) );
-check( '[17] fixedText bakes in "[online]"/"Available from:" as fixed literal text', $shape['fixedText'], '| (||) || [online]. ||. Available from: <||> [accessed ||].' );
-
-function reconstruct_from_shape( $shape ) {
-	$fixed = $shape['fixedText']; $parts = $shape['parts']; $reference = ''; $part_index = 0; $length = strlen( $fixed );
-	for ( $i = 0; $i < $length; $i++ ) {
-		if ( '|' !== $fixed[ $i ] ) { $reference .= $fixed[ $i ]; continue; }
-		if ( $i + 1 < $length && '|' === $fixed[ $i + 1 ] ) { $reference .= (string) $parts[ $part_index++ ]; $i++; continue; }
-		$reference .= (string) $parts[ $part_index++ ];
-	}
-	return trim( $reference );
-}
-check( '[20] the 6-part shape reconstructs to exactly build_reference()\'s output (individual, dated)', reconstruct_from_shape( $shape ), Citex_Reference_Rules::build_reference( $WR, $dated_fields ) );
-
-$shape_org = Citex_Reference_Rules::dragdrop_shape( $WR, $undated_fields );
-check( '[20] the 6-part shape reconstructs correctly (organisation, undated) too', reconstruct_from_shape( $shape_org ), Citex_Reference_Rules::build_reference( $WR, $undated_fields ) );
-
-// ---------------------------------------------------------------------
 // format_regex(): correctly accepts both good forms, and correctly rejects
-// each of the required distractor shapes (7, 9, 11, 13, 16, 19).
+// each of the required distractor shapes.
 // ---------------------------------------------------------------------
 $regex = Citex_Reference_Rules::format_regex( $WR );
-$good  = 'Mitchell, S. (2024) Study skills guide [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 2 September 2026].';
+$good  = 'Mitchell, S. (2024) Study skills guide. Available at: https://www.leeds.ac.uk/study-skills (Accessed: 2 September 2026).';
 check( '[6][8][10][12][14][19] a fully correct reference matches', 1 === preg_match( $regex, $good ), true );
-check( '[2] a fully correct organisation/undated reference matches', 1 === preg_match( $regex, 'University of Leeds (n.d.) About us [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/about> [accessed 2 September 2026].' ), true );
-check( '[7] missing "[online]" does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 2 September 2026].' ), false );
-check( '[11] "Available from" missing its colon does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide [online]. University of Leeds. Available from <https://www.leeds.ac.uk/study-skills> [accessed 2 September 2026].' ), false );
-check( '[13] a URL not wrapped in angle brackets does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide [online]. University of Leeds. Available from: https://www.leeds.ac.uk/study-skills [accessed 2 September 2026].' ), false );
-check( '[15] a missing "[accessed date]" does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills>.' ), false );
-check( 'a guessed/invalid year shape ("circa 2024") does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (circa 2024) Study skills guide [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 2 September 2026].' ), false );
-check( '[19] a missing final full stop does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 2 September 2026]' ), false );
+check( '[2] a fully correct organisation/undated reference matches', 1 === preg_match( $regex, 'University of Leeds (n.d.) About us. Available at: https://www.leeds.ac.uk/about (Accessed: 2 September 2026).' ), true );
+check( '[7] "Available from:" instead of "Available at:" does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide. Available from: https://www.leeds.ac.uk/study-skills (Accessed: 2 September 2026).' ), false );
+check( '[11] "Available at" missing its colon does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide. Available at https://www.leeds.ac.uk/study-skills (Accessed: 2 September 2026).' ), false );
+check( '[13] a missing "(Accessed: date)" element does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide. Available at: https://www.leeds.ac.uk/study-skills.' ), false );
+check( '[15] the accessed date missing its parentheses does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide. Available at: https://www.leeds.ac.uk/study-skills Accessed: 2 September 2026.' ), false );
+check( 'a guessed/invalid year shape ("circa 2024") does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (circa 2024) Study skills guide. Available at: https://www.leeds.ac.uk/study-skills (Accessed: 2 September 2026).' ), false );
+check( '[19] a missing final full stop does NOT match', 1 === preg_match( $regex, 'Mitchell, S. (2024) Study skills guide. Available at: https://www.leeds.ac.uk/study-skills (Accessed: 2 September 2026)' ), false );
 
 // ---------------------------------------------------------------------
 // id_prefix(), mcq_question_stem(), mcq_hint() are all Website-specific,
@@ -129,10 +106,10 @@ check( 'mcq_hint mentions individual/organisation and "n.d."', false !== stripos
 // ---------------------------------------------------------------------
 $patterns = Citex_Reference_Rules::mcq_distractor_patterns( $WR );
 $joined   = implode( ' ', $patterns );
-check( 'the catalogue mentions "[online]"', false !== strpos( $joined, '[online]' ), true );
-check( 'the catalogue mentions "Available from:"', false !== strpos( $joined, 'Available from:' ), true );
+check( 'the catalogue mentions "Available at:"', false !== strpos( $joined, 'Available at:' ), true );
+check( 'the catalogue mentions "Accessed"', false !== strpos( $joined, 'Accessed' ), true );
 check( 'the catalogue mentions "n.d."', false !== stripos( $joined, 'n.d.' ), true );
-check( 'the catalogue mentions angled brackets/URL', false !== stripos( $joined, 'angled brackets' ), true );
+check( 'the catalogue no longer mentions "[online]"', false !== strpos( $joined, '[online]' ), false );
 
 // ---------------------------------------------------------------------
 // [30][31] categories()/is_known_category(): Website is now a first-class

@@ -149,11 +149,14 @@ check( '[7] missing "[online]" fails', $r7['status'], 'failed' );
 check( '[7] reports WEBSITE_FORMAT_MISMATCH', has_error_code( $r7, 'website_format_mismatch' ), true );
 
 // ---------------------------------------------------------------------
-// 9. Missing publisher fails.
+// 9. A missing publisher does NOT fail — this format has no publisher
+// element at all (see Citex_Reference_Rules::build_website_reference()),
+// so the record's own `publisher` field, even when blank, has no bearing
+// on whether the reference is valid.
 // ---------------------------------------------------------------------
 $q9 = website_dragdrop_question( $individual, array_merge( $canonical_dated, array( 'publisher' => '' ) ) );
 $r9 = Citex_Generated_Validator::validate( $q9 );
-check( '[9] missing publisher fails', $r9['status'], 'failed' );
+check( '[9] a missing publisher does not fail', $r9['status'], 'passed' );
 
 // ---------------------------------------------------------------------
 // 11. "Available from" missing its colon fails.

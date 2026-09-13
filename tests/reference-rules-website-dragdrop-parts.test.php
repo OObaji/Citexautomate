@@ -1,10 +1,11 @@
 <?php
 /**
  * Regression tests for Citex_Website_Dragdrop_Parts — the dynamic
- * exactly-3-part Website DragDrop question builder that replaced the fixed
- * named-design catalogue (Citex_Reference_Rules::website_dragdrop_shape()
- * and friends, still used by MCQ, untouched). Pure, no WordPress/ACF
- * dependency.
+ * exactly-3-part Website DragDrop question builder. There is no publisher
+ * element in this format at all (see Citex_Reference_Rules::
+ * build_website_reference()) — only 4 eligible content candidates (author,
+ * year, title, accessed date), `url` always excluded from the draggable
+ * pool. Pure, no WordPress/ACF dependency.
  *
  * Repo-level only, run with plain
  * `php tests/reference-rules-website-dragdrop-parts.test.php` — not shipped
@@ -50,10 +51,10 @@ function web_reconstruct( $built ) {
 }
 
 $author_ind = array( 'type' => 'individual', 'surname' => 'Mitchell', 'initials' => 'S.', 'fullName' => 'Sarah Mitchell' );
-$fields_ind = array( 'year' => '2022', 'title' => 'Study skills guide', 'publisher' => 'University of Leeds', 'url' => 'https://www.leeds.ac.uk/study-skills', 'accessedDate' => '12 September 2026' );
+$fields_ind = array( 'year' => '2022', 'title' => 'Study skills guide', 'url' => 'https://www.leeds.ac.uk/study-skills', 'accessedDate' => '12 September 2026' );
 
 $author_org = array( 'type' => 'organisation', 'name' => 'World Health Organization' );
-$fields_org = array( 'year' => 'n.d.', 'title' => 'Guidance on nutrition', 'publisher' => 'WHO', 'url' => 'https://www.who.int/nutrition', 'accessedDate' => '1 January 2026' );
+$fields_org = array( 'year' => 'n.d.', 'title' => 'Guidance on nutrition', 'url' => 'https://www.who.int/nutrition', 'accessedDate' => '1 January 2026' );
 
 // ---------------------------------------------------------------------
 // 1. build_tokens(): all-literal reconstruction matches build_reference()'s
@@ -73,7 +74,7 @@ check( '[1] organisation author: all-literal reconstruction matches build_refere
 
 // ---------------------------------------------------------------------
 // 2. select_parts(): reproducible for the same seed; always exactly 3 of
-// the 6 pure-content candidates (no "content floor" logic needed — every
+// the 4 pure-content candidates (no "content floor" logic needed — every
 // candidate is content).
 // ---------------------------------------------------------------------
 check(
@@ -88,8 +89,9 @@ $never_url      = true;
 // no Harvard-format transformation, so drawing it as a blank would just
 // repeat the scenario's own text verbatim; build() itself still accepts
 // it if explicitly supplied (see checks 4-5 below), for backward
-// compatibility with any already-stored dragdropPartKeys.
-$valid_keys     = array( 'author', 'year', 'title', 'publisher', 'accessed_date' );
+// compatibility with any already-stored dragdropPartKeys. There is no
+// `publisher` candidate at all — this format never shows a publisher.
+$valid_keys     = array( 'author', 'year', 'title', 'accessed_date' );
 for ( $i = 1; $i <= 60; $i++ ) {
 	$keys = Citex_Website_Dragdrop_Parts::select_parts( 'WR' . $i );
 	if ( 3 !== count( $keys ) ) {
@@ -105,11 +107,11 @@ for ( $i = 1; $i <= 60; $i++ ) {
 	}
 }
 check( '[2] select_parts() always returns exactly 3 keys across 60 seeds', $always_three, true );
-check( '[2] select_parts() only ever returns the 5 eligible candidate keys', $all_valid_keys, true );
+check( '[2] select_parts() only ever returns the 4 eligible candidate keys', $all_valid_keys, true );
 check( '[2] select_parts() never draws url', $never_url, true );
 
 // ---------------------------------------------------------------------
-// 3. Every one of the 5 eligible fields is drawn at least once across a
+// 3. Every one of the 4 eligible fields is drawn at least once across a
 // wide seed sweep (genuine variety, no field left permanently untestable).
 // ---------------------------------------------------------------------
 $seen = array_fill_keys( $valid_keys, false );
@@ -118,25 +120,25 @@ for ( $i = 1; $i <= 100; $i++ ) {
 		$seen[ $key ] = true;
 	}
 }
-check( '[3] every one of the 5 eligible fields is drawn at least once across 100 seeds', array_filter( $seen ), $seen );
+check( '[3] every one of the 4 eligible fields is drawn at least once across 100 seeds', array_filter( $seen ), $seen );
 
 // ---------------------------------------------------------------------
 // 4. build(): exact output for hand-picked key sets.
 // ---------------------------------------------------------------------
 $built = Citex_Website_Dragdrop_Parts::build( array( 'author', 'year', 'url' ), $author_ind, $fields_ind );
 check( '[4] drawing author/year/url: parts', $built['parts'], array( 'Mitchell, S.', '2022', 'https://www.leeds.ac.uk/study-skills' ) );
-check( '[4] drawing author/year/url: fixedText', $built['fixedText'], '| (||) Study skills guide [online]. University of Leeds. Available from: <||> [accessed 12 September 2026].' );
-check( '[4] reconstructs to the full reference', web_reconstruct( $built ), 'Mitchell, S. (2022) Study skills guide [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 12 September 2026].' );
+check( '[4] drawing author/year/url: fixedText', $built['fixedText'], '| (||) Study skills guide. Available at: || (Accessed: 12 September 2026).' );
+check( '[4] reconstructs to the full reference', web_reconstruct( $built ), 'Mitchell, S. (2022) Study skills guide. Available at: https://www.leeds.ac.uk/study-skills (Accessed: 12 September 2026).' );
 
 $built_org = Citex_Website_Dragdrop_Parts::build( array( 'author', 'title', 'accessed_date' ), $author_org, $fields_org );
 check( '[4] organisation author: parts', $built_org['parts'], array( 'World Health Organization', 'Guidance on nutrition', '1 January 2026' ) );
-check( '[4] organisation author: reconstructs to the full reference (n.d. stays literal when not drawn)', web_reconstruct( $built_org ), 'World Health Organization (n.d.) Guidance on nutrition [online]. WHO. Available from: <https://www.who.int/nutrition> [accessed 1 January 2026].' );
+check( '[4] organisation author: reconstructs to the full reference (n.d. stays literal when not drawn)', web_reconstruct( $built_org ), 'World Health Organization (n.d.) Guidance on nutrition. Available at: https://www.who.int/nutrition (Accessed: 1 January 2026).' );
 
 // ---------------------------------------------------------------------
 // 5. Distractor rules: never equal to the correct value, across every kind,
 // for both individual and organisation authors.
 // ---------------------------------------------------------------------
-$all_keys      = array( 'author', 'year', 'title', 'publisher', 'url', 'accessed_date' );
+$all_keys      = array( 'author', 'year', 'title', 'url', 'accessed_date' );
 $built_all_ind = Citex_Website_Dragdrop_Parts::build( $all_keys, $author_ind, $fields_ind );
 foreach ( $built_all_ind['parts'] as $index => $part ) {
 	check( "[5] individual: distractor for part $index (\"$part\") is never equal to the correct value", $built_all_ind['confusingWords'][ $index ] === $part, false );

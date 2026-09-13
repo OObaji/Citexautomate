@@ -516,30 +516,15 @@ class Citex_Generated_Validator {
 				$exercise_design
 			)['parts'];
 		} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
-			// Website's dragdrop_shape() expects a single {type, surname,
-			// initials, name} author struct, not an array of people — built
-			// defensively from the record's own authorType/authors/
-			// organisationName fields so a malformed or mis-categorised
-			// record fails validation cleanly instead of crashing.
-			$author_type = (string) ( $question['authorType'] ?? '' );
-			$author      = array( 'type' => $author_type );
-			if ( 'individual' === $author_type ) {
-				$author['surname']  = trim( (string) ( $authors_for_parts[0]['surname'] ?? '' ) );
-				$author['initials'] = trim( (string) ( $authors_for_parts[0]['initials'] ?? '' ) );
-			} else {
-				$author['name'] = trim( (string) ( $question['organisationName'] ?? '' ) );
-			}
-			$question_parts = Citex_Reference_Rules::dragdrop_shape(
-				$category,
-				array(
-					'author'       => $author,
-					'year'         => (string) ( $question['year'] ?? '' ),
-					'title'        => (string) ( $question['pageTitle'] ?? '' ),
-					'publisher'    => (string) ( $question['publisher'] ?? '' ),
-					'url'          => (string) ( $question['url'] ?? '' ),
-					'accessedDate' => (string) ( $question['accessedDate'] ?? '' ),
-				)
-			)['parts'];
+			// Website MCQ always carries mcqPattern === 'website_mcq_variant'
+			// (see Citex_AI_V2::normalise_website_mcq_variant_item()) and so
+			// is always routed to validate_website_mcq_variant() before ever
+			// reaching this generic fallback (see validate()'s dispatch) —
+			// this branch exists only so a malformed record with no
+			// recognised mcqPattern still validates without crashing.
+			// validate_website_consistency() no longer uses $question_parts
+			// at all, so there is nothing meaningful to build here.
+			$question_parts = array();
 		} else {
 			$question_parts = Citex_Reference_Rules::dragdrop_shape(
 				$category,
@@ -1838,31 +1823,13 @@ class Citex_Generated_Validator {
 			'accessedDate' => $accessed_date,
 		);
 
-		// Question Parts must be EXACTLY the shape website_dragdrop_shape()
-		// would build for this canonical author-or-organisation, for
-		// WHICHEVER exercise design this record was generated with — MCQ
-		// only. DragDrop now always uses Citex_Website_Dragdrop_Parts (a
-		// genuinely different mechanism from the old named-design
-		// catalogue dragdrop_shape() still serves here for MCQ), and
-		// validate_dragdrop()'s own dedicated block already recomputes and
+		// Question Parts for DragDrop are validated separately, by
+		// validate_dragdrop()'s own dedicated block, which recomputes and
 		// exact-matches Question Parts/Fixed Text/Confusing Words from the
-		// record's stored `dragdropPartKeys` — redoing an old-shape-based
-		// comparison here would always mismatch (the new system never
-		// produces the old design's part set). Defaults to 'full_reference'
-		// (the original always-6-part shape) for any pre-existing MCQ
-		// record with no exerciseDesign field at all.
-		if ( 'DragDrop' !== (string) ( $question['type'] ?? '' ) ) {
-			$design         = trim( (string) ( $question['exerciseDesign'] ?? 'full_reference' ) );
-			$expected_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields, $design );
-			$expected_parts = array_map( 'trim', $expected_shape['parts'] );
-			$actual_parts   = array_map( 'trim', (array) $question_parts );
-			if ( $expected_parts !== array_values( $actual_parts ) ) {
-				$errors[] = self::error(
-					'WEBSITE_PARTS_MISMATCH',
-					'Question Parts do not exactly match the canonical bibliographic record (author/organisation, year/n.d., title, publisher, URL, accessed date).'
-				);
-			}
-		}
+		// record's stored `dragdropPartKeys` via Citex_Website_Dragdrop_Parts.
+		// This method is only ever reached from validate_dragdrop() (Website
+		// MCQ is fully handled by validate_website_mcq_variant() before
+		// reaching here), so $question_parts needs no further check here.
 
 		// Independently reconstruct the expected reference from canonical
 		// data (see this method's docblock) and require an exact match.
@@ -1874,14 +1841,17 @@ class Citex_Generated_Validator {
 			);
 		}
 
-		// Canonical facts must appear in the reference itself.
+		// Canonical facts must appear in the reference itself. Publisher is
+		// deliberately excluded here — this format has no publisher element
+		// at all (see Citex_Reference_Rules::build_website_reference()), so
+		// the record's own `publisher` field, even when present, is never
+		// expected to appear in the reference text.
 		$author_display = Citex_Reference_Rules::format_website_author( $author );
 		foreach (
 			array(
-				'author'    => array( $author_display, 'author/organisation' ),
-				'title'     => array( $title, 'page/document title' ),
-				'publisher' => array( $publisher, 'publisher' ),
-				'url'       => array( $url, 'URL' ),
+				'author' => array( $author_display, 'author/organisation' ),
+				'title'  => array( $title, 'page/document title' ),
+				'url'    => array( $url, 'URL' ),
 			) as $pair
 		) {
 			list( $value, $label ) = $pair;

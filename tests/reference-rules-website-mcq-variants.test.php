@@ -100,7 +100,7 @@ check( '[5] build() is deterministic for identical inputs', $a, $b );
 // 6. complete_reference: hand-verified exact output for a known record.
 // ---------------------------------------------------------------------
 $complete = Citex_Website_Mcq_Variants::build( 'complete_reference', $fields_ind );
-check( '[6] complete_reference: correct answer', $complete['correctAnswer'], 'Ross, T. (2022) Study guide [online]. SAGE. Available from: <https://www.sage.com> [accessed 12 September 2026].' );
+check( '[6] complete_reference: correct answer', $complete['correctAnswer'], 'Ross, T. (2022) Study guide. Available at: https://www.sage.com (Accessed: 12 September 2026).' );
 check( '[6] complete_reference: stem', $complete['stem'], 'Which option is the correctly formatted Harvard website reference?' );
 
 // ---------------------------------------------------------------------

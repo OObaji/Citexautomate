@@ -122,27 +122,11 @@ check(
 );
 check_true( '[2b] "et al." never appears in the reconstruction (Harvard reference-list rule always lists every author)', false === stripos( Citex_Reference_Rules::reconstruct_reference( $ja_six_shape ), 'et al' ) );
 
-// =======================================================================
-// 3. Website: hand-verified confusingWords, individual (dated) and
-// organisation (undated).
-// =======================================================================
-$web_individual      = array( 'type' => 'individual', 'surname' => 'Mitchell', 'initials' => 'S.', 'fullName' => 'Sarah Mitchell' );
-$web_org             = array( 'type' => 'organisation', 'name' => 'University of Leeds' );
-$web_fields_dated     = array( 'year' => '2024', 'title' => 'Study skills guide', 'publisher' => 'University of Leeds', 'url' => 'https://www.leeds.ac.uk/study-skills', 'accessedDate' => '3 September 2026' );
-$web_fields_undated   = array( 'year' => 'n.d.', 'title' => 'About us', 'publisher' => 'University of Leeds', 'url' => 'https://www.leeds.ac.uk/about', 'accessedDate' => '3 September 2026' );
-
-$web_expected = array(
-	'author_year_title'      => array( 'Mitchell, S', '2042', 'Study skills guide.' ),
-	'author_year_publisher'  => array( 'Mitchell, S', '2042', 'Harvard University' ),
-	'title_publisher_url'    => array( 'Study skills guide.', 'Harvard University', 'http://www.leeds.ac.uk/study-skills' ),
-	'year_publisher_accessed' => array( '2042', 'Harvard University', 'September 3, 2026' ),
-);
-foreach ( $web_expected as $design => $expected_confusing ) {
-	$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, array_merge( $web_fields_dated, array( 'author' => $web_individual ) ), $design );
-	check( "[3] Website \"$design\" (individual, dated) confusingWords", $shape['confusingWords'], $expected_confusing );
-}
-$web_org_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, array_merge( $web_fields_undated, array( 'author' => $web_org ) ), 'author_year_publisher' );
-check( '[3] Website "author_year_publisher" (organisation, undated) confusingWords', $web_org_shape['confusingWords'], array( 'Public Health England', '2019', 'World Bank' ) );
+// Note: Website's DragDrop confusingWords are now covered exclusively by
+// tests/reference-rules-website-dragdrop-parts.test.php, via
+// Citex_Website_Dragdrop_Parts — the old fixed named-design catalogue
+// (website_dragdrop_designs()) and its dragdrop_shape() branch have been
+// removed entirely (this format also has no publisher element at all).
 
 // =======================================================================
 // 4. Property sweep: across many seeds/records, no distractor ever equals
@@ -192,31 +176,10 @@ for ( $seed = 1; $seed <= 40; $seed++ ) {
 }
 check( '[4] Journal Article: zero distractor-matches-correct-part violations across 40 seeds x 6 designs', $violations, 0 );
 
-$violations = 0;
-$web_designs = Citex_Reference_Rules::website_dragdrop_designs();
-for ( $seed = 1; $seed <= 40; $seed++ ) {
-	$is_org = 0 === ( $seed % 2 );
-	$author = $is_org
-		? array( 'type' => 'organisation', 'name' => "Organisation $seed" )
-		: array( 'type' => 'individual', 'surname' => $surnames[ $seed % 5 ], 'initials' => 'X.', 'fullName' => 'Firstname ' . $surnames[ $seed % 5 ] );
-	$fields = array(
-		'author'       => $author,
-		'year'         => 0 === ( $seed % 5 ) ? 'n.d.' : (string) ( 2000 + $seed ),
-		'title'        => "Page $seed",
-		'publisher'    => "Publisher $seed",
-		'url'          => "https://example$seed.com/page",
-		'accessedDate' => '5 March 2024',
-	);
-	foreach ( $web_designs as $design ) {
-		$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields, $design );
-		foreach ( $shape['parts'] as $i => $part ) {
-			if ( strtolower( trim( (string) $part ) ) === strtolower( trim( (string) $shape['confusingWords'][ $i ] ) ) ) {
-				$violations++;
-			}
-		}
-	}
-}
-check( '[4] Website: zero distractor-matches-correct-part violations across 40 seeds x 4 designs', $violations, 0 );
+// Website's equivalent sweep now lives in
+// tests/reference-rules-website-dragdrop-parts.test.php (section 5), via
+// Citex_Website_Dragdrop_Parts — the old fixed named-design catalogue used
+// here has been removed entirely.
 
 // =======================================================================
 // 5. Recomputation is stable: calling dragdrop_shape() twice with the

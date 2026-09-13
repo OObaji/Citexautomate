@@ -205,24 +205,24 @@ class Citex_Reference_Rules {
 	}
 
 	/**
-	 * Liverpool Hope Harvard — Websites/webpages (the "Web Resource"
-	 * category): Author/Organisation (Year|n.d.) Title [online]. Publisher.
-	 * Available from: <URL> [accessed date]. Unlike Book/Edited Book/Journal
-	 * Article there is only ever ONE author-or-organisation (no multi-person
-	 * joining rule applies to this category at all — see
-	 * format_website_author()), and there is no place/publisher-as-baked-in-
-	 * fixed-text convention: publisher, URL and accessed date are all
-	 * genuinely variable per source, so all six pieces are draggable (see
-	 * website_dragdrop_shape()). "(n.d.)" replaces the year verbatim — never
-	 * a guessed year — when no publication/creation date can be identified.
+	 * Harvard — Websites/webpages: Author/Organisation (Year|n.d.) Title.
+	 * Available at: URL (Accessed: Day Month Year). Unlike Book/Edited Book/
+	 * Journal Article there is only ever ONE author-or-organisation (no
+	 * multi-person joining rule applies to this category at all — see
+	 * format_website_author()); there is no publisher element at all in this
+	 * format (never shown, whatever the record's own `publisher` field
+	 * holds), and the URL and accessed date are genuinely variable per
+	 * source, so author, year, title, URL and accessed date are all
+	 * draggable (see Citex_Website_Dragdrop_Parts). "(n.d.)" replaces the
+	 * year verbatim — never a guessed year — when no publication/creation
+	 * date can be identified.
 	 */
 	private static function build_website_reference( array $fields ) {
 		return sprintf(
-			'%s (%s) %s [online]. %s. Available from: <%s> [accessed %s].',
+			'%s (%s) %s. Available at: %s (Accessed: %s).',
 			self::format_website_author( $fields['author'] ),
 			$fields['year'],
 			$fields['title'],
-			$fields['publisher'],
 			$fields['url'],
 			$fields['accessedDate']
 		);
@@ -408,9 +408,6 @@ class Citex_Reference_Rules {
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return self::journal_article_dragdrop_shape( $fields, $design );
-		}
-		if ( self::CATEGORY_WEBSITE === $category ) {
-			return self::website_dragdrop_shape( $fields, $design );
 		}
 		return null;
 	}
@@ -955,138 +952,6 @@ class Citex_Reference_Rules {
 	}
 
 	/**
-	 * Website's DragDrop shape: 6 draggable parts in the Liverpool Hope
-	 * order — author/organisation, year (or "n.d."), title, publisher, URL,
-	 * accessed date. "[online]" and "Available from:" are constant literal
-	 * markers present in EVERY correct Website reference — they never vary
-	 * per source, so (exactly like Book's "Place: " / ": " colon and Journal
-	 * Article's "pp." prefix) they are baked into the fixed template rather
-	 * than made draggable. There is no author-count branching at all for
-	 * this category — Liverpool Hope's website rule only ever has ONE
-	 * author-or-organisation.
-	 */
-	/**
-	 * Website's DragDrop shape, per exercise design — mirrors Journal
-	 * Article's "named field-subset design" pattern (see
-	 * journal_article_dragdrop_designs()), generalised here to a
-	 * category with no multi-person joining concept at all. Every design
-	 * still reconstructs the SAME complete, correct 6-field reference
-	 * string (author, year, title, publisher, url, accessedDate, in the
-	 * fixed Harvard order) — the choice of design only changes WHICH 3
-	 * of those 6 fields are draggable Question Parts; the rest are baked
-	 * into fixedText as ordinary (non-draggable) literal text, exactly
-	 * like place/publisher have always been for Book. This means
-	 * format_regex()'s existing full-reference shape check keeps working
-	 * unchanged for every design — the reconstructed STRING never differs
-	 * in shape, only in which pieces are graded.
-	 */
-	private static function website_dragdrop_shape( array $fields, $design = null ) {
-		$design = $design ?: 'full_reference';
-		$values = array(
-			self::format_website_author( $fields['author'] ),
-			$fields['year'],
-			$fields['title'],
-			$fields['publisher'],
-			$fields['url'],
-			$fields['accessedDate'],
-		);
-		// Index map: 0=author, 1=year, 2=title, 3=publisher, 4=url, 5=accessedDate.
-		$draggable_map = array(
-			'author_year_title'      => array( 0, 1, 2 ),
-			'author_year_publisher'  => array( 0, 1, 3 ),
-			'title_publisher_url'    => array( 2, 3, 4 ),
-			'year_publisher_accessed' => array( 1, 3, 5 ),
-			'full_reference'         => array( 0, 1, 2, 3, 4, 5 ),
-		);
-		$draggable = $draggable_map[ $design ] ?? $draggable_map['full_reference'];
-		// The literal connective text that always follows each of the 6
-		// positions, regardless of design — the same punctuation the
-		// original fixed 6-part template used.
-		$connectors = array( ' (', ') ', ' [online]. ', '. Available from: <', '> [accessed ', '].' );
-
-		// `confusingWords` is now also computed HERE, deterministically from
-		// the record's own fields — never Gemini-authored (see the "SHARED
-		// DETERMINISTIC DISTRACTOR PRIMITIVES" section at the bottom of this
-		// class). $exclude_values is every field ACTUALLY drawn this
-		// question (not just each distractor's own field) so a pool-based
-		// pick (organisation_pool()) can never accidentally collide with a
-		// different correct part in the same question — e.g.
-		// author_year_publisher draws both the author and the publisher, so
-		// each one's distractor pool excludes the OTHER's correct value too.
-		$record_seed          = 'website_dragdrop|' . implode( '|', array( (string) $fields['year'], (string) $fields['title'], (string) $fields['publisher'], (string) $fields['url'], (string) $fields['accessedDate'] ) );
-		$drawn_correct_values = array_values( array_intersect_key( $values, array_flip( $draggable ) ) );
-
-		$parts     = array();
-		$confusing = array();
-		$fixed     = '';
-		foreach ( $values as $index => $value ) {
-			if ( in_array( $index, $draggable, true ) ) {
-				$parts[] = $value;
-				// Matches Citex's established pipe grammar (see
-				// name_template()'s docblock): a placeholder at the very
-				// start of Fixed Text is a single "|"; only possible for
-				// index 0 (author), the only draggable field that can ever
-				// be the very first character emitted here.
-				$fixed      .= ( '' === $fixed ) ? '|' : '||';
-				$confusing[] = self::website_distractor_for_index( $index, $value, $fields, $drawn_correct_values, $record_seed );
-			} else {
-				$fixed .= $value;
-			}
-			$fixed .= $connectors[ $index ];
-		}
-		return array(
-			'parts'          => $parts,
-			'fixedText'      => $fixed,
-			'confusingWords' => $confusing,
-		);
-	}
-
-	/**
-	 * One deterministic wrong chip for a drawn Website candidate, keyed by
-	 * its position in website_dragdrop_shape()'s own 0-5 index map.
-	 */
-	private static function website_distractor_for_index( $index, $value, array $fields, array $exclude_values, $record_seed ) {
-		switch ( $index ) {
-			case 0:
-				$author = $fields['author'];
-				if ( 'organisation' === ( $author['type'] ?? '' ) ) {
-					return self::pick_from_pool( self::organisation_pool(), $exclude_values, $record_seed . '|author' ) ?? 'Unknown Organisation';
-				}
-				return self::combined_person_distractor( $value, null, $author['fullName'] ?? '', $author['surname'] ?? '', $record_seed . '|author' );
-			case 1:
-				return self::year_or_undated_distractor( $value, $record_seed . '|year' );
-			case 2:
-				return self::title_like_distractor( $value, $fields['year'], $record_seed . '|title' );
-			case 3:
-				return self::pick_from_pool( self::organisation_pool(), $exclude_values, $record_seed . '|publisher' ) ?? 'Unknown Publisher';
-			case 4:
-				return self::url_distractor( $value, $record_seed . '|url' );
-			case 5:
-				return self::date_distractor( $value, $record_seed . '|accessed' );
-			default:
-				return $value . '?';
-		}
-	}
-
-	/**
-	 * Design ids permitted for a Website DragDrop question — every design
-	 * except 'full_reference' (6 parts, MCQ-only — too large for the
-	 * 3-part hard rule). 'year_publisher_accessed' keeps year (not url)
-	 * among its 3 fields deliberately: it is the design assigned to the
-	 * 'individual_author_undated' scenario bucket (see
-	 * Citex_Question_Scenarios::website_buckets()), whose whole point is
-	 * testing that the student drags "(n.d.)" correctly — dropping year
-	 * here would leave that rule completely untested by DragDrop for
-	 * undated sources. Mirrors
-	 * Citex_Reference_Rules::journal_article_dragdrop_designs().
-	 *
-	 * @return string[]
-	 */
-	public static function website_dragdrop_designs() {
-		return array( 'author_year_title', 'author_year_publisher', 'title_publisher_url', 'year_publisher_accessed' );
-	}
-
-	/**
 	 * The overall-shape regex used to confirm a completed reference string
 	 * (DragDrop's reconstruction, or MCQ's correct option) actually looks
 	 * like this category's Harvard format — the category-specific
@@ -1120,22 +985,21 @@ class Citex_Reference_Rules {
 			return '/^[^,]+,\s+(?:[A-Z]\.\s*)+(?:(?:,\s+[^,]+,\s+(?:[A-Z]\.\s*)+)*\s+and\s+[^,]+,\s+(?:[A-Z]\.\s*)+)?\(\d{4}\)\s+‘.+?’,\s+.+,\s+\d+\(\d+\),\s+pp\.\s\d+–\d+\.\s*$/u';
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
-			// Author/Organisation (Year|n.d.) Title [online]. Publisher.
-			// Available from: <URL> [accessed date]. The author segment is
-			// deliberately `.+` (NOT the Book-style "Surname, Initials"
-			// repeating group) because it may be a raw organisation name with
-			// no comma/initials structure at all — the individual-vs-
+			// Author/Organisation (Year|n.d.) Title. Available at: URL
+			// (Accessed: Day Month Year). The author segment is deliberately
+			// `.+` (NOT the Book-style "Surname, Initials" repeating group)
+			// because it may be a raw organisation name with no
+			// comma/initials structure at all — the individual-vs-
 			// organisation distinction is checked separately, by
 			// Citex_Generated_Validator's dedicated Website consistency
 			// check, not by this shape regex. The year group requires either
 			// exactly 4 digits or the literal "n.d." — no other placeholder
-			// text is accepted. The URL must be wrapped in literal angle
-			// brackets with no whitespace inside them, and "[online]",
-			// "Available from:" (with its colon) and "[accessed ...]" must
-			// all be present literally — this is what makes a distractor
-			// that drops any one of them, or that omits the colon after
-			// "Available from", fail to match.
-			return '/^.+\s+\((?:\d{4}|n\.d\.)\)\s+.+\s+\[online\]\.\s+.+\.\s+Available from:\s+<[^<>\s]+>\s+\[accessed\s+[^\]]+\]\.\s*$/u';
+			// text is accepted. There is no publisher element at all in this
+			// format. "Available at:" (with its colon) and the parenthesised
+			// "(Accessed: ...)" must both be present literally — this is
+			// what makes a distractor that drops either, or that omits the
+			// colon after "Available at" or "Accessed", fail to match.
+			return '/^.+\s+\((?:\d{4}|n\.d\.)\)\s+.+\.\s+Available at:\s+\S+\s+\(Accessed:\s+[^)]+\)\.\s*$/u';
 		}
 		// One or more "Surname, Initials" groups (join_people()'s exact
 		// joining grammar: every pair before the last is comma-separated,
@@ -1253,17 +1117,14 @@ class Citex_Reference_Rules {
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
 			return array(
-				'Missing "[online]" from the reference entirely.',
-				'Missing "Available from:" or omitting the colon after it, for example "Available from <URL>" instead of "Available from: <URL>".',
-				'The URL not enclosed in angled brackets, for example "Available from: http://example.com" instead of "Available from: <http://example.com>".',
-				'Missing the "[accessed date]" element entirely.',
-				'Missing the square brackets around the accessed date, for example "accessed 12 September 2026" instead of "[accessed 12 September 2026]".',
-				'Enclosing the URL in square brackets or parentheses instead of angle brackets, for example "Available from: [http://example.com]" instead of "Available from: <http://example.com>".',
+				'Missing "Available at:" or omitting the colon after it, for example "Available at example.com" instead of "Available at: example.com".',
+				'Using "Available from:" instead of "Available at:".',
+				'Missing the "(Accessed: date)" element entirely.',
+				'Missing the parentheses around the accessed date, for example "Accessed: 12 September 2026" instead of "(Accessed: 12 September 2026)".',
+				'Missing the colon after "Accessed", for example "(Accessed 12 September 2026)" instead of "(Accessed: 12 September 2026)".',
 				'Missing the parentheses around the year or "n.d.", for example "2020 Title" instead of "(2020) Title".',
-				'Missing the publisher entirely.',
-				'Placing the publisher after "Available from:" instead of immediately after "[online].".',
-				'Placing the URL before "Available from:" instead of after it.',
-				'Missing the full stop after the page/document title, immediately before "[online]".',
+				'Placing the URL before "Available at:" instead of after it.',
+				'Missing the full stop after the page/document title, immediately before "Available at:".',
 				'Missing the final full stop at the end of the reference.',
 			);
 		}
@@ -1347,7 +1208,7 @@ class Citex_Reference_Rules {
 			return 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the article title, journal title, volume, issue and page range.';
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
-			return 'Check whether an individual author or an organisation is used, whether a real year or "(n.d.)" is correct, and the order of the title, "[online]", the publisher, "Available from:", the URL and the accessed date.';
+			return 'Check whether an individual author or an organisation is used, whether a real year or "(n.d.)" is correct, and the order of the title, "Available at:", the URL and the "(Accessed: date)" element.';
 		}
 		return 'Check the order of the author\'s surname and initials, the position of the year, and the punctuation between the title, place and publisher.';
 	}

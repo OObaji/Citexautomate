@@ -30,7 +30,7 @@ class Citex_Website_Mcq_Variants {
 	/**
 	 * Variants whose `correctAnswer` and `wrongOptions` are entirely
 	 * fixed/pool-based, independent of this specific record's own
-	 * author/year/title/publisher/url — mirrors
+	 * author/year/title/url — mirrors
 	 * Citex_Book_Mcq_Variants::book_independent_answer_variants()'s exact
 	 * rationale and must be skipped the same way by duplicate-reference
 	 * detection, or a second question landing on the same variant always
@@ -81,7 +81,7 @@ class Citex_Website_Mcq_Variants {
 	 * record.
 	 *
 	 * @param string $variant One of self::variants().
-	 * @param array  $fields  {author: {type, surname?, initials?, fullName?, name?}, year, title, publisher, url, accessedDate}.
+	 * @param array  $fields  {author: {type, surname?, initials?, fullName?, name?}, year, title, url, accessedDate}.
 	 * @return array{stem: string, wrongOptions: string[], correctAnswer: string}|null null for an unrecognised variant id.
 	 */
 	public static function build( $variant, array $fields ) {
@@ -120,48 +120,51 @@ class Citex_Website_Mcq_Variants {
 		return Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields );
 	}
 
-	private static function full_reference( $author_display, $year, $title, $publisher, $url, $accessed ) {
-		return sprintf( '%s (%s) %s [online]. %s. Available from: <%s> [accessed %s].', $author_display, $year, $title, $publisher, $url, $accessed );
+	private static function full_reference( $author_display, $year, $title, $url, $accessed ) {
+		return sprintf( '%s (%s) %s. Available at: %s (Accessed: %s).', $author_display, $year, $title, $url, $accessed );
 	}
 
 	/**
 	 * The 5 structural error kinds shared by identify_the_error and
 	 * not_a_correct_reference — each pairs a plain-English statement of
 	 * what is wrong with a transform that injects exactly that mistake
-	 * into an otherwise-correct reference.
+	 * into an otherwise-correct reference. There is no publisher and no
+	 * "[online]" marker in this format at all, so every kind here concerns
+	 * only the year parentheses, "Available at:", or the "(Accessed: ...)"
+	 * element.
 	 *
 	 * @return string[] error kind ids, in a fixed order.
 	 */
 	private static function error_kinds() {
-		return array( 'missing_online', 'missing_colon', 'no_angle_brackets', 'missing_accessed_brackets', 'missing_year_parens' );
+		return array( 'wrong_available_wording', 'missing_available_colon', 'missing_accessed_parens', 'missing_accessed_colon', 'missing_year_parens' );
 	}
 
 	private static function error_statement( $kind ) {
 		$statements = array(
-			'missing_online'            => 'The reference is missing "[online]" after the title.',
-			'missing_colon'             => '"Available from" is missing its colon.',
-			'no_angle_brackets'         => 'The URL is not enclosed in angle brackets.',
-			'missing_accessed_brackets' => 'The accessed date is not enclosed in square brackets.',
-			'missing_year_parens'       => 'The year (or "n.d.") is not enclosed in parentheses.',
+			'wrong_available_wording' => 'The reference uses "Available from:" instead of "Available at:".',
+			'missing_available_colon' => '"Available at" is missing its colon.',
+			'missing_accessed_parens' => 'The accessed date is not enclosed in parentheses.',
+			'missing_accessed_colon'  => 'The word "Accessed" is missing its colon.',
+			'missing_year_parens'     => 'The year (or "n.d.") is not enclosed in parentheses.',
 		);
 		return $statements[ $kind ] ?? '';
 	}
 
 	/** Builds a reference with exactly one structural mistake injected, per $kind. */
-	private static function broken_reference( $kind, $author_display, $year, $title, $publisher, $url, $accessed ) {
+	private static function broken_reference( $kind, $author_display, $year, $title, $url, $accessed ) {
 		switch ( $kind ) {
-			case 'missing_online':
-				return sprintf( '%s (%s) %s. %s. Available from: <%s> [accessed %s].', $author_display, $year, $title, $publisher, $url, $accessed );
-			case 'missing_colon':
-				return sprintf( '%s (%s) %s [online]. %s. Available from <%s> [accessed %s].', $author_display, $year, $title, $publisher, $url, $accessed );
-			case 'no_angle_brackets':
-				return sprintf( '%s (%s) %s [online]. %s. Available from: %s [accessed %s].', $author_display, $year, $title, $publisher, $url, $accessed );
-			case 'missing_accessed_brackets':
-				return sprintf( '%s (%s) %s [online]. %s. Available from: <%s> accessed %s.', $author_display, $year, $title, $publisher, $url, $accessed );
+			case 'wrong_available_wording':
+				return sprintf( '%s (%s) %s. Available from: %s (Accessed: %s).', $author_display, $year, $title, $url, $accessed );
+			case 'missing_available_colon':
+				return sprintf( '%s (%s) %s. Available at %s (Accessed: %s).', $author_display, $year, $title, $url, $accessed );
+			case 'missing_accessed_parens':
+				return sprintf( '%s (%s) %s. Available at: %s Accessed: %s.', $author_display, $year, $title, $url, $accessed );
+			case 'missing_accessed_colon':
+				return sprintf( '%s (%s) %s. Available at: %s (Accessed %s).', $author_display, $year, $title, $url, $accessed );
 			case 'missing_year_parens':
-				return sprintf( '%s %s %s [online]. %s. Available from: <%s> [accessed %s].', $author_display, $year, $title, $publisher, $url, $accessed );
+				return sprintf( '%s %s %s. Available at: %s (Accessed: %s).', $author_display, $year, $title, $url, $accessed );
 		}
-		return self::full_reference( $author_display, $year, $title, $publisher, $url, $accessed );
+		return self::full_reference( $author_display, $year, $title, $url, $accessed );
 	}
 
 	/** Deterministically picks one error kind, seeded by the record's own content. */
@@ -181,12 +184,12 @@ class Citex_Website_Mcq_Variants {
 	 */
 	private static function valid_reference_pool() {
 		return array(
-			self::full_reference( 'Ross, T.', '2019', 'Digital skills', 'SAGE', 'https://www.sage.com', '3 March 2025' ),
-			self::full_reference( 'World Health Organization', 'n.d.', 'Global health', 'WHO', 'https://www.who.int', '10 June 2024' ),
-			self::full_reference( 'Dale, R.', '2021', 'Climate data', 'BBC', 'https://www.bbc.co.uk', '22 January 2026' ),
-			self::full_reference( 'Open University', '2020', 'Study skills', 'MIT', 'https://www.mit.edu', '15 May 2025' ),
-			self::full_reference( 'Kaur, A.', 'n.d.', 'Ethics review', 'UN', 'https://www.un.org', '7 August 2024' ),
-			self::full_reference( 'National Health Service', '2018', 'Wellbeing guide', 'NHS', 'https://www.nhs.uk', '19 December 2025' ),
+			self::full_reference( 'Ross, T.', '2019', 'Digital skills', 'https://www.sage.com', '3 March 2025' ),
+			self::full_reference( 'World Health Organization', 'n.d.', 'Global health', 'https://www.who.int', '10 June 2024' ),
+			self::full_reference( 'Dale, R.', '2021', 'Climate data', 'https://www.bbc.co.uk', '22 January 2026' ),
+			self::full_reference( 'Open University', '2020', 'Study skills', 'https://www.mit.edu', '15 May 2025' ),
+			self::full_reference( 'Kaur, A.', 'n.d.', 'Ethics review', 'https://www.un.org', '7 August 2024' ),
+			self::full_reference( 'National Health Service', '2018', 'Wellbeing guide', 'https://www.nhs.uk', '19 December 2025' ),
 		);
 	}
 
@@ -239,9 +242,9 @@ class Citex_Website_Mcq_Variants {
 		return array(
 			'stem'          => 'Which option is the correctly formatted Harvard website reference?',
 			'wrongOptions'  => array(
-				self::broken_reference( 'missing_online', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				self::broken_reference( 'missing_colon', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				self::broken_reference( 'no_angle_brackets', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
+				self::broken_reference( 'wrong_available_wording', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				self::broken_reference( 'missing_available_colon', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				self::broken_reference( 'missing_accessed_parens', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
 			),
 			'correctAnswer' => $correct,
 		);
@@ -258,9 +261,9 @@ class Citex_Website_Mcq_Variants {
 		return array(
 			'stem'          => 'Which option correctly formats the year (or "n.d." when no date is available)?',
 			'wrongOptions'  => array(
-				sprintf( '%s %s %s [online]. %s. Available from: <%s> [accessed %s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				sprintf( '%s (%s). %s [online]. %s. Available from: <%s> [accessed %s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				sprintf( '%s [%s] %s [online]. %s. Available from: <%s> [accessed %s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s %s %s. Available at: %s (Accessed: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s). %s. Available at: %s (Accessed: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s [%s] %s. Available at: %s (Accessed: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
 			),
 			'correctAnswer' => self::correct_reference( $fields ),
 		);
@@ -274,25 +277,25 @@ class Citex_Website_Mcq_Variants {
 		return array(
 			'stem'          => 'Which option shows the correct order of the main Website reference elements?',
 			'wrongOptions'  => array(
-				'Author/Organisation → Title → Year → Publisher → URL → Accessed Date',
-				'Title → Author/Organisation → Year → URL → Publisher → Accessed Date',
-				'Author/Organisation → Year → Publisher → Title → URL → Accessed Date',
+				'Author/Organisation → Title → Year → URL → Accessed Date',
+				'Title → Author/Organisation → Year → URL → Accessed Date',
+				'Author/Organisation → Year → URL → Title → Accessed Date',
 			),
-			'correctAnswer' => 'Author/Organisation → Year → Title → Publisher → URL → Accessed Date',
+			'correctAnswer' => 'Author/Organisation → Year → Title → URL → Accessed Date',
 		);
 	}
 
 	// -----------------------------------------------------------------
-	// Variant 4 — "[online]" and "Available from:" placement.
+	// Variant 4 — "Available at:" wording and placement.
 	// -----------------------------------------------------------------
 	private static function build_online_and_available_from( array $fields ) {
 		$author = self::author_display( $fields['author'] );
 		return array(
-			'stem'          => 'Which option correctly places "[online]" and "Available from:"?',
+			'stem'          => 'Which option correctly formats "Available at:"?',
 			'wrongOptions'  => array(
-				sprintf( '%s (%s) %s. %s [online]. Available from: <%s> [accessed %s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				sprintf( '%s (%s) %s [online]. %s. <%s> [accessed %s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				sprintf( '%s (%s) %s [online] %s. Available from: <%s> [accessed %s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s) %s. Available from: %s (Accessed: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s) %s. Available at %s (Accessed: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s) %s Available at: %s (Accessed: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
 			),
 			'correctAnswer' => self::correct_reference( $fields ),
 		);
@@ -306,9 +309,9 @@ class Citex_Website_Mcq_Variants {
 		return array(
 			'stem'          => 'Which option correctly formats the web address?',
 			'wrongOptions'  => array(
-				sprintf( '%s (%s) %s [online]. %s. Available from: [%s] [accessed %s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				sprintf( '%s (%s) %s [online]. %s. Available from: %s [accessed %s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				sprintf( '%s (%s) %s [online]. %s. Available from: < %s > [accessed %s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s) %s. Available at: <%s> (Accessed: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s) %s. Available at: [%s] (Accessed: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s) %s. Available at: (%s) (Accessed: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
 			),
 			'correctAnswer' => self::correct_reference( $fields ),
 		);
@@ -322,9 +325,9 @@ class Citex_Website_Mcq_Variants {
 		return array(
 			'stem'          => 'Which option correctly formats the accessed date?',
 			'wrongOptions'  => array(
-				sprintf( '%s (%s) %s [online]. %s. Available from: <%s> accessed %s.', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				sprintf( '%s (%s) %s [online]. %s. Available from: <%s> [%s].', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
-				sprintf( '%s (%s) %s [online]. %s. Available from: <%s> (accessed %s).', $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s) %s. Available at: %s Accessed: %s.', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s) %s. Available at: %s (Accessed %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
+				sprintf( '%s (%s) %s. Available at: %s (Access: %s).', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
 			),
 			'correctAnswer' => self::correct_reference( $fields ),
 		);
@@ -365,9 +368,9 @@ class Citex_Website_Mcq_Variants {
 	// -----------------------------------------------------------------
 	private static function build_identify_the_error( array $fields ) {
 		$author       = self::author_display( $fields['author'] );
-		$record_seed  = implode( '|', array( $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ) );
+		$record_seed  = implode( '|', array( $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ) );
 		$kind         = self::pick_error_kind( $record_seed );
-		$broken       = self::broken_reference( $kind, $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] );
+		$broken       = self::broken_reference( $kind, $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] );
 		$correct_statement = self::error_statement( $kind );
 
 		$wrong_statements = array();
@@ -402,9 +405,9 @@ class Citex_Website_Mcq_Variants {
 	// -----------------------------------------------------------------
 	private static function build_not_a_correct_reference( array $fields ) {
 		$author      = self::author_display( $fields['author'] );
-		$record_seed = implode( '|', array( $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] ) );
+		$record_seed = implode( '|', array( $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ) );
 		$kind        = self::pick_error_kind( $record_seed . '|not_correct' );
-		$broken      = self::broken_reference( $kind, $author, $fields['year'], $fields['title'], $fields['publisher'], $fields['url'], $fields['accessedDate'] );
+		$broken      = self::broken_reference( $kind, $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] );
 
 		$pool = self::valid_reference_pool();
 		usort(

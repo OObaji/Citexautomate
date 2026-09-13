@@ -101,30 +101,10 @@ $reason = Citex_Reference_Rules::part_suitability( array( $many_short_words ) );
 check_true( '[3] a part with more than ~20 words is rejected even if individually short words', null !== $reason );
 check_true( '[3] the rejection reason names "words"', null !== $reason && false !== strpos( $reason, 'words' ) );
 
-// =======================================================================
-// 4. Website's new field-subset DragDrop designs (replacing the old
-// fixed 6-part shape) each produce exactly 3-4 parts, and every design
-// still reconstructs the SAME complete, correct 6-field reference.
-// =======================================================================
-$website_fields = array(
-	'author'       => array( 'type' => 'individual', 'surname' => 'Mitchell', 'initials' => 'S.' ),
-	'year'         => '2024',
-	'title'        => 'Study skills guide',
-	'publisher'    => 'University of Leeds',
-	'url'          => 'https://www.leeds.ac.uk/study-skills',
-	'accessedDate' => '3 September 2026',
-);
-$expected_full_reference = 'Mitchell, S. (2024) Study skills guide [online]. University of Leeds. Available from: <https://www.leeds.ac.uk/study-skills> [accessed 3 September 2026].';
-
-foreach ( Citex_Reference_Rules::website_dragdrop_designs() as $design ) {
-	$shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $website_fields, $design );
-	check_true( "[4] $design: exactly 3 or 4 draggable parts", in_array( count( $shape['parts'] ), array( 3, 4 ), true ) );
-	check( "[4] $design: still reconstructs the complete, correct full reference", Citex_Reference_Rules::reconstruct_reference( $shape ), $expected_full_reference );
-}
-check( '[4] website_dragdrop_designs() excludes full_reference (MCQ-only, 6 parts)', in_array( 'full_reference', Citex_Reference_Rules::website_dragdrop_designs(), true ), false );
-
-$full_shape = Citex_Reference_Rules::dragdrop_shape( Citex_Reference_Rules::CATEGORY_WEBSITE, $website_fields, 'full_reference' );
-check( '[4] full_reference (MCQ-only) still produces all 6 parts', count( $full_shape['parts'] ), 6 );
+// Note: Website's DragDrop shape is now built exclusively by
+// Citex_Website_Dragdrop_Parts (see tests/reference-rules-website-dragdrop-parts.test.php)
+// — the old fixed named-design catalogue (website_dragdrop_designs()) and
+// its dragdrop_shape() branch have been removed entirely.
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
