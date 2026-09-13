@@ -19,7 +19,6 @@ class Citex_Generator {
 		$this->maybe_handle_submit();
 
 		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA' );
-		$institutions       = array( 'harvard' => 'Harvard (General)', 'mla' => 'MLA (General)' );
 		$categories         = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 		$id_prefixes        = array(
 			'book'            => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
@@ -27,18 +26,68 @@ class Citex_Generator {
 			'journal_article' => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
 			'website'         => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_WEBSITE ),
 		);
-		// MLA is Book-only for now (Phase 1) — every other category keeps
-		// its Harvard-only prefix above; the admin UI's JS below picks
-		// whichever of the two prefixes matches the currently selected
-		// Referencing Style.
+		// MLA reference-list is Book-only for now (Phase 1) — every other
+		// category keeps its Harvard-only prefix above; the admin UI's JS
+		// below picks whichever of the four prefixes matches the currently
+		// selected Referencing Style + Question Focus combination.
 		$mla_id_prefixes    = array(
 			'book' => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_BOOK ),
 		);
+		// In-text citation has no reference-list category restriction at
+		// all (see self::intext_id_prefix()'s docblock) — every category
+		// gets its own prefix under both styles.
+		$intext_id_prefixes     = array();
+		$mla_intext_id_prefixes = array();
+		foreach ( $categories as $key => $label ) {
+			$intext_id_prefixes[ $key ]     = self::intext_id_prefix( $label, 'harvard' );
+			$mla_intext_id_prefixes[ $key ] = self::intext_id_prefix( $label, 'mla' );
+		}
 		$question_types     = array( 'dragdrop' => 'DragDrop', 'mcq' => 'MCQ' );
 		$difficulties       = array( 'easy' => 'Easy', 'medium' => 'Medium', 'hard' => 'Hard' );
+		$question_groups    = array( 'referencelist' => 'Reference List', 'intext' => 'In-Text Citation' );
+		$citation_forms     = array( 'narrative' => 'Narrative', 'parenthetical' => 'Parenthetical', 'parenthetical_quote' => 'Parenthetical (Direct Quote)' );
+		// Author Count dropdown data: {category_key: {type_key: {scenario_id: label}}}
+		// — reused directly from the SAME scenario catalog that already
+		// drives batch-diversity auto-selection (Citex_Question_Scenarios),
+		// never a separate/new bucket list, per generate_via_scenarios()'s
+		// own reuse of that catalog for forced-scenario validation.
+		$scenario_catalog = array();
+		foreach ( $categories as $key => $label ) {
+			$scenario_catalog[ $key ] = array(
+				'dragdrop' => wp_list_pluck( Citex_Question_Scenarios::catalog( $label, 'DragDrop' ), 'label', 'id' ),
+				'mcq'      => wp_list_pluck( Citex_Question_Scenarios::catalog( $label, 'MCQ' ), 'label', 'id' ),
+			);
+		}
 		$pending_questions  = self::get_pending_questions();
 		$ai_configured      = '' !== Citex_AI_V2::get_api_key();
 		require CITEX_TOOLS_PATH . 'admin/views/generate.php';
+	}
+
+	/**
+	 * The in-text citation ID prefix map — an `I`/`MI` prefix onto each
+	 * category's own reference-list letter (IB/IE/IJ/IW for Harvard, an
+	 * `M` prefixed onto each for MLA: MIB/MIE/MIJ/MIW), exactly how MB was
+	 * built from BK's own pattern for MLA Book. Independent of
+	 * Citex_Reference_Rules::id_prefix()/Citex_MLA_Reference_Rules::id_prefix()
+	 * (which name reference-list prefixes only) since in-text citation is a
+	 * wholly separate `group`, with no category restriction under either
+	 * style (unlike MLA's own reference-list, still Book-only per Phase 1).
+	 */
+	public static function intext_id_prefix( $category_label, $style = 'harvard' ) {
+		$harvard = array(
+			'Book'             => 'IB',
+			'Edited Book'      => 'IE',
+			'Journal Article'  => 'IJ',
+			'Website'          => 'IW',
+		);
+		$mla = array(
+			'Book'             => 'MIB',
+			'Edited Book'      => 'MIE',
+			'Journal Article'  => 'MIJ',
+			'Website'          => 'MIW',
+		);
+		$map = 'mla' === $style ? $mla : $harvard;
+		return $map[ $category_label ] ?? ( 'mla' === $style ? 'MI' : 'I' );
 	}
 
 	public static function get_pending_questions() {
@@ -184,23 +233,37 @@ class Citex_Generator {
 
 	private function handle_generation() {
 		$style       = isset( $_POST['citex_referencing_style'] ) ? sanitize_key( wp_unslash( $_POST['citex_referencing_style'] ) ) : '';
-		$institution = isset( $_POST['citex_institution'] ) ? sanitize_key( wp_unslash( $_POST['citex_institution'] ) ) : '';
 		$category    = isset( $_POST['citex_category'] ) ? sanitize_key( wp_unslash( $_POST['citex_category'] ) ) : '';
 		$type        = isset( $_POST['citex_question_type'] ) ? sanitize_key( wp_unslash( $_POST['citex_question_type'] ) ) : '';
 		$difficulty  = isset( $_POST['citex_difficulty'] ) ? sanitize_key( wp_unslash( $_POST['citex_difficulty'] ) ) : 'medium';
 		$quantity    = isset( $_POST['citex_quantity'] ) ? absint( $_POST['citex_quantity'] ) : 10;
 		$starting_id = isset( $_POST['citex_starting_id'] ) ? strtoupper( sanitize_text_field( wp_unslash( $_POST['citex_starting_id'] ) ) ) : 'BK01';
 		$web_verify  = ! empty( $_POST['citex_ai_web_verify'] );
+		$group       = isset( $_POST['citex_question_group'] ) ? sanitize_key( wp_unslash( $_POST['citex_question_group'] ) ) : 'referencelist';
+		if ( ! in_array( $group, array( 'referencelist', 'intext' ), true ) ) {
+			$group = 'referencelist';
+		}
+		$citation_form = isset( $_POST['citex_citation_form'] ) ? sanitize_key( wp_unslash( $_POST['citex_citation_form'] ) ) : 'narrative';
+		if ( ! in_array( $citation_form, array( 'narrative', 'parenthetical', 'parenthetical_quote' ), true ) ) {
+			$citation_form = 'narrative';
+		}
+		$forced_scenario_id = isset( $_POST['citex_author_count_scenario'] ) ? sanitize_key( wp_unslash( $_POST['citex_author_count_scenario'] ) ) : 'auto';
 
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 
-		$quantity      = max( 1, min( 100, $quantity ) );
-		$style_pair_ok = ( 'harvard' === $style && 'harvard' === $institution ) || ( 'mla' === $style && 'mla' === $institution );
-		// Phase 1: MLA only supports Book — every other category stays
-		// Harvard-only until its own MLA pass lands.
-		$category_ok = isset( $category_labels[ $category ] ) && ( 'mla' !== $style || 'book' === $category );
-		if ( ! $style_pair_ok || ! $category_ok || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Harvard → Book, Edited Book, Journal Article or Website → DragDrop or MCQ, or MLA → Book → DragDrop or MCQ.', 'citex-tools' ), 'error' );
+		$quantity   = max( 1, min( 100, $quantity ) );
+		$style_ok   = in_array( $style, array( 'harvard', 'mla' ), true );
+		$category_ok = isset( $category_labels[ $category ] );
+		if ( 'intext' !== $group ) {
+			// Phase 1: MLA reference-list only supports Book — every other
+			// category stays Harvard-only until its own MLA pass lands. In-
+			// text citation has no such restriction (see
+			// self::intext_id_prefix()'s docblock) — all 4 categories are
+			// valid under both styles.
+			$category_ok = $category_ok && ( 'mla' !== $style || 'book' === $category );
+		}
+		if ( ! $style_ok || ! $category_ok || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
+			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List: Harvard → Book, Edited Book, Journal Article or Website → DragDrop or MCQ, or MLA → Book → DragDrop or MCQ. In-Text Citation: Harvard or MLA → Book, Edited Book, Journal Article or Website → DragDrop or MCQ.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
@@ -208,12 +271,24 @@ class Citex_Generator {
 		}
 
 		$category_label = $category_labels[ $category ];
-		$starting_id    = self::normalise_starting_id( $starting_id, $category_label, $style );
+		$starting_id    = self::normalise_starting_id( $starting_id, $category_label, $style, $group );
 
 		$type_label  = 'mcq' === $type ? 'MCQ' : 'DragDrop';
+
+		// A forced Author Count bucket must actually exist in this
+		// category/type's own scenario catalog (the SAME catalog
+		// generate_via_scenarios() otherwise auto-selects from) — an
+		// unrecognised or stale value (e.g. a scenario id left over from a
+		// previously selected category) silently falls back to 'auto'
+		// rather than erroring, matching $difficulty's own fallback pattern
+		// above.
+		if ( 'auto' !== $forced_scenario_id && ! Citex_Question_Scenarios::find( $category_label, $type_label, $forced_scenario_id ) ) {
+			$forced_scenario_id = 'auto';
+		}
+
 		$pending     = self::get_pending_questions();
 		$used_ids    = $this->collect_used_question_ids( $pending );
-		$result      = $this->generate_via_scenarios( $category_label, $category, $type_label, $type, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style );
+		$result      = $this->generate_via_scenarios( $category_label, $category, $type_label, $type, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, $citation_form, $forced_scenario_id );
 
 		if ( is_wp_error( $result ) ) {
 			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
@@ -267,7 +342,7 @@ class Citex_Generator {
 	 *
 	 * @return array|WP_Error
 	 */
-	private function generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style = 'harvard' ) {
+	private function generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style = 'harvard', $group = 'referencelist', $citation_form = 'narrative', $forced_scenario_id = 'auto' ) {
 		// Citex — not Gemini — assigns each slot's Exercise and scenario,
 		// deterministically, before generation even starts. Gemini's
 		// response schema carries no exercise field, and is never trusted
@@ -275,7 +350,17 @@ class Citex_Generator {
 		// target-count enforcement) — there is nothing in its response to
 		// trust or distrust for either dimension.
 		$exercise_assignments = self::build_exercise_assignments( $category_label, $type_label, $quantity );
-		$scenario_assignments = Citex_Question_Diversity::assign_scenarios( $category_label, $type_label, $quantity );
+		// An admin-forced Author Count bucket (validated against
+		// Citex_Question_Scenarios::find() by the caller already) assigns
+		// every slot in this batch to that ONE bucket instead of letting
+		// Citex_Question_Diversity spread across all of them — the
+		// concrete fix for "separate single-author questions" from a
+		// blended batch. Batch-history recording is unaffected: that still
+		// happens inside Citex_AI_V2::generate_questions() itself, keyed
+		// off the same scenario id either way.
+		$scenario_assignments = 'auto' !== $forced_scenario_id
+			? array_fill( 0, max( 0, (int) $quantity ), $forced_scenario_id )
+			: Citex_Question_Diversity::assign_scenarios( $category_label, $type_label, $quantity );
 
 		$groups      = array();
 		$group_order = array();
@@ -311,6 +396,8 @@ class Citex_Generator {
 					'scenario'             => $scenario_id,
 					'existing_references'  => $existing_references,
 					'style'                => $style,
+					'group'                => $group,
+					'citation_form'        => $citation_form,
 				)
 			);
 
@@ -418,11 +505,15 @@ class Citex_Generator {
 	 * be tested directly, unlike handle_generation() itself which redirects
 	 * (and exits) on every path.
 	 */
-	public static function normalise_starting_id( $starting_id, $category_label, $style = 'harvard' ) {
+	public static function normalise_starting_id( $starting_id, $category_label, $style = 'harvard', $group = 'referencelist' ) {
 		$starting_id     = strtoupper( trim( (string) $starting_id ) );
-		$expected_prefix = 'mla' === $style
-			? Citex_MLA_Reference_Rules::id_prefix( $category_label )
-			: Citex_Reference_Rules::id_prefix( $category_label );
+		if ( 'intext' === $group ) {
+			$expected_prefix = self::intext_id_prefix( $category_label, $style );
+		} else {
+			$expected_prefix = 'mla' === $style
+				? Citex_MLA_Reference_Rules::id_prefix( $category_label )
+				: Citex_Reference_Rules::id_prefix( $category_label );
+		}
 		if ( 0 !== strpos( $starting_id, $expected_prefix ) ) {
 			return $expected_prefix . '01';
 		}

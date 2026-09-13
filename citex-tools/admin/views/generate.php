@@ -19,12 +19,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<form method="post" class="citex-form">
 		<?php wp_nonce_field( Citex_Generator::NONCE_ACTION, 'citex_generate_nonce' ); ?>
 		<table class="form-table" role="presentation">
+			<tr><th scope="row"><label for="citex_question_group"><?php esc_html_e( 'Question Focus', 'citex-tools' ); ?></label></th><td><select id="citex_question_group" name="citex_question_group"><?php foreach ( $question_groups as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p class="description"><?php esc_html_e( 'Reference List builds a full bibliography entry. In-Text Citation builds the short in-sentence/parenthetical citation instead — available for every category under both styles.', 'citex-tools' ); ?></p></td></tr>
+			<tr id="citex_citation_form_row" style="display:none;"><th scope="row"><label for="citex_citation_form"><?php esc_html_e( 'Citation Form', 'citex-tools' ); ?></label></th><td><select id="citex_citation_form" name="citex_citation_form"><?php foreach ( $citation_forms as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_referencing_style"><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></label></th><td><select id="citex_referencing_style" name="citex_referencing_style"><?php foreach ( $referencing_styles as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_institution"><?php esc_html_e( 'Institution / Referencing Rules', 'citex-tools' ); ?></label></th><td><select id="citex_institution" name="citex_institution"><?php foreach ( $institutions as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>" data-mla-id-prefix="<?php echo esc_attr( $mla_id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
+			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>" data-mla-id-prefix="<?php echo esc_attr( $mla_id_prefixes[ $value ] ?? '' ); ?>" data-intext-id-prefix="<?php echo esc_attr( $intext_id_prefixes[ $value ] ?? '' ); ?>" data-mla-intext-id-prefix="<?php echo esc_attr( $mla_intext_id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_question_type"><?php esc_html_e( 'Question Type', 'citex-tools' ); ?></label></th><td><select id="citex_question_type" name="citex_question_type"><?php foreach ( $question_types as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
+			<tr><th scope="row"><label for="citex_author_count_scenario"><?php esc_html_e( 'Author Count', 'citex-tools' ); ?></label></th><td><select id="citex_author_count_scenario" name="citex_author_count_scenario"><option value="auto"><?php esc_html_e( 'Mixed / Auto (recommended)', 'citex-tools' ); ?></option></select><p class="description"><?php esc_html_e( 'Leave on Auto to spread the batch across every author-count scenario for this category. Pick one to force the whole batch onto it instead — e.g. generate a batch of single-author questions only.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'medium', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_starting_id"><?php esc_html_e( 'Starting Question ID', 'citex-tools' ); ?></label></th><td><input type="text" id="citex_starting_id" name="citex_starting_id" value="<?php echo esc_attr( ( $id_prefixes['book'] ?? 'BK' ) . '01' ); ?>" class="regular-text" /><p class="description"><?php esc_html_e( 'Each category has its own ID prefix (e.g. BK for Book, ED for Edited Book, JA for Journal Article, WR for Website) and starts its own numbering fresh at 01 — updates automatically when you change Category. Existing Reference List and pending IDs within that category are skipped automatically.', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_starting_id"><?php esc_html_e( 'Starting Question ID', 'citex-tools' ); ?></label></th><td><input type="text" id="citex_starting_id" name="citex_starting_id" value="<?php echo esc_attr( ( $id_prefixes['book'] ?? 'BK' ) . '01' ); ?>" class="regular-text" /><p class="description"><?php esc_html_e( 'Each category has its own ID prefix (e.g. BK for Book, ED for Edited Book, JA for Journal Article, WR for Website — prefixed with I/MI for In-Text Citation) and starts its own numbering fresh at 01 — updates automatically when you change Category, Referencing Style or Question Focus. Existing Reference List and pending IDs within that category are skipped automatically.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_quantity"><?php esc_html_e( 'Quantity', 'citex-tools' ); ?></label></th><td><input type="number" id="citex_quantity" name="citex_quantity" value="20" min="1" max="100" class="small-text" /><p class="description"><?php esc_html_e( 'Generate up to 100 questions in one batch.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><?php esc_html_e( 'Bibliographic Verification', 'citex-tools' ); ?></th><td><label><input type="checkbox" name="citex_ai_web_verify" value="1" <?php checked( Citex_AI_V2::web_verification_enabled(), true ); ?> /> <?php esc_html_e( 'Use Gemini Google Search to verify books, authors, years, publishers and places before returning questions.', 'citex-tools' ); ?></label><p class="description"><?php esc_html_e( 'Recommended for real questions. It may use additional Gemini tool quota.', 'citex-tools' ); ?></p></td></tr>
 		</table>
@@ -32,25 +34,37 @@ if ( ! defined( 'ABSPATH' ) ) {
 	</form>
 	<script>
 	( function () {
-		// Keeps "Starting Question ID" in sync with the selected Category's
-		// own ID prefix (BK/ED/...) so each category visibly starts fresh at
-		// 01 instead of showing a leftover prefix from a different category.
-		// Only overwrites the field when it still looks like a bare
-		// "<PREFIX>01" default — a value the admin has deliberately edited
-		// (e.g. "ED05" to resume a gap) is left alone.
-		var categorySelect = document.getElementById( 'citex_category' );
+		var categorySelect  = document.getElementById( 'citex_category' );
 		var startingIdField = document.getElementById( 'citex_starting_id' );
-		var styleSelect = document.getElementById( 'citex_referencing_style' );
-		if ( ! categorySelect || ! startingIdField ) {
-			return;
-		}
+		var styleSelect      = document.getElementById( 'citex_referencing_style' );
+		var groupSelect       = document.getElementById( 'citex_question_group' );
+		var citationFormRow   = document.getElementById( 'citex_citation_form_row' );
+		var typeSelect         = document.getElementById( 'citex_question_type' );
+		var authorCountSelect  = document.getElementById( 'citex_author_count_scenario' );
+		var scenarioCatalog    = <?php echo wp_json_encode( $scenario_catalog ); ?>;
+
+		// Keeps "Starting Question ID" in sync with the selected Category's
+		// own ID prefix (BK/ED/... for Reference List, IB/IE/.../MIB/MIE/...
+		// for In-Text Citation) so each category/style/focus combination
+		// visibly starts fresh at 01 instead of showing a leftover prefix
+		// from a different combination. Only overwrites the field when it
+		// still looks like a bare "<PREFIX>01" default — a value the admin
+		// has deliberately edited (e.g. "ED05" to resume a gap) is left
+		// alone.
 		function syncStartingId() {
+			if ( ! categorySelect || ! startingIdField ) {
+				return;
+			}
 			var option = categorySelect.options[ categorySelect.selectedIndex ];
 			if ( ! option ) {
 				return;
 			}
-			var isMla = styleSelect && 'mla' === styleSelect.value;
-			var prefix = option.getAttribute( isMla ? 'data-mla-id-prefix' : 'data-id-prefix' );
+			var isMla    = styleSelect && 'mla' === styleSelect.value;
+			var isIntext = groupSelect && 'intext' === groupSelect.value;
+			var attr     = isIntext
+				? ( isMla ? 'data-mla-intext-id-prefix' : 'data-intext-id-prefix' )
+				: ( isMla ? 'data-mla-id-prefix' : 'data-id-prefix' );
+			var prefix = option.getAttribute( attr );
 			if ( ! prefix ) {
 				return;
 			}
@@ -58,10 +72,73 @@ if ( ! defined( 'ABSPATH' ) ) {
 				startingIdField.value = prefix + '01';
 			}
 		}
-		categorySelect.addEventListener( 'change', syncStartingId );
+
+		// Shows the Citation Form dropdown only when Question Focus is
+		// In-Text Citation — irrelevant (and never read server-side) for a
+		// Reference List batch.
+		function syncCitationFormVisibility() {
+			if ( ! citationFormRow || ! groupSelect ) {
+				return;
+			}
+			citationFormRow.style.display = 'intext' === groupSelect.value ? '' : 'none';
+		}
+
+		// Rebuilds the Author Count dropdown's options from the SAME
+		// scenario catalog Citex_Question_Scenarios already exposes for the
+		// currently selected Category + Question Type — always keeping the
+		// leading "Mixed / Auto" option first, and resetting to it if the
+		// previously-selected bucket id doesn't exist for the new
+		// category/type (e.g. switching from Book to Website, which has no
+		// author-count buckets).
+		function syncAuthorCountOptions() {
+			if ( ! authorCountSelect || ! categorySelect || ! typeSelect ) {
+				return;
+			}
+			var categoryKey = categorySelect.value;
+			var typeKey      = typeSelect.value;
+			var previous      = authorCountSelect.value;
+			var options       = ( scenarioCatalog[ categoryKey ] && scenarioCatalog[ categoryKey ][ typeKey ] ) || {};
+
+			authorCountSelect.innerHTML = '';
+			var autoOption = document.createElement( 'option' );
+			autoOption.value = 'auto';
+			autoOption.textContent = '<?php echo esc_js( __( 'Mixed / Auto (recommended)', 'citex-tools' ) ); ?>';
+			authorCountSelect.appendChild( autoOption );
+
+			var hasPrevious = false;
+			Object.keys( options ).forEach( function ( id ) {
+				var opt = document.createElement( 'option' );
+				opt.value = id;
+				opt.textContent = options[ id ];
+				authorCountSelect.appendChild( opt );
+				if ( id === previous ) {
+					hasPrevious = true;
+				}
+			} );
+			authorCountSelect.value = hasPrevious ? previous : 'auto';
+		}
+
+		if ( categorySelect ) {
+			categorySelect.addEventListener( 'change', function () {
+				syncStartingId();
+				syncAuthorCountOptions();
+			} );
+		}
 		if ( styleSelect ) {
 			styleSelect.addEventListener( 'change', syncStartingId );
 		}
+		if ( groupSelect ) {
+			groupSelect.addEventListener( 'change', function () {
+				syncStartingId();
+				syncCitationFormVisibility();
+			} );
+		}
+		if ( typeSelect ) {
+			typeSelect.addEventListener( 'change', syncAuthorCountOptions );
+		}
+
+		syncCitationFormVisibility();
+		syncAuthorCountOptions();
 	} )();
 	</script>
 

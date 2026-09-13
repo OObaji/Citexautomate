@@ -24,13 +24,13 @@ class Citex_Generated_Validator {
 	public static function validate( $question ) {
 		if (
 			! in_array( (string) ( $question['source'] ?? '' ), array( 'Harvard', 'MLA' ), true ) ||
-			'ReferenceList' !== (string) ( $question['group'] ?? '' ) ||
+			! in_array( (string) ( $question['group'] ?? '' ), array( 'ReferenceList', 'InTextCitation' ), true ) ||
 			! Citex_Reference_Rules::is_known_category( (string) ( $question['category'] ?? '' ) )
 		) {
 			return self::result(
 				'failed',
 				array(
-					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book, Edited Book, Journal Article or Website, DragDrop or MCQ, or MLA / ReferenceList / Book, DragDrop or MCQ.' ),
+					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book, Edited Book, Journal Article or Website, DragDrop or MCQ, or MLA / ReferenceList / Book, DragDrop or MCQ, or Harvard/MLA / InTextCitation / any category / DragDrop or MCQ.' ),
 				),
 				null
 			);
@@ -38,6 +38,14 @@ class Citex_Generated_Validator {
 
 		$type = (string) ( $question['type'] ?? '' );
 		if ( 'DragDrop' === $type ) {
+			// In-text citation is a fundamentally different data shape from
+			// every reference-list DragDrop mechanic (no place/publisher/
+			// journal fields at all) — see validate_intext_dragdrop()'s own
+			// docblock. Dispatched on `group`, not `mcqPattern` (DragDrop
+			// candidates carry no mcqPattern field at all).
+			if ( 'InTextCitation' === (string) ( $question['group'] ?? '' ) ) {
+				return self::validate_intext_dragdrop( $question );
+			}
 			return self::validate_dragdrop( $question );
 		}
 		if ( 'MCQ' === $type ) {
@@ -85,6 +93,16 @@ class Citex_Generated_Validator {
 			// Book's own identical move. Routed the same way, on `mcqPattern`.
 			if ( 'website_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
 				return self::validate_website_mcq_variant( $question );
+			}
+			// In-text citation's own MCQ catalogues (see
+			// Citex_Intext_Mcq_Variants / Citex_MLA_Intext_Mcq_Variants) —
+			// routed the same way as every other *_mcq_variant mechanic, on
+			// `mcqPattern`.
+			if ( 'intext_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_intext_mcq_variant( $question );
+			}
+			if ( 'mla_intext_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_mla_intext_mcq_variant( $question );
 			}
 			return self::validate_mcq( $question );
 		}
@@ -1067,6 +1085,345 @@ class Citex_Generated_Validator {
 			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
 			if ( $actual_option !== $expected_option ) {
 				$errors[] = self::error( 'MLA_BOOK_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * Recomputes the "who" (already-joined) text and the raw surname list
+	 * from an in-text citation record's own canonical person fields —
+	 * shared by validate_intext_dragdrop()/validate_intext_mcq_variant()
+	 * and their MLA counterparts, since both need the exact same
+	 * category-agnostic extraction normalise_intext_item() itself
+	 * performs (see class-citex-ai-v2.php).
+	 *
+	 * Website stores a single individual-or-organisation author (see
+	 * normalise_intext_item()'s own docblock); every other category
+	 * stores a `authors`/`editors` person list.
+	 *
+	 * @return array{0: string, 1: string[], 2: bool} [who, surnames, ok] —
+	 *         ok is false when the record's canonical person data is
+	 *         missing/malformed, in which case who/surnames are meaningless.
+	 */
+	private static function intext_who_and_surnames( $question, $is_mla ) {
+		$category = (string) ( $question['category'] ?? '' );
+		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+			$author_type = (string) ( $question['authorType'] ?? '' );
+			if ( 'organisation' === $author_type ) {
+				$name = trim( (string) ( $question['organisationName'] ?? '' ) );
+				if ( '' === $name ) { return array( '', array(), false ); }
+				$author_record = array( 'type' => 'organisation', 'name' => $name );
+				$surnames      = array( $name );
+			} elseif ( 'individual' === $author_type ) {
+				$authors_arr = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+				$surname     = trim( (string) ( $authors_arr[0]['surname'] ?? '' ) );
+				if ( '' === $surname ) { return array( '', array(), false ); }
+				$author_record = array( 'type' => 'individual', 'surname' => $surname );
+				$surnames      = array( $surname );
+			} else {
+				return array( '', array(), false );
+			}
+			$who = $is_mla ? Citex_MLA_Intext_Citation_Rules::display_person_or_org( $author_record ) : Citex_Intext_Citation_Rules::display_person_or_org( $author_record );
+			return array( $who, $surnames, true );
+		}
+		$people_key = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editors' : 'authors';
+		$people     = is_array( $question[ $people_key ] ?? null ) ? array_values( $question[ $people_key ] ) : array();
+		if ( empty( $people ) ) { return array( '', array(), false ); }
+		$surnames = array();
+		foreach ( $people as $person ) {
+			$surname = trim( (string) ( $person['surname'] ?? '' ) );
+			if ( '' === $surname ) { return array( '', array(), false ); }
+			$surnames[] = $surname;
+		}
+		$who = $is_mla ? Citex_MLA_Intext_Citation_Rules::join_people_intext( $people ) : Citex_Intext_Citation_Rules::join_people_intext( $people );
+		return array( $who, $surnames, true );
+	}
+
+	private static function intext_full_sentence( $form, $who, $year, $clause, $page, $quote ) {
+		if ( Citex_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			return Citex_Intext_Citation_Rules::narrative_sentence( $who, $year, $clause );
+		}
+		if ( Citex_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			return Citex_Intext_Citation_Rules::parenthetical_sentence( $who, $year, $clause );
+		}
+		return Citex_Intext_Citation_Rules::parenthetical_quote_sentence( $who, $year, $page, $quote );
+	}
+
+	private static function mla_intext_full_sentence( $form, $who, $clause, $page, $quote ) {
+		if ( Citex_MLA_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			return Citex_MLA_Intext_Citation_Rules::narrative_sentence( $who, $clause, '' === $page ? null : $page );
+		}
+		if ( Citex_MLA_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			return Citex_MLA_Intext_Citation_Rules::parenthetical_sentence( $who, $clause );
+		}
+		return Citex_MLA_Intext_Citation_Rules::parenthetical_quote_sentence( $who, $page, $quote );
+	}
+
+	/**
+	 * In-text citation DragDrop — mirrors every other DragDrop validator's
+	 * own "recompute from the record's own canonical fields via the SAME
+	 * *_Dragdrop_Parts::build() call used at generation time, then
+	 * exact-match" pattern, but for the genuinely different in-text data
+	 * shape (no place/publisher/journal fields at all — see
+	 * Citex_Intext_Dragdrop_Parts's own docblock). Dispatched on `group`
+	 * === 'InTextCitation' from validate() itself, and internally on
+	 * `source` for Harvard vs MLA.
+	 */
+	private static function validate_intext_dragdrop( $question ) {
+		$errors = array();
+		$source = (string) ( $question['source'] ?? '' );
+		$is_mla = 'MLA' === $source;
+		$form   = (string) ( $question['citationForm'] ?? '' );
+
+		$fixed_text     = (string) ( $question['fixedText'] ?? '' );
+		$question_parts = is_array( $question['questionParts'] ?? null ) ? array_values( $question['questionParts'] ) : array();
+		$confusing      = is_array( $question['confusingWords'] ?? null ) ? array_values( $question['confusingWords'] ) : array();
+
+		if ( '' === trim( $fixed_text ) ) {
+			$errors[] = self::error( 'FIXED_TEXT_MISSING', 'Fixed Text is missing.' );
+		}
+		if ( empty( $question_parts ) ) {
+			$errors[] = self::error( 'QUESTION_PARTS_MISSING', 'Question Parts are missing.' );
+		}
+
+		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, $is_mla );
+		if ( ! $people_ok ) {
+			$errors[] = self::error( 'INTEXT_PEOPLE_UNKNOWN', 'The in-text citation record is missing its author/editor/organisation data.' );
+			return self::result( 'failed', $errors, null );
+		}
+
+		$clause = (string) ( $question['clause'] ?? '' );
+		$quote  = (string) ( $question['quote'] ?? '' );
+		$page   = (string) ( $question['page'] ?? '' );
+		$year   = (string) ( $question['year'] ?? '' );
+
+		$expected_build = $is_mla
+			? Citex_MLA_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $clause, '' === $page ? null : $page, $quote )
+			: Citex_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $year, $clause, '' === $page ? null : $page, $quote );
+
+		if ( null === $expected_build ) {
+			$errors[] = self::error( 'INTEXT_DRAGDROP_PARTS_UNKNOWN', 'The in-text citation DragDrop parts could not be recomputed from the record.' );
+		} else {
+			if ( $fixed_text !== $expected_build['fixedText'] ) {
+				$errors[] = self::error( 'INTEXT_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+			}
+			if ( $question_parts !== $expected_build['parts'] ) {
+				$errors[] = self::error( 'INTEXT_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+			}
+			if ( $confusing !== $expected_build['confusingWords'] ) {
+				$errors[] = self::error( 'INTEXT_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+			}
+		}
+
+		$reconstruction = self::reconstruct( $fixed_text, $question_parts );
+		if ( is_wp_error( $reconstruction ) ) {
+			$errors[] = self::error( $reconstruction->get_error_code(), $reconstruction->get_error_message() );
+			return self::result( 'failed', $errors, null );
+		}
+		$reference = $reconstruction['reference'];
+
+		$expected_reference = $is_mla
+			? self::mla_intext_full_sentence( $form, $who, $clause, $page, $quote )
+			: self::intext_full_sentence( $form, $who, $year, $clause, $page, $quote );
+		if ( $reference !== $expected_reference ) {
+			$errors[] = self::error( 'INTEXT_RECONSTRUCTED_REFERENCE_MISMATCH', sprintf( 'The reconstructed in-text citation must be exactly: "%s".', $expected_reference ) );
+		}
+		$expected_stored = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' !== $expected_stored && $expected_stored !== $reference ) {
+			$errors[] = self::error( 'RECONSTRUCTED_REFERENCE_MISMATCH', 'The generated expected reference does not match the reference reconstructed from Fixed Text and Question Parts.' );
+		}
+
+		$errors = array_merge( $errors, self::validate_answer_leakage( $question ) );
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $reference );
+	}
+
+	/**
+	 * Harvard in-text citation MCQ — mirrors validate_book_mcq_variant()'s
+	 * own exact-match rationale, via Citex_Intext_Mcq_Variants and
+	 * intext_who_and_surnames() instead.
+	 */
+	private static function validate_intext_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, false );
+		if ( ! $people_ok ) {
+			$errors[] = self::error( 'INTEXT_PEOPLE_UNKNOWN', 'The in-text citation record is missing its author/editor/organisation data.' );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		$variant = (string) ( $question['intextMcqVariant'] ?? '' );
+		$fields  = array(
+			'form'     => (string) ( $question['citationForm'] ?? '' ),
+			'who'      => $who,
+			'surnames' => $surnames,
+			'year'     => (string) ( $question['year'] ?? '' ),
+			'clause'   => (string) ( $question['clause'] ?? '' ),
+			'page'     => (string) ( $question['page'] ?? '' ),
+			'quote'    => (string) ( $question['quote'] ?? '' ),
+		);
+		$expected = Citex_Intext_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'INTEXT_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised in-text MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'INTEXT_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'INTEXT_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'INTEXT_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * MLA in-text citation MCQ — mirrors validate_intext_mcq_variant()
+	 * exactly, via Citex_MLA_Intext_Mcq_Variants instead.
+	 */
+	private static function validate_mla_intext_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, true );
+		if ( ! $people_ok ) {
+			$errors[] = self::error( 'INTEXT_PEOPLE_UNKNOWN', 'The in-text citation record is missing its author/editor/organisation data.' );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		$variant = (string) ( $question['mlaIntextMcqVariant'] ?? '' );
+		$fields  = array(
+			'form'     => (string) ( $question['citationForm'] ?? '' ),
+			'who'      => $who,
+			'surnames' => $surnames,
+			'clause'   => (string) ( $question['clause'] ?? '' ),
+			'page'     => (string) ( $question['page'] ?? '' ),
+			'quote'    => (string) ( $question['quote'] ?? '' ),
+		);
+		$expected = Citex_MLA_Intext_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'MLA_INTEXT_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised MLA in-text MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'MLA_INTEXT_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'MLA_INTEXT_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'MLA_INTEXT_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
 			}
 		}
 

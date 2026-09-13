@@ -135,6 +135,25 @@ class Citex_AI_V2 {
 		// $category to 'book' whenever style is 'mla', so this never needs
 		// checking again below.
 		$style = 'mla' === sanitize_key( $args['style'] ?? 'harvard' ) ? 'mla' : 'harvard';
+		// 'intext' is the only other supported question GROUP — an
+		// independent dimension from $style (Harvard/MLA both have their
+		// own in-text citation rules — see Citex_Intext_Citation_Rules and
+		// Citex_MLA_Intext_Citation_Rules). $citation_form only matters
+		// when $group is 'intext'; it names which of the 3 in-text forms
+		// (narrative/parenthetical/parenthetical_quote) this batch builds.
+		$group = 'intext' === sanitize_key( $args['group'] ?? 'referencelist' ) ? 'intext' : 'referencelist';
+		// Guarded behind $group itself — never touches Citex_Intext_Citation_Rules
+		// at all for an ordinary 'referencelist' call, exactly like the
+		// $style branch above never touches Citex_MLA_Reference_Rules
+		// unless it is actually needed — so a caller that never generates
+		// in-text citation questions has no dependency on that class.
+		$citation_form = 'narrative';
+		if ( 'intext' === $group ) {
+			$citation_form = sanitize_key( $args['citation_form'] ?? Citex_Intext_Citation_Rules::FORM_NARRATIVE );
+			if ( ! in_array( $citation_form, Citex_Intext_Citation_Rules::forms(), true ) ) {
+				$citation_form = Citex_Intext_Citation_Rules::FORM_NARRATIVE;
+			}
+		}
 		// 'MCQ' is the only other supported type — anything else (including the
 		// default) is the original DragDrop path, so this can never silently
 		// switch an existing caller onto a different question shape. Same
@@ -206,9 +225,9 @@ class Citex_AI_V2 {
 		for ( $attempt = 1; $attempt <= self::MAX_GENERATION_ATTEMPTS; $attempt++ ) {
 			$body = array(
 				'model' => self::get_model(),
-				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction, $scenario_id, $exercise_design, $style ),
-				'system_instruction' => self::system_instruction_for( $type, $category, $scenario_id, $style ),
-				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => self::schema_for( $type, $category, $scenario_id, $style ) ) ),
+				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction, $scenario_id, $exercise_design, $style, $group, $citation_form ),
+				'system_instruction' => self::system_instruction_for( $type, $category, $scenario_id, $style, $group, $citation_form ),
+				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => self::schema_for( $type, $category, $scenario_id, $style, $group, $citation_form ) ) ),
 				'generation_config' => array( 'max_output_tokens' => max( 4000, min( 24000, $quantity * 650 ) ) ),
 			);
 			if ( $verify ) { $body['tools'] = array( array( 'type' => 'google_search' ) ); }
@@ -228,7 +247,7 @@ class Citex_AI_V2 {
 			$questions = isset( $decoded['questions'] ) && is_array( $decoded['questions'] ) ? $decoded['questions'] : array();
 			if ( count( $questions ) !== $quantity ) { $last_error = sprintf( 'The previous attempt returned %d questions instead of %d. Return exactly %d.', count( $questions ), $quantity, $quantity ); continue; }
 			$normalise_start = $debug ? microtime( true ) : 0;
-			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested, $exercise_design, $style );
+			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested, $exercise_design, $style, $group, $citation_form );
 			if ( $debug ) { error_log( sprintf( 'Citex AI: attempt %d/%d normalise took %.2fs', $attempt, self::MAX_GENERATION_ATTEMPTS, microtime( true ) - $normalise_start ) ); }
 			if ( is_wp_error( $result ) ) { $last_error = $result->get_error_message(); continue; }
 
@@ -308,7 +327,10 @@ class Citex_AI_V2 {
 	 * methods) — the request/response handling in generate_questions() above
 	 * never changes.
 	 */
-	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction = '', $scenario_id = '', $exercise_design = 'full_reference', $style = 'harvard' ) {
+	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction = '', $scenario_id = '', $exercise_design = 'full_reference', $style = 'harvard', $group = 'referencelist', $citation_form = '' ) {
+		if ( 'intext' === $group ) {
+			return self::build_prompt_intext( $category, $style, $citation_form, $type, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+		}
 		if ( 'mla' === $style ) {
 			return 'MCQ' === $type
 				? self::build_prompt_mla_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
@@ -406,7 +428,10 @@ class Citex_AI_V2 {
 		return "AUTHOR TYPE AND DATE FOR THIS BATCH — CRITICAL:\n" . implode( "\n", $lines );
 	}
 
-	private static function schema_for( $type, $category, $scenario_id = '', $style = 'harvard' ) {
+	private static function schema_for( $type, $category, $scenario_id = '', $style = 'harvard', $group = 'referencelist', $citation_form = '' ) {
+		if ( 'intext' === $group ) {
+			return self::schema_intext( $category, $style, $citation_form );
+		}
 		if ( 'mla' === $style ) {
 			return 'MCQ' === $type ? self::schema_mla_book_mcq_variant() : self::schema_mla_book_dragdrop();
 		}
@@ -428,7 +453,10 @@ class Citex_AI_V2 {
 		return 'MCQ' === $type ? self::schema_book_mcq_variant() : self::schema_book_dragdrop();
 	}
 
-	private static function system_instruction_for( $type, $category, $scenario_id = '', $style = 'harvard' ) {
+	private static function system_instruction_for( $type, $category, $scenario_id = '', $style = 'harvard', $group = 'referencelist', $citation_form = '' ) {
+		if ( 'intext' === $group ) {
+			return self::system_instruction_intext( $category, $style, $citation_form, $type );
+		}
 		if ( 'mla' === $style ) {
 			return self::system_instruction_mla_book( $type );
 		}
@@ -647,6 +675,157 @@ class Citex_AI_V2 {
 	private static function build_prompt_mla_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Book bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Cole\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Use the book's true author count. Do NOT provide a surname separately for any author — Citex derives it itself from each full name, keeping the given name in full.\n- There is no place of publication at all in MLA style — do NOT provide one.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself (the stem and all 4 options) from this canonical record alone, covering a range of different MLA book-formatting rules across the batch. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, bookTitle and publisher all describe the exact same book — no contradictions, and the real author count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::publisher_diversity_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	// -----------------------------------------------------------------
+	// In-text citation — category-agnostic prompt/system-instruction
+	// builders. One method covers all 4 categories and both styles
+	// (parametrised, rather than duplicated per combination), since the
+	// canonical data an in-text citation needs is genuinely the same
+	// shape everywhere: a person list (or Website's single author-or-
+	// organisation), a title (scenario text only), a year (Harvard only),
+	// and either a short paraphrase clause or a short quote+page — never
+	// a publisher, place, journal, volume or issue, none of which an
+	// in-text citation ever shows. See Citex_Intext_Citation_Rules and
+	// Citex_MLA_Intext_Citation_Rules for the actual formatting rules
+	// Citex applies once Gemini's canonical record comes back.
+	// -----------------------------------------------------------------
+
+	private static function intext_category_noun( $category ) {
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			return 'edited book';
+		}
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return 'journal article';
+		}
+		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+			return 'webpage';
+		}
+		return 'book';
+	}
+
+	private static function intext_people_label( $category ) {
+		return Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editor' : 'author';
+	}
+
+	private static function intext_people_field( $category ) {
+		return Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editorFullNames' : 'authorFullNames';
+	}
+
+	private static function intext_title_field( $category ) {
+		return Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ? 'articleTitle' : 'bookTitle';
+	}
+
+	/**
+	 * Stricter than content_realism_guidance()'s own surname-only/
+	 * word-count caps: in-text citation blanks and MCQ options have even
+	 * less room on a mobile screen than a full reference does, so EVERY
+	 * word of the title and of every invented name is capped at 5
+	 * characters, invented short directly rather than shortened after the
+	 * fact — the explicit, stricter constraint the user asked for
+	 * specifically for this mechanic.
+	 */
+	private static function intext_content_guidance() {
+		return "INVENTED CONTENT AND SHORT NAMES — CRITICAL FOR THIS MECHANIC:\n"
+			. "- Names, titles and any other content do NOT need to be real — you may invent them, as long as the whole record is internally consistent. This tool teaches in-text citation FORMATTING, not bibliographic research.\n"
+			. "- Invented names must read as ordinary, plausible personal (or organisation) names — NEVER reuse the name of a real, identifiable, notable person.\n"
+			. "- Every WORD of the invented title must be NO MORE THAN 5 CHARACTERS long — invent a short, plain title directly (e.g. \"Urban Life\", \"City Data\") rather than a longer one you then shorten.\n"
+			. "- Every WORD of each invented name (given name(s) AND surname alike, or an organisation name) must be NO MORE THAN 5 CHARACTERS long — invent short names directly (e.g. \"Amy Ross\", \"Ben Cole\", \"Jo Kaur\") rather than longer ones you then shorten.";
+	}
+
+	private static function intext_form_description( $form ) {
+		if ( Citex_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			return "a NARRATIVE in-text citation, where the author's name is named as part of the sentence itself, only the year (Harvard) sitting in parentheses";
+		}
+		if ( Citex_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			return 'a PARENTHETICAL in-text citation, where the whole citation sits in parentheses at the end of a paraphrased sentence';
+		}
+		return 'a PARENTHETICAL in-text citation of a DIRECT QUOTATION, which always needs a page reference';
+	}
+
+	private static function system_instruction_intext( $category, $style, $form, $type ) {
+		$style_label = 'mla' === $style ? 'MLA' : 'Harvard';
+		return sprintf(
+			'You are Citex, an academic question-generation engine. Generate usable %1$s in-text citation %2$s questions about a %3$s, using %4$s. Invented-but-plausible sources are fine — this tool teaches in-text citation FORMATTING, not bibliographic research — as long as each record is internally consistent and no invented name belongs to a real, identifiable person. You are NOT asked for a scenario, question text, options, blanks, or a correct answer of any kind: Citex builds the ENTIRE question itself, deterministically, from the canonical record you provide, applying %1$s\'s own in-text citation rules (including its own "et al." threshold, and — for MLA — the complete absence of a publication year in-text at all). There is nothing for you to write beyond the canonical record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: every field describes the same source with no contradictions, and any paraphrase clause or quotation names no author, year, or citation detail itself. Return only the requested JSON.',
+			$style_label,
+			$type,
+			self::intext_category_noun( $category ),
+			self::intext_form_description( $form )
+		);
+	}
+
+	/**
+	 * Builds the prompt for ANY (category, style, form, type) in-text
+	 * citation combination — Gemini supplies only the canonical source
+	 * record (people + title + year (Harvard only) + clause, or
+	 * quote+page for a direct quotation); Citex constructs the entire
+	 * question — stem, blanks/options, and answer — itself, exactly like
+	 * every other *_mcq_variant()/DragDrop mechanic that hands the whole
+	 * construction job to a dedicated Rules/Dragdrop_Parts/Mcq_Variants
+	 * class (see Citex_Intext_Citation_Rules and its MLA counterpart).
+	 */
+	private static function build_prompt_intext( $category, $style, $form, $type, $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$is_website = Citex_Reference_Rules::CATEGORY_WEBSITE === $category;
+		$is_mla     = 'mla' === $style;
+		$is_quote   = Citex_Intext_Citation_Rules::FORM_PARENTHETICAL_QUOTE === $form;
+		$style_label = $is_mla ? 'MLA' : 'Harvard';
+		$noun        = self::intext_category_noun( $category );
+
+		$lines   = array();
+		$lines[] = 'Generate exactly ' . count( $ids ) . " distinct {$style_label} / In-Text Citation / " . ucfirst( $noun ) . " / {$type} questions (citation form: {$form}).";
+		$lines[] = 'Difficulty: ' . ucfirst( $difficulty ) . '.';
+		$lines[] = $verify ? 'Use Google Search to verify the source is real where practical.' : 'Invent a plausible, internally consistent source.';
+		$lines[] = '';
+		$lines[] = 'ONE QUESTION = ONE CANONICAL SOURCE — CRITICAL:';
+
+		if ( $is_website ) {
+			$lines[] = '- authorType must be exactly "individual" or "organisation".';
+			$lines[] = '- For "individual", provide authorFullName (given name(s) + surname) and leave organisationName empty; for "organisation", provide organisationName and leave authorFullName empty.';
+			$lines[] = '- pageTitle must describe ONE single, internally consistent webpage.';
+		} else {
+			$people_field = self::intext_people_field( $category );
+			$title_field  = self::intext_title_field( $category );
+			$label        = self::intext_people_label( $category );
+			$lines[]      = "- {$people_field} is an array of ONE OR MORE {$label} full names (given name(s) + surname each), in the source's real, actual {$label} order. Do NOT provide a surname separately — Citex derives it itself from each full name.";
+			$lines[]      = "- {$title_field} must describe ONE single, internally consistent {$noun}.";
+		}
+		if ( ! $is_mla ) {
+			$lines[] = $is_website
+				? '- year must be a real 4-digit publication/creation year, or exactly "n.d." when no such date can be identified — never a guessed year.'
+				: "- year must be the source's real publication year.";
+		}
+
+		if ( $is_quote ) {
+			$lines[] = '- quote must be a SHORT (10 words or fewer), invented-but-plausible direct quotation from this source — never a real quotation from a real, identifiable work.';
+			$lines[] = '- page must be the plain page number the quotation appears on (digits only, no "p."/"pp." prefix — Citex adds that itself).';
+		} else {
+			$lines[] = '- clause must be a SHORT (under 20 words), invented-but-plausible paraphrase of what this source argues, finds, or suggests — written as the part of a sentence that follows the citation (e.g. "argues that ..." or "finds that ..."), with NO leading capital letter and NO trailing full stop (Citex adds the surrounding sentence and punctuation itself).';
+			$lines[] = '- clause must NEVER name the author, mention the year, or contain any part of a citation itself — it must read as pure subject-matter content, never a description of the source.';
+			if ( $is_mla && ! $is_website ) {
+				$lines[] = '- page must be the plain page number this paraphrased point appears on (digits only) — MLA style includes a page reference whenever one exists, even for a paraphrase.';
+			}
+		}
+
+		$lines[] = '';
+		$lines[] = 'YOU ARE NOT ASKED FOR A SCENARIO, QUESTION TEXT, OPTIONS, OR AN ANSWER OF ANY KIND:';
+		$lines[] = '- Citex builds the ENTIRE question itself — the stem, every blank/option, and the correct answer — deterministically from the canonical record above, applying the correct in-text citation rule for this style and form. There is nothing else for you to write, and nothing for you to leak an answer through.';
+
+		$lines[] = '';
+		$lines[] = 'FINAL SELF-CHECK — DO NOT SKIP:';
+		$lines[] = '1. Every field above describes the exact same source, with no contradictions.';
+		$lines[] = $is_quote
+			? '2. quote is short, plausible, and contains no citation information itself; page is a plain number.'
+			: '2. clause is a short, plausible paraphrase that names no author, year, or citation detail.';
+		$lines[] = '3. Only return questions that pass this check.';
+		$lines[] = '';
+		$lines[] = 'IDs in exact order:';
+		$lines[] = implode( ', ', $ids );
+
+		$prompt = implode( "\n", $lines );
+		$prompt .= "\n\n" . self::intext_content_guidance() . "\n\n" . self::plain_style_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -1011,6 +1190,77 @@ class Citex_AI_V2 {
 	}
 
 	/**
+	 * In-text citation schema — shared by DragDrop and MCQ (both ask for
+	 * exactly the same canonical fields, since Citex authors the whole
+	 * question — the stem/options — itself either way; see
+	 * build_prompt_intext()'s own docblock). No publisher, place, journal,
+	 * volume, issue or URL at all — none of those ever appear in an
+	 * in-text citation, unlike a reference-list entry.
+	 *
+	 * Category dimension: Website supplies authorType + EITHER
+	 * authorFullName OR organisationName (only authorType is in
+	 * `required`, mirroring schema_website()'s own pattern, since which of
+	 * the other two is actually required depends on the record's own
+	 * authorType value — checked in normalise() instead); every other
+	 * category supplies a people-name array under its own established
+	 * field name (authorFullNames/editorFullNames) plus its own title
+	 * field (bookTitle/articleTitle/pageTitle).
+	 *
+	 * Style dimension: `year` is requested only for Harvard (MLA in-text
+	 * never shows a year at all — see Citex_MLA_Intext_Citation_Rules's
+	 * own docblock).
+	 *
+	 * Form dimension: parenthetical_quote asks for `quote` + `page`
+	 * instead of `clause`; MLA's narrative form (for any category except
+	 * Website, which has no page concept) also asks for `page`, since MLA
+	 * style prefers a page reference whenever one exists, even for a
+	 * paraphrase.
+	 */
+	private static function schema_intext( $category, $style, $form ) {
+		$s          = array( 'type' => 'string' );
+		$is_website = Citex_Reference_Rules::CATEGORY_WEBSITE === $category;
+		$props      = array( 'questionId' => $s );
+		$required   = array( 'questionId' );
+
+		if ( $is_website ) {
+			$props['authorType']       = $s;
+			$props['authorFullName']   = $s;
+			$props['organisationName'] = $s;
+			$props['pageTitle']        = $s;
+			$required[]                = 'authorType';
+			$required[]                = 'pageTitle';
+		} else {
+			$people_field         = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editorFullNames' : 'authorFullNames';
+			$title_field           = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ? 'articleTitle' : 'bookTitle';
+			$props[ $people_field ] = array( 'type' => 'array', 'items' => $s );
+			$props[ $title_field ]  = $s;
+			$required[]             = $people_field;
+			$required[]             = $title_field;
+		}
+
+		if ( 'harvard' === $style ) {
+			$props['year'] = $s;
+			$required[]    = 'year';
+		}
+
+		if ( Citex_Intext_Citation_Rules::FORM_PARENTHETICAL_QUOTE === $form ) {
+			$props['quote'] = $s;
+			$props['page']  = $s;
+			$required[]     = 'quote';
+			$required[]     = 'page';
+		} else {
+			$props['clause'] = $s;
+			$required[]      = 'clause';
+			if ( 'mla' === $style && ! $is_website && Citex_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+				$props['page'] = $s;
+				$required[]    = 'page';
+			}
+		}
+
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => $props, 'required' => $required ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/**
 	 * Journal Article DragDrop schema — same shape as schema() (Book) but
 	 * with articleTitle/journalTitle/volume/issue/pages replacing
 	 * bookTitle/place/publisher; there is no place/publisher concept for a
@@ -1237,12 +1487,424 @@ class Citex_AI_V2 {
 		}
 		return $count;
 	}
-	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null, $target_count = null, $scenario_id = '', $rule_tested = '', $exercise_design = 'full_reference', $style = 'harvard' ) {
+	/**
+	 * "by First Last" / "by First Last and First Last" / "by First Last,
+	 * First Last and First Last" — the natural-language author-list used
+	 * ONLY in a DragDrop in-text-citation stem to introduce the source
+	 * (see intext_dragdrop_stem()); genuinely different from
+	 * Citex_Intext_Citation_Rules::join_people_intext() (which joins
+	 * SURNAMES with the style's own "et al." rule for the graded blanks
+	 * themselves) — the stem must name every person in full, naturally,
+	 * regardless of how the citation itself abbreviates them.
+	 */
+	private static function intext_full_names_display( array $full_names ) {
+		$count = count( $full_names );
+		if ( 0 === $count ) {
+			return '';
+		}
+		if ( 1 === $count ) {
+			return $full_names[0];
+		}
+		$last = array_pop( $full_names );
+		return implode( ', ', $full_names ) . ' and ' . $last;
+	}
+
+	/**
+	 * The Citex-authored DragDrop stem — "Complete the {form} in-text
+	 * citation for a {paraphrase|direct quotation} from the {category}
+	 * {Title} by {Author(s)}[, published in {Year}]." — matches the
+	 * established pattern of every other DragDrop mechanic (Citex states
+	 * the facts naturally; the student applies the FORMATTING rule to
+	 * them). $year is null/empty for MLA (which never shows a year at
+	 * all, so stating one in the stem would be misleading).
+	 */
+	private static function intext_dragdrop_stem( $form, $category_noun, $title, $who_display, $year ) {
+		$kind = Citex_Intext_Citation_Rules::FORM_PARENTHETICAL_QUOTE === $form ? 'direct quotation' : 'paraphrase';
+		$form_label = Citex_Intext_Citation_Rules::FORM_NARRATIVE === $form ? 'narrative' : 'parenthetical';
+		$published = ( null !== $year && '' !== trim( (string) $year ) ) ? sprintf( ', published in %s', $year ) : '';
+		return sprintf( 'Complete the %1$s in-text citation for a %2$s from the %3$s %4$s by %5$s%6$s.', $form_label, $kind, $category_noun, $title, $who_display, $published );
+	}
+
+	/**
+	 * Resolves the category-appropriate person list (or Website's single
+	 * individual-or-organisation author) and every other in-text-specific
+	 * field (clause, or quote+page) from Gemini's canonical record, then
+	 * dispatches to the style-appropriate leaf normaliser. This is the
+	 * ONE place that understands "which field holds the who" per
+	 * category — every downstream piece (Citex_Intext_Citation_Rules and
+	 * its Dragdrop/Mcq classes, and their MLA counterparts) is
+	 * category-agnostic, working only from the resolved person list/
+	 * surnames/who string this method builds.
+	 *
+	 * @return array|WP_Error
+	 */
+	private static function normalise_intext_item( $item, $id, $category, $style, $form, $type, $exercise, $difficulty, $target_count ) {
+		$is_website = Citex_Reference_Rules::CATEGORY_WEBSITE === $category;
+		$is_edited_book = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category;
+		$is_mla = 'mla' === $style;
+		$derive = $is_mla ? 'derive_mla_author_parts' : 'derive_author_parts';
+
+		$ctx = array( 'category' => $category, 'form' => $form, 'author_record' => null );
+
+		if ( $is_website ) {
+			$author_type = sanitize_key( trim( (string) ( $item['authorType'] ?? '' ) ) );
+			if ( ! in_array( $author_type, array( 'individual', 'organisation' ), true ) ) {
+				return new WP_Error( 'citex_ai_website_author_type_invalid', sprintf( __( 'Question %s: authorType must be exactly "individual" or "organisation".', 'citex-tools' ), $id ) );
+			}
+			if ( 'individual' === $author_type ) {
+				$full_name = trim( (string) ( $item['authorFullName'] ?? '' ) );
+				if ( '' === $full_name ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing authorFullName for an individual author.', 'citex-tools' ), $id ) ); }
+				$parts = self::$derive( $full_name );
+				if ( is_wp_error( $parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $parts->get_error_message() ) ); }
+				$author_record = array_merge( array( 'type' => 'individual', 'fullName' => $full_name ), $parts );
+				$surnames = array( $parts['surname'] );
+			} else {
+				$org_name = trim( (string) ( $item['organisationName'] ?? '' ) );
+				if ( '' === $org_name ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing organisationName for an organisation author.', 'citex-tools' ), $id ) ); }
+				$author_record = array( 'type' => 'organisation', 'name' => $org_name );
+				$surnames = array( $org_name );
+			}
+			$ctx['author_record'] = $author_record;
+			$ctx['surnames'] = $surnames;
+			$ctx['who'] = $is_mla ? Citex_MLA_Intext_Citation_Rules::display_person_or_org( $author_record ) : Citex_Intext_Citation_Rules::display_person_or_org( $author_record );
+			$ctx['who_display'] = 'organisation' === $author_type ? $author_record['name'] : $author_record['fullName'];
+			$ctx['title'] = trim( (string) ( $item['pageTitle'] ?? '' ) );
+			if ( '' === $ctx['title'] ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing pageTitle.', 'citex-tools' ), $id ) ); }
+			if ( ! $is_mla ) {
+				$year_field = trim( (string) ( $item['year'] ?? '' ) );
+				if ( ! preg_match( '/^(?:\d{4}|n\.d\.)$/', $year_field ) ) {
+					return new WP_Error( 'citex_ai_website_year_invalid', sprintf( __( 'Question %1$s: year must be a real 4-digit year, or exactly "n.d." when no date can be identified; got "%2$s".', 'citex-tools' ), $id, $year_field ) );
+				}
+				$ctx['year'] = $year_field;
+			} else {
+				$ctx['year'] = '';
+			}
+			$ctx['page'] = ''; // Website never has a page reference at all.
+		} else {
+			$people_key   = $is_edited_book ? 'editors' : 'authors';
+			$people_field = $is_edited_book ? 'editorFullNames' : 'authorFullNames';
+			$label        = $is_edited_book ? 'editors' : 'authors';
+			$title_field  = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ? 'articleTitle' : 'bookTitle';
+
+			$person_names = array_values( array_filter( array_map( 'trim', (array) ( $item[ $people_field ] ?? array() ) ), 'strlen' ) );
+			if ( empty( $person_names ) || count( $person_names ) > 12 ) {
+				return new WP_Error( 'citex_ai_bad_author_count', sprintf( __( 'Question %s must have 1 or more %2$s (12 at most); %3$d were provided.', 'citex-tools' ), $id, $label, count( $person_names ) ) );
+			}
+			if ( null !== $target_count && count( $person_names ) !== $target_count ) {
+				return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d %3$s for this scenario; %4$d were provided.', 'citex-tools' ), $id, $target_count, $label, count( $person_names ) ) );
+			}
+			$people    = array();
+			$surnames  = array();
+			foreach ( $person_names as $full_name ) {
+				$parts = self::$derive( $full_name );
+				if ( is_wp_error( $parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $parts->get_error_message() ) ); }
+				$people[]   = array_merge( array( 'fullName' => $full_name ), $parts );
+				$surnames[] = $parts['surname'];
+			}
+			$ctx['people_key']  = $people_key;
+			$ctx['people']      = $people;
+			$ctx['surnames']    = $surnames;
+			$ctx['who']         = $is_mla ? Citex_MLA_Intext_Citation_Rules::join_people_intext( $people ) : Citex_Intext_Citation_Rules::join_people_intext( $people );
+			$ctx['who_display'] = self::intext_full_names_display( $person_names );
+			$ctx['title']       = trim( (string) ( $item[ $title_field ] ?? '' ) );
+			if ( '' === $ctx['title'] ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing %2$s.', 'citex-tools' ), $id, $title_field ) ); }
+			if ( ! $is_mla ) {
+				$ctx['year'] = trim( (string) ( $item['year'] ?? '' ) );
+				if ( '' === $ctx['year'] ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing a year.', 'citex-tools' ), $id ) ); }
+			} else {
+				$ctx['year'] = '';
+			}
+			$ctx['page'] = ''; // filled below, when this style/form actually uses one.
+		}
+
+		if ( Citex_Intext_Citation_Rules::FORM_PARENTHETICAL_QUOTE === $form ) {
+			$ctx['quote'] = trim( (string) ( $item['quote'] ?? '' ) );
+			$ctx['page']  = trim( (string) ( $item['page'] ?? '' ) );
+			if ( '' === $ctx['quote'] || '' === $ctx['page'] ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing quote or page for a direct-quote in-text citation.', 'citex-tools' ), $id ) ); }
+			if ( ! preg_match( '/^\d+$/', $ctx['page'] ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s: page must be a plain number.', 'citex-tools' ), $id ) ); }
+			$ctx['clause'] = '';
+		} else {
+			$ctx['clause'] = trim( (string) ( $item['clause'] ?? '' ) );
+			$ctx['quote']  = '';
+			if ( '' === $ctx['clause'] ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing a clause for its in-text citation paraphrase.', 'citex-tools' ), $id ) ); }
+			// MLA's narrative form (any category except Website, which has
+			// no page concept at all) always carries a page — see
+			// Citex_MLA_Intext_Dragdrop_Parts's own docblock for why a
+			// page-less narrative is otherwise too thin a DragDrop question.
+			if ( $is_mla && ! $is_website && Citex_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+				$page = trim( (string) ( $item['page'] ?? '' ) );
+				if ( '' === $page || ! preg_match( '/^\d+$/', $page ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing a valid page for its MLA narrative in-text citation.', 'citex-tools' ), $id ) ); }
+				$ctx['page'] = $page;
+			}
+		}
+
+		$category_noun = self::intext_category_noun( $category );
+		if ( 'MCQ' === $type ) {
+			$ctx['scenario'] = $is_mla ? Citex_MLA_Intext_Citation_Rules::mcq_question_stem( $form ) : Citex_Intext_Citation_Rules::mcq_question_stem( $form );
+		} else {
+			$ctx['scenario'] = self::intext_dragdrop_stem( $form, $category_noun, $ctx['title'], $ctx['who_display'], $is_mla ? null : $ctx['year'] );
+		}
+
+		if ( 'MCQ' === $type ) {
+			return $is_mla
+				? self::normalise_mla_intext_mcq_item( $item, $id, $ctx, $exercise, $difficulty )
+				: self::normalise_intext_mcq_item( $item, $id, $ctx, $exercise, $difficulty );
+		}
+		return $is_mla
+			? self::normalise_mla_intext_dragdrop_item( $item, $id, $ctx, $exercise, $difficulty )
+			: self::normalise_intext_dragdrop_item( $item, $id, $ctx, $exercise, $difficulty );
+	}
+
+	/**
+	 * Fields common to every in-text citation record, regardless of
+	 * style/form/category/type — folded into each leaf normaliser's own
+	 * return array via array_merge() so the category/person-list fields
+	 * (which DO vary in shape) are never duplicated here.
+	 */
+	private static function intext_common_fields( $id, array $ctx, $exercise, $difficulty ) {
+		$fields = array(
+			'exercise'     => $exercise,
+			'category'     => $ctx['category'],
+			'citationForm' => $ctx['form'],
+			'difficulty'   => ucfirst( $difficulty ),
+			'scenario'     => sanitize_textarea_field( $ctx['scenario'] ),
+			'clause'       => sanitize_text_field( $ctx['clause'] ),
+			'quote'        => sanitize_text_field( $ctx['quote'] ),
+			'page'         => sanitize_text_field( $ctx['page'] ),
+			'year'         => sanitize_text_field( $ctx['year'] ),
+			'status'       => 'pending',
+			'validationStatus' => 'not_validated',
+			'validationErrors' => array(),
+			'origin'       => 'generated_ai',
+			'aiProvider'   => 'Gemini',
+			'aiModel'      => self::get_model(),
+			'generatedAt'  => gmdate( 'c' ),
+		);
+		if ( null !== $ctx['author_record'] ) {
+			$fields['authorType'] = $ctx['author_record']['type'];
+			$fields['authors']    = 'individual' === $ctx['author_record']['type'] ? array( $ctx['author_record'] ) : array();
+			$fields['organisationName'] = 'organisation' === $ctx['author_record']['type'] ? $ctx['author_record']['name'] : '';
+			$fields['pageTitle'] = sanitize_text_field( $ctx['title'] );
+		} else {
+			$fields[ $ctx['people_key'] ] = $ctx['people'];
+			$fields['bookTitle'] = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $ctx['category'] ? '' : sanitize_text_field( $ctx['title'] );
+			if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $ctx['category'] ) {
+				$fields['articleTitle'] = sanitize_text_field( $ctx['title'] );
+			}
+		}
+		return $fields;
+	}
+
+	/**
+	 * Harvard in-text citation DragDrop candidate — builds every draggable
+	 * blank via Citex_Intext_Dragdrop_Parts::build() (always ALL blanks,
+	 * never a subset — see that class's own docblock) and the matching
+	 * full-sentence "reconstructedReference" via
+	 * Citex_Intext_Citation_Rules' own narrative_sentence()/
+	 * parenthetical_sentence()/parenthetical_quote_sentence().
+	 */
+	private static function normalise_intext_dragdrop_item( $item, $id, array $ctx, $exercise, $difficulty ) {
+		$form = $ctx['form'];
+		$built = Citex_Intext_Dragdrop_Parts::build( $form, $ctx['who'], $ctx['surnames'], $ctx['year'], $ctx['clause'], $ctx['page'], $ctx['quote'] );
+		if ( null === $built ) { return new WP_Error( 'citex_ai_intext_build_failed', sprintf( __( 'Question %s could not be built.', 'citex-tools' ), $id ) ); }
+
+		if ( Citex_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			$reference = Citex_Intext_Citation_Rules::narrative_sentence( $ctx['who'], $ctx['year'], $ctx['clause'] );
+		} elseif ( Citex_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			$reference = Citex_Intext_Citation_Rules::parenthetical_sentence( $ctx['who'], $ctx['year'], $ctx['clause'] );
+		} else {
+			$reference = Citex_Intext_Citation_Rules::parenthetical_quote_sentence( $ctx['who'], $ctx['year'], $ctx['page'], $ctx['quote'] );
+		}
+
+		$tokens = Citex_Intext_Dragdrop_Parts::build_tokens( $form, $ctx['who'], $ctx['year'], $ctx['clause'], $ctx['page'], $ctx['quote'] );
+		$part_kinds = array_values( array_filter( array_map( function ( $t ) { return $t['literal'] ? null : $t['kind']; }, $tokens ) ) );
+
+		return array_merge(
+			self::intext_common_fields( $id, $ctx, $exercise, $difficulty ),
+			array(
+				'key'        => wp_generate_uuid4(),
+				'questionId' => $id,
+				'title'      => sprintf( 'Harvard | InTextCitation | %s | DragDrop | %s', $ctx['category'], $id ),
+				'source'     => 'Harvard',
+				'group'      => 'InTextCitation',
+				'type'       => 'DragDrop',
+				'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $part_kinds ) ),
+				'fixedText'  => sanitize_text_field( $built['fixedText'] ),
+				'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ),
+				'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ),
+				'reconstructedReference' => sanitize_text_field( $reference ),
+			)
+		);
+	}
+
+	/**
+	 * Harvard in-text citation MCQ candidate — the entire question (stem,
+	 * all 4 options, and the answer) is built deterministically by
+	 * Citex_Intext_Mcq_Variants::build(), exactly like every other
+	 * *_mcq_variant mechanic.
+	 */
+	private static function normalise_intext_mcq_item( $item, $id, array $ctx, $exercise, $difficulty ) {
+		$form = $ctx['form'];
+		$fields = array(
+			'form'     => $form,
+			'who'      => $ctx['who'],
+			'surnames' => $ctx['surnames'],
+			'year'     => $ctx['year'],
+			'clause'   => $ctx['clause'],
+			'page'     => $ctx['page'],
+			'quote'    => $ctx['quote'],
+		);
+		$variant_seed  = $id;
+		$author_count  = count( $ctx['surnames'] );
+		$variant       = Citex_Intext_Mcq_Variants::variant_for( $variant_seed, $form, $author_count );
+		$built         = Citex_Intext_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) { return new WP_Error( 'citex_ai_intext_build_failed', sprintf( __( 'Question %s could not be built for variant "%2$s".', 'citex-tools' ), $id, $variant ) ); }
+
+		return array_merge(
+			self::intext_common_fields( $id, $ctx, $exercise, $difficulty ),
+			array(
+				'key'        => wp_generate_uuid4(),
+				'questionId' => $id,
+				'title'      => sprintf( 'Harvard | InTextCitation | %s | MCQ | %s', $ctx['category'], $id ),
+				'source'     => 'Harvard',
+				'group'      => 'InTextCitation',
+				'type'       => 'MCQ',
+				'mcqPattern' => 'intext_mcq_variant',
+				'intextMcqVariant' => sanitize_key( $variant ),
+				'scenario'   => sanitize_textarea_field( $built['stem'] ),
+				'options'    => array_values( array_map( 'sanitize_text_field', array_merge( $built['wrongOptions'], array( '' ) ) ) ),
+				'hint'       => sanitize_textarea_field( Citex_Intext_Citation_Rules::mcq_hint( $form ) ),
+				'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ),
+			)
+		);
+	}
+
+	/**
+	 * MLA in-text citation DragDrop candidate — mirrors
+	 * normalise_intext_dragdrop_item() exactly, via
+	 * Citex_MLA_Intext_Dragdrop_Parts/Citex_MLA_Intext_Citation_Rules
+	 * instead.
+	 */
+	private static function normalise_mla_intext_dragdrop_item( $item, $id, array $ctx, $exercise, $difficulty ) {
+		$form = $ctx['form'];
+		$built = Citex_MLA_Intext_Dragdrop_Parts::build( $form, $ctx['who'], $ctx['surnames'], $ctx['clause'], $ctx['page'], $ctx['quote'] );
+		if ( null === $built ) { return new WP_Error( 'citex_ai_intext_build_failed', sprintf( __( 'Question %s could not be built.', 'citex-tools' ), $id ) ); }
+
+		if ( Citex_MLA_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			$reference = Citex_MLA_Intext_Citation_Rules::narrative_sentence( $ctx['who'], $ctx['clause'], '' === $ctx['page'] ? null : $ctx['page'] );
+		} elseif ( Citex_MLA_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			$reference = Citex_MLA_Intext_Citation_Rules::parenthetical_sentence( $ctx['who'], $ctx['clause'] );
+		} else {
+			$reference = Citex_MLA_Intext_Citation_Rules::parenthetical_quote_sentence( $ctx['who'], $ctx['page'], $ctx['quote'] );
+		}
+
+		$tokens = Citex_MLA_Intext_Dragdrop_Parts::build_tokens( $form, $ctx['who'], $ctx['clause'], $ctx['page'], $ctx['quote'] );
+		$part_kinds = array_values( array_filter( array_map( function ( $t ) { return $t['literal'] ? null : $t['kind']; }, $tokens ) ) );
+
+		return array_merge(
+			self::intext_common_fields( $id, $ctx, $exercise, $difficulty ),
+			array(
+				'key'        => wp_generate_uuid4(),
+				'questionId' => $id,
+				'title'      => sprintf( 'MLA | InTextCitation | %s | DragDrop | %s', $ctx['category'], $id ),
+				'source'     => 'MLA',
+				'group'      => 'InTextCitation',
+				'type'       => 'DragDrop',
+				'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $part_kinds ) ),
+				'fixedText'  => sanitize_text_field( $built['fixedText'] ),
+				'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ),
+				'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ),
+				'reconstructedReference' => sanitize_text_field( $reference ),
+			)
+		);
+	}
+
+	/**
+	 * MLA in-text citation MCQ candidate — mirrors
+	 * normalise_intext_mcq_item() exactly, via
+	 * Citex_MLA_Intext_Mcq_Variants instead.
+	 */
+	private static function normalise_mla_intext_mcq_item( $item, $id, array $ctx, $exercise, $difficulty ) {
+		$form = $ctx['form'];
+		$fields = array(
+			'form'     => $form,
+			'who'      => $ctx['who'],
+			'surnames' => $ctx['surnames'],
+			'clause'   => $ctx['clause'],
+			'page'     => $ctx['page'],
+			'quote'    => $ctx['quote'],
+		);
+		$variant_seed = $id;
+		$author_count = count( $ctx['surnames'] );
+		$variant      = Citex_MLA_Intext_Mcq_Variants::variant_for( $variant_seed, $form, $author_count );
+		$built        = Citex_MLA_Intext_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) { return new WP_Error( 'citex_ai_intext_build_failed', sprintf( __( 'Question %s could not be built for variant "%2$s".', 'citex-tools' ), $id, $variant ) ); }
+
+		return array_merge(
+			self::intext_common_fields( $id, $ctx, $exercise, $difficulty ),
+			array(
+				'key'        => wp_generate_uuid4(),
+				'questionId' => $id,
+				'title'      => sprintf( 'MLA | InTextCitation | %s | MCQ | %s', $ctx['category'], $id ),
+				'source'     => 'MLA',
+				'group'      => 'InTextCitation',
+				'type'       => 'MCQ',
+				'mcqPattern' => 'mla_intext_mcq_variant',
+				'mlaIntextMcqVariant' => sanitize_key( $variant ),
+				'scenario'   => sanitize_textarea_field( $built['stem'] ),
+				'options'    => array_values( array_map( 'sanitize_text_field', array_merge( $built['wrongOptions'], array( '' ) ) ) ),
+				'hint'       => sanitize_textarea_field( Citex_MLA_Intext_Citation_Rules::mcq_hint( $form ) ),
+				'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ),
+			)
+		);
+	}
+
+	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null, $target_count = null, $scenario_id = '', $rule_tested = '', $exercise_design = 'full_reference', $style = 'harvard', $group = 'referencelist', $citation_form = '' ) {
 		$category = $category ?: Citex_Reference_Rules::CATEGORY_BOOK;
 		$out = array();
 		foreach ( $questions as $i => $item ) {
 			if ( ! is_array( $item ) ) { return new WP_Error( 'citex_ai_bad_question', sprintf( __( 'Question %d was not a valid object.', 'citex-tools' ), $i + 1 ) ); }
 			$id = strtoupper( trim( (string) $ids[ $i ] ) ); $year = trim( (string) ( $item['year'] ?? '' ) ); $title = trim( (string) ( $item['bookTitle'] ?? '' ) ); $place = trim( (string) ( $item['place'] ?? '' ) ); $publisher = trim( (string) ( $item['publisher'] ?? '' ) );
+
+			// Exercise is Citex-assigned only — resolved by slot index from the
+			// matrix built before generation began, never read from $item.
+			$exercise = isset( $exercises[ $i ] ) ? sanitize_text_field( (string) $exercises[ $i ] ) : 'Exercise 1';
+
+			if ( 'intext' === $group ) {
+				// In-text citation is a fundamentally different data shape
+				// (no place/publisher/journal/volume/issue at all, and its
+				// own stem is built entirely differently for DragDrop vs
+				// MCQ) — see normalise_intext_item()'s own docblock. Routed
+				// first, before every reference-list-only branch below,
+				// since $group is an independent dimension from $category.
+				$candidate = self::normalise_intext_item( $item, $id, $category, $style, $citation_form, $type, $exercise, $difficulty, $target_count );
+				if ( is_wp_error( $candidate ) ) { return $candidate; }
+				$candidate['blueprint'] = array(
+					'category'     => $category,
+					'questionType' => $type,
+					'scenario'     => $scenario_id,
+					'ruleTested'   => $rule_tested,
+					'difficulty'   => ucfirst( $difficulty ),
+				);
+				$validation = Citex_Generated_Validator::validate( $candidate );
+				if ( 'passed' !== $validation['status'] ) {
+					$first_error = ! empty( $validation['errors'][0]['message'] ) ? $validation['errors'][0]['message'] : __( 'Generated question failed Citex validation.', 'citex-tools' );
+					$rejection = self::quality_reject( 'citex_ai_validator_rejected', sprintf( __( 'Question %s failed the pre-queue quality gate: %s', 'citex-tools' ), $id, $first_error ) );
+					if ( $rejection ) { return $rejection; }
+					$candidate['validatedReference'] = $validation['reconstructedReference'];
+					$candidate['validationStatus'] = $validation['status'];
+					$candidate['validationErrors'] = $validation['errors'];
+					$candidate['validatedAt'] = $validation['validatedAt'];
+				} else {
+					$candidate['validatedReference'] = $validation['reconstructedReference'];
+					$candidate['validationStatus'] = 'passed';
+					$candidate['validationErrors'] = array();
+					$candidate['validatedAt'] = $validation['validatedAt'];
+				}
+				$out[] = $candidate;
+				continue;
+			}
+
 			// MCQ's question text is Citex's own fixed, category-specific,
 			// non-revealing stem — never Gemini's own per-book "scenario"
 			// prose (which risked leaking the answer, and made the question
@@ -1256,10 +1918,6 @@ class Citex_AI_V2 {
 			$scenario = 'MCQ' === $type
 				? Citex_Reference_Rules::mcq_question_stem( $category, $exercise_design )
 				: trim( (string) ( $item['scenario'] ?? '' ) );
-
-			// Exercise is Citex-assigned only — resolved by slot index from the
-			// matrix built before generation began, never read from $item.
-			$exercise = isset( $exercises[ $i ] ) ? sanitize_text_field( (string) $exercises[ $i ] ) : 'Exercise 1';
 
 			if ( 'MCQ' === $type && 0 === strpos( (string) $scenario_id, 'choose_treatment_' ) ) {
 				// "Choose the correct rule/treatment" needs none of the
