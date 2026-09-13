@@ -17,6 +17,18 @@ class Citex_Scanner {
 	const OPTION_SCAN  = 'citex_last_scan';
 	const NONCE_ACTION = 'citex_scanner';
 
+	// Citations is a genuinely separate real WordPress post type/list from
+	// the Reference List (confirmed live: the site's admin sidebar shows
+	// "Reference List" and "Citations" as two distinct top-level CPT
+	// screens) — In-Text Citation questions must populate there, never
+	// into the Reference List. This is its own independently configured
+	// URL/scan, mirroring the Reference List's own OPTION_URL/OPTION_SCAN
+	// exactly, selected via the `$target` parameter threaded through every
+	// method below (default 'reference' so every existing call site keeps
+	// working unchanged).
+	const OPTION_CITATIONS_URL  = 'citex_citations_list_url';
+	const OPTION_CITATIONS_SCAN = 'citex_last_scan_citations';
+
 	const AJAX_SAVE_SETTINGS = 'citex_save_scanner_settings';
 	const AJAX_SAVE_SCAN     = 'citex_save_scan_result';
 
@@ -25,12 +37,46 @@ class Citex_Scanner {
 		add_action( 'wp_ajax_' . self::AJAX_SAVE_SCAN, array( $this, 'ajax_save_scan' ) );
 	}
 
-	public static function get_question_list_url() {
-		return get_option( self::OPTION_URL, '' );
+	/**
+	 * Normalises any incoming target string to exactly 'reference' or
+	 * 'citations' — an unrecognised value always falls back to
+	 * 'reference', the pre-existing single-target behaviour.
+	 */
+	private static function normalise_target( $target ) {
+		return 'citations' === sanitize_key( (string) $target ) ? 'citations' : 'reference';
 	}
 
-	public static function get_last_scan() {
-		$scan = get_option( self::OPTION_SCAN, null );
+	/**
+	 * The {url option, scan option} pair for one target.
+	 *
+	 * @return array{0:string,1:string}
+	 */
+	private static function option_names( $target ) {
+		return 'citations' === self::normalise_target( $target )
+			? array( self::OPTION_CITATIONS_URL, self::OPTION_CITATIONS_SCAN )
+			: array( self::OPTION_URL, self::OPTION_SCAN );
+	}
+
+	/**
+	 * Which scan target a question's own `group` field belongs to —
+	 * 'InTextCitation' always means the separate Citations post type;
+	 * every other group (including the default 'ReferenceList') means the
+	 * Reference List. Shared by Citex_Populator (routes population) and
+	 * Citex_Generator (merges used-question-ID collision checks across
+	 * both real post types).
+	 */
+	public static function target_for_group( $group ) {
+		return 'InTextCitation' === (string) $group ? 'citations' : 'reference';
+	}
+
+	public static function get_question_list_url( $target = 'reference' ) {
+		list( $url_option ) = self::option_names( $target );
+		return get_option( $url_option, '' );
+	}
+
+	public static function get_last_scan( $target = 'reference' ) {
+		list( , $scan_option ) = self::option_names( $target );
+		$scan = get_option( $scan_option, null );
 		return is_array( $scan ) ? $scan : null;
 	}
 
@@ -49,15 +95,24 @@ class Citex_Scanner {
 	 *
 	 * @return array|WP_Error
 	 */
-	public static function sync_from_wordpress() {
-		$url = self::get_question_list_url();
+	public static function sync_from_wordpress( $target = 'reference' ) {
+		$target = self::normalise_target( $target );
+		$url    = self::get_question_list_url( $target );
 		if ( ! $url ) {
-			return new WP_Error( 'citex_no_reference_url', __( 'Reference List URL is not configured.', 'citex-tools' ) );
+			return new WP_Error(
+				'citations' === $target ? 'citex_no_citations_url' : 'citex_no_reference_url',
+				'citations' === $target ? __( 'Citations List URL is not configured.', 'citex-tools' ) : __( 'Reference List URL is not configured.', 'citex-tools' )
+			);
 		}
 
 		$post_type = self::post_type_from_url( $url );
 		if ( ! $post_type || ! post_type_exists( $post_type ) ) {
-			return new WP_Error( 'citex_bad_post_type', __( 'Citex could not determine the Reference List post type from the configured URL.', 'citex-tools' ) );
+			return new WP_Error(
+				'citex_bad_post_type',
+				'citations' === $target
+					? __( 'Citex could not determine the Citations post type from the configured URL.', 'citex-tools' )
+					: __( 'Citex could not determine the Reference List post type from the configured URL.', 'citex-tools' )
+			);
 		}
 
 		$statuses = array( 'publish', 'draft', 'pending', 'private', 'future', 'trash' );
@@ -139,7 +194,8 @@ class Citex_Scanner {
 			),
 		);
 
-		update_option( self::OPTION_SCAN, $scan, false );
+		list( , $scan_option ) = self::option_names( $target );
+		update_option( $scan_option, $scan, false );
 		return $scan;
 	}
 
@@ -224,9 +280,11 @@ class Citex_Scanner {
 		}
 
 		try {
+			$target = self::normalise_target( $_POST['target'] ?? 'reference' );
+			list( $url_option ) = self::option_names( $target );
 			$url = isset( $_POST['question_list_url'] ) ? esc_url_raw( wp_unslash( $_POST['question_list_url'] ) ) : '';
-			update_option( self::OPTION_URL, $url, false );
-			wp_send_json_success( array( 'questionListUrl' => $url ) );
+			update_option( $url_option, $url, false );
+			wp_send_json_success( array( 'questionListUrl' => $url, 'target' => $target ) );
 		} catch ( Throwable $e ) {
 			error_log( '[Citex Tools] ajax_save_settings failed: ' . $e->getMessage() );
 			wp_send_json_error( array( 'message' => sprintf( __( 'Citex: saving the setting failed — %s.', 'citex-tools' ), $e->getMessage() ) ), 500 );
@@ -242,14 +300,16 @@ class Citex_Scanner {
 		}
 
 		try {
-			$raw  = isset( $_POST['scan'] ) ? wp_unslash( $_POST['scan'] ) : '';
-			$data = json_decode( $raw, true );
+			$target = self::normalise_target( $_POST['target'] ?? 'reference' );
+			$raw    = isset( $_POST['scan'] ) ? wp_unslash( $_POST['scan'] ) : '';
+			$data   = json_decode( $raw, true );
 			if ( ! is_array( $data ) || ! isset( $data['questions'] ) || ! is_array( $data['questions'] ) ) {
 				wp_send_json_error( array( 'message' => __( 'Invalid scan data.', 'citex-tools' ) ), 400 );
 			}
 
 			$scan = self::sanitize_scan( $data );
-			update_option( self::OPTION_SCAN, $scan, false );
+			list( , $scan_option ) = self::option_names( $target );
+			update_option( $scan_option, $scan, false );
 			wp_send_json_success(
 				array(
 					'scannedAt'    => $scan['scannedAt'],

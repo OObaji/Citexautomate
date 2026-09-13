@@ -34,6 +34,18 @@ class Citex_Dashboard {
 
 		$breakdowns = $scan ? $scan['breakdowns'] : null;
 
+		// The Citations post type is a genuinely separate real WordPress
+		// list from the Reference List (see Citex_Scanner::target_for_group()'s
+		// own docblock) — its own independently configured URL/last-scan,
+		// surfaced here purely so the admin can point it at the right
+		// place; In-Text Citation questions populate there instead.
+		$citations_list_url = Citex_Scanner::get_question_list_url( 'citations' );
+		$citations_scan      = Citex_Scanner::get_last_scan( 'citations' );
+		$citations_last_scanned = ( $citations_scan && ! empty( $citations_scan['scannedAt'] ) )
+			? Citex_Scanner::format_scanned_at( $citations_scan['scannedAt'] )
+			: null;
+		$citations_total = $citations_scan ? number_format_i18n( $citations_scan['total'] ) : '—';
+
 		require CITEX_TOOLS_PATH . 'admin/views/dashboard.php';
 	}
 

@@ -528,23 +528,28 @@ class Citex_Generator {
 			if ( '' !== $id ) { $used[ $id ] = true; }
 		}
 		// A cached last-scan snapshot goes stale the moment a population run
-		// creates new Reference List posts after it was taken — the classic
-		// failure mode this caused: a fresh generate batch reused an ID
-		// (e.g. WR01) that a PRIOR population had already created in
-		// WordPress, so every one of them failed at population time with
-		// "a record with this exact title already exists", 0 created. Always
-		// re-sync fresh here (a fast, local get_posts() query — see
-		// Citex_Scanner::sync_from_wordpress() — not an external call) so a
-		// new batch can never reuse an ID already live in the real Reference
-		// List; fall back to the cached scan only if a fresh sync can't run
-		// (e.g. the Reference List URL isn't configured yet).
-		$scan = Citex_Scanner::sync_from_wordpress();
-		if ( is_wp_error( $scan ) ) {
-			$scan = Citex_Scanner::get_last_scan();
-		}
-		foreach ( ( $scan['questions'] ?? array() ) as $question ) {
-			$id = strtoupper( trim( (string) ( $question['questionId'] ?? '' ) ) );
-			if ( '' !== $id ) { $used[ $id ] = true; }
+		// creates new posts after it was taken — the classic failure mode
+		// this caused: a fresh generate batch reused an ID (e.g. WR01) that
+		// a PRIOR population had already created in WordPress, so every one
+		// of them failed at population time with "a record with this exact
+		// title already exists", 0 created. Always re-sync fresh here (a
+		// fast, local get_posts() query — see Citex_Scanner::sync_from_wordpress()
+		// — not an external call) so a new batch can never reuse an ID
+		// already live in WordPress; fall back to the cached scan only if a
+		// fresh sync can't run (e.g. that target's URL isn't configured
+		// yet). Both real destinations are checked — Reference List AND
+		// Citations (see Citex_Scanner::target_for_group()'s own docblock)
+		// — since In-Text Citation questions live in the latter but must
+		// still never collide on a reused ID.
+		foreach ( array( 'reference', 'citations' ) as $target ) {
+			$scan = Citex_Scanner::sync_from_wordpress( $target );
+			if ( is_wp_error( $scan ) ) {
+				$scan = Citex_Scanner::get_last_scan( $target );
+			}
+			foreach ( ( $scan['questions'] ?? array() ) as $question ) {
+				$id = strtoupper( trim( (string) ( $question['questionId'] ?? '' ) ) );
+				if ( '' !== $id ) { $used[ $id ] = true; }
+			}
 		}
 		return $used;
 	}

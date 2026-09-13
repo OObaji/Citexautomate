@@ -115,6 +115,7 @@ class Citex_Admin {
 			'ajaxUrl'            => admin_url( 'admin-ajax.php' ),
 			'nonce'              => wp_create_nonce( Citex_Scanner::NONCE_ACTION ),
 			'questionListUrl'    => Citex_Scanner::get_question_list_url(),
+			'citationsListUrl'   => Citex_Scanner::get_question_list_url( 'citations' ),
 			'saveSettingsAction' => Citex_Scanner::AJAX_SAVE_SETTINGS,
 			'saveScanAction'     => Citex_Scanner::AJAX_SAVE_SCAN,
 			'strings'            => array(
@@ -122,6 +123,7 @@ class Citex_Admin {
 				'settingsSaved'  => __( 'Saved.', 'citex-tools' ),
 				'settingsFailed' => __( 'Could not save the setting.', 'citex-tools' ),
 				'noUrl'          => __( 'Set the Question List URL first (Dashboard).', 'citex-tools' ),
+				'noCitationsUrl' => __( 'Set the Citations List URL first (Dashboard).', 'citex-tools' ),
 				'scanningPage'   => __( 'Scanning page {page} of {total}...', 'citex-tools' ),
 				'scanComplete'   => __( 'Scan complete — {total} questions found.', 'citex-tools' ),
 				'scanFailed'     => __( 'Scan failed:', 'citex-tools' ),

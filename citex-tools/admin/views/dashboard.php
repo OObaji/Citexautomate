@@ -9,6 +9,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @var string|null  $last_scanned       Formatted last-scan date/time, or null if never scanned.
  * @var array|null   $breakdowns         Source/Group/Category/Type breakdowns from the last scan, or null.
  * @var string       $question_list_url  Configured WordPress question-list admin URL.
+ * @var string       $citations_list_url     Configured WordPress Citations admin URL — a genuinely separate real post type/list from the Reference List; In-Text Citation questions populate there instead.
+ * @var string|null  $citations_last_scanned Formatted last-scan date/time for Citations, or null if never scanned.
+ * @var string       $citations_total        Total Citations question count from the last scan, or "—".
  */
 
 $breakdown_sections = array(
@@ -62,15 +65,16 @@ $breakdown_sections = array(
 		<button
 			type="button"
 			class="button button-primary citex-scan-btn"
+			data-target="reference"
 			<?php disabled( empty( $question_list_url ) ); ?>
 		>
 			<?php echo $last_scanned ? esc_html__( 'Refresh / Scan Again', 'citex-tools' ) : esc_html__( 'Scan Question Bank', 'citex-tools' ); ?>
 		</button>
-		<p class="citex-scan-status" aria-live="polite"></p>
+		<p class="citex-scan-status" data-target="reference" aria-live="polite"></p>
 
 		<details class="citex-scan-settings" <?php echo empty( $question_list_url ) ? 'open' : ''; ?>>
 			<summary><?php esc_html_e( 'Question List URL settings', 'citex-tools' ); ?></summary>
-			<form id="citex-scanner-settings-form" class="citex-inline-form">
+			<form id="citex-scanner-settings-form" class="citex-inline-form citex-scanner-settings-form" data-target="reference">
 				<label for="citex_question_list_url" class="screen-reader-text"><?php esc_html_e( 'Question List URL', 'citex-tools' ); ?></label>
 				<input
 					type="url"
@@ -84,6 +88,56 @@ $breakdown_sections = array(
 			</form>
 			<p class="description">
 				<?php esc_html_e( 'Enter the WordPress admin URL of the existing question-list screen (e.g. edit.php?post_type=question). Citex scans this URL, authenticated as you, to build its index — it never modifies the underlying records.', 'citex-tools' ); ?>
+			</p>
+		</details>
+	</div>
+
+	<div class="citex-scan-panel">
+		<h2><?php esc_html_e( 'Citations', 'citex-tools' ); ?></h2>
+		<p class="description">
+			<?php esc_html_e( 'Citations is a separate real WordPress list from the Reference List. In-Text Citation questions populate here instead — point it at that list\'s own admin screen.', 'citex-tools' ); ?>
+		</p>
+		<p class="citex-scan-meta">
+			<?php if ( $citations_last_scanned ) : ?>
+				<?php
+				printf(
+					/* translators: 1: date/time of the last Citations scan. 2: total Citations question count. */
+					esc_html__( 'Last scanned: %1$s — %2$s questions', 'citex-tools' ),
+					esc_html( $citations_last_scanned ),
+					esc_html( $citations_total )
+				);
+				?>
+			<?php else : ?>
+				<?php esc_html_e( 'Last scanned: never', 'citex-tools' ); ?>
+			<?php endif; ?>
+		</p>
+
+		<button
+			type="button"
+			class="button button-primary citex-scan-btn"
+			data-target="citations"
+			<?php disabled( empty( $citations_list_url ) ); ?>
+		>
+			<?php echo $citations_last_scanned ? esc_html__( 'Refresh / Scan Again', 'citex-tools' ) : esc_html__( 'Scan Citations', 'citex-tools' ); ?>
+		</button>
+		<p class="citex-scan-status" data-target="citations" aria-live="polite"></p>
+
+		<details class="citex-scan-settings" <?php echo empty( $citations_list_url ) ? 'open' : ''; ?>>
+			<summary><?php esc_html_e( 'Citations List URL settings', 'citex-tools' ); ?></summary>
+			<form id="citex-citations-settings-form" class="citex-inline-form citex-scanner-settings-form" data-target="citations">
+				<label for="citex_citations_list_url" class="screen-reader-text"><?php esc_html_e( 'Citations List URL', 'citex-tools' ); ?></label>
+				<input
+					type="url"
+					id="citex_citations_list_url"
+					class="citex-input regular-text"
+					placeholder="https://example.com/wp-admin/edit.php?post_type=..."
+					value="<?php echo esc_attr( $citations_list_url ); ?>"
+				/>
+				<button type="submit" class="button"><?php esc_html_e( 'Save', 'citex-tools' ); ?></button>
+				<span id="citex-citations-settings-status" class="citex-settings-status" aria-live="polite"></span>
+			</form>
+			<p class="description">
+				<?php esc_html_e( 'Enter the WordPress admin URL of the existing Citations screen (e.g. edit.php?post_type=citations). Citex scans this URL, authenticated as you, to build its index — it never modifies the underlying records.', 'citex-tools' ); ?>
 			</p>
 		</details>
 	</div>

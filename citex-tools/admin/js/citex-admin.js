@@ -56,47 +56,76 @@
 		} );
 	}
 
-	function wireScannerSettings() {
-		var form = document.getElementById( 'citex-scanner-settings-form' );
+	/**
+	 * Per-target config for the two independently scannable real WordPress
+	 * lists — Reference List and Citations (a genuinely separate post
+	 * type; see Citex_Scanner::target_for_group()'s own PHP-side docblock)
+	 * — keyed by each element's own `data-target` attribute, so the
+	 * settings-form/scan-button wiring below runs once, generically, for
+	 * both rather than being duplicated per target.
+	 */
+	function targetConfig( target ) {
+		if ( 'citations' === target ) {
+			return {
+				urlKey: 'citationsListUrl',
+				noUrlString: 'noCitationsUrl',
+				inputId: 'citex_citations_list_url',
+			};
+		}
+		return {
+			urlKey: 'questionListUrl',
+			noUrlString: 'noUrl',
+			inputId: 'citex_question_list_url',
+		};
+	}
 
-		if ( ! form || ! window.citexTools ) {
+	function wireScannerSettings() {
+		var forms = document.querySelectorAll( '.citex-scanner-settings-form' );
+
+		if ( ! forms.length || ! window.citexTools ) {
 			return;
 		}
 
-		form.addEventListener( 'submit', function ( event ) {
-			event.preventDefault();
+		forms.forEach( function ( form ) {
+			var target = form.getAttribute( 'data-target' ) || 'reference';
+			var config = targetConfig( target );
 
-			var input = document.getElementById( 'citex_question_list_url' );
-			var status = document.getElementById( 'citex-settings-status' );
-			var button = form.querySelector( 'button[type="submit"]' );
+			form.addEventListener( 'submit', function ( event ) {
+				event.preventDefault();
 
-			if ( ! input ) {
-				return;
-			}
+				var input = document.getElementById( config.inputId );
+				var status = form.querySelector( '.citex-settings-status' );
+				var button = form.querySelector( 'button[type="submit"]' );
 
-			button.disabled = true;
-			setText( status, citexTools.strings.savingSettings );
+				if ( ! input ) {
+					return;
+				}
 
-			postToAjax( {
-				action: citexTools.saveSettingsAction,
-				nonce: citexTools.nonce,
-				question_list_url: input.value,
-			} )
-				.then( function ( result ) {
-					if ( result && result.success ) {
-						citexTools.questionListUrl = result.data.questionListUrl;
-						setText( status, citexTools.strings.settingsSaved );
-						toggleScanButtons( !! citexTools.questionListUrl );
-					} else {
+				button.disabled = true;
+				setText( status, citexTools.strings.savingSettings );
+
+				postToAjax( {
+					action: citexTools.saveSettingsAction,
+					nonce: citexTools.nonce,
+					target: target,
+					question_list_url: input.value,
+				} )
+					.then( function ( result ) {
+						if ( result && result.success ) {
+							citexTools[ config.urlKey ] = result.data.questionListUrl;
+							setText( status, citexTools.strings.settingsSaved );
+							toggleScanButtons( target, !! citexTools[ config.urlKey ] );
+						} else {
+							setText( status, citexTools.strings.settingsFailed );
+						}
+					} )
+					.catch( function () {
 						setText( status, citexTools.strings.settingsFailed );
-					}
-				} )
-				.catch( function () {
-					setText( status, citexTools.strings.settingsFailed );
-				} )
-				.finally( function () {
-					button.disabled = false;
-				} );
+					} )
+					.finally( function () {
+						button.disabled = false;
+					} );
+			} );
 		} );
 	}
 
@@ -109,27 +138,29 @@
 
 		buttons.forEach( function ( button ) {
 			button.addEventListener( 'click', function () {
-				runScan();
+				runScan( button.getAttribute( 'data-target' ) || 'reference' );
 			} );
 		} );
 	}
 
-	function runScan() {
-		var status = document.querySelector( '.citex-scan-status' );
+	function runScan( target ) {
+		var config = targetConfig( target );
+		var status = document.querySelector( '.citex-scan-status[data-target="' + target + '"]' );
+		var url = citexTools[ config.urlKey ];
 
-		if ( ! citexTools.questionListUrl ) {
-			setText( status, citexTools.strings.noUrl );
+		if ( ! url ) {
+			setText( status, citexTools.strings[ config.noUrlString ] );
 			return;
 		}
 
-		toggleScanButtons( false );
+		toggleScanButtons( target, false );
 
-		CitexScanner.scan( citexTools.questionListUrl, function ( page, totalPages ) {
+		CitexScanner.scan( url, function ( page, totalPages ) {
 			setText( status, citexTools.strings.scanningPage.replace( '{page}', page ).replace( '{total}', totalPages ) );
 		} )
 			.then( function ( report ) {
 				setText( status, citexTools.strings.scanComplete.replace( '{total}', report.total ) );
-				return saveScan( report );
+				return saveScan( report, target );
 			} )
 			.then( function () {
 				window.setTimeout( function () {
@@ -137,15 +168,16 @@
 				}, 700 );
 			} )
 			.catch( function ( error ) {
-				toggleScanButtons( !! citexTools.questionListUrl );
+				toggleScanButtons( target, !! url );
 				setText( status, citexTools.strings.scanFailed + ' ' + error.message );
 			} );
 	}
 
-	function saveScan( report ) {
+	function saveScan( report, target ) {
 		return postToAjax( {
 			action: citexTools.saveScanAction,
 			nonce: citexTools.nonce,
+			target: target,
 			scan: JSON.stringify( report ),
 		} ).then( function ( result ) {
 			if ( ! result || ! result.success ) {
@@ -172,8 +204,8 @@
 		} );
 	}
 
-	function toggleScanButtons( enabled ) {
-		document.querySelectorAll( '.citex-scan-btn' ).forEach( function ( btn ) {
+	function toggleScanButtons( target, enabled ) {
+		document.querySelectorAll( '.citex-scan-btn[data-target="' + target + '"]' ).forEach( function ( btn ) {
 			btn.disabled = ! enabled;
 		} );
 	}

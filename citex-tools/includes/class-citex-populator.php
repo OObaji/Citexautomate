@@ -208,56 +208,40 @@ class Citex_Populator {
 			$this->redirect_back();
 		}
 
-		$scan = Citex_Scanner::get_last_scan();
-		if ( empty( $scan['postType'] ) ) {
-			$synced = Citex_Scanner::sync_from_wordpress();
-			if ( is_wp_error( $synced ) ) {
-				Citex_Admin::set_notice( $synced->get_error_message(), 'error' );
-				$this->redirect_back();
-			}
-			$scan = $synced;
+		// In-Text Citation questions populate into the real Citations post
+		// type — a genuinely separate WordPress list from the Reference
+		// List (confirmed live: the site's admin sidebar shows "Reference
+		// List" and "Citations" as two distinct top-level screens), never
+		// mixed into the same destination. Every other group (including
+		// the default 'ReferenceList') keeps populating into the
+		// Reference List exactly as before. One population run can
+		// legitimately contain both, so it is split into up to 2
+		// independent batches — each resolves its own scan/post type/
+		// template/field maps via populate_batch() — before merging their
+		// results back into one notice.
+		$batches = array( 'reference' => array(), 'citations' => array() );
+		foreach ( $eligible as $question ) {
+			$batches[ Citex_Scanner::target_for_group( $question['group'] ?? '' ) ][] = $question;
 		}
-		$post_type = sanitize_key( (string) ( $scan['postType'] ?? '' ) );
-		if ( ! $post_type || ! post_type_exists( $post_type ) ) {
-			Citex_Admin::set_notice( __( 'Citex could not determine the real Reference List post type.', 'citex-tools' ), 'error' );
-			$this->redirect_back();
-		}
-
-		// find_template_post_id() only ever finds a real Book/DragDrop record
-		// (see its own filter) — it is never a valid clone source for an MCQ
-		// post (cloning it would leave DragDrop-only meta such as Question
-		// Parts/Fixed Text stray on the new MCQ post). So MCQ always takes
-		// the no-template path, and field maps are resolved per question
-		// TYPE (memoised), since one population run can mix both types.
-		$dragdrop_template_id = $this->find_template_post_id( $post_type, $scan );
-		$field_maps = array();
 
 		$successful_keys = array();
 		$created          = array();
 		$failed           = array();
+		$created_by_target = array( 'reference' => 0, 'citations' => 0 );
+		$synced_targets     = array();
 
-		foreach ( $eligible as $question ) {
-			$type        = 'MCQ' === ( $question['type'] ?? '' ) ? 'MCQ' : 'DragDrop';
-			$template_id = 'MCQ' === $type ? 0 : $dragdrop_template_id;
-
-			if ( ! isset( $field_maps[ $type ] ) ) {
-				$field_maps[ $type ] = $template_id
-					? $this->resolve_population_fields( $template_id, $post_type, $type )
-					: $this->resolve_population_fields_without_template( $post_type, $type );
-			}
-			$field_map = $field_maps[ $type ];
-			if ( is_wp_error( $field_map ) ) {
-				$failed[] = sprintf( '%s: %s', (string) ( $question['questionId'] ?? '?' ), $field_map->get_error_message() );
+		foreach ( $batches as $target => $questions ) {
+			if ( empty( $questions ) ) {
 				continue;
 			}
-
-			$result = $this->populate_one( $question, $post_type, $template_id, $field_map, $final_status );
-			if ( is_wp_error( $result ) ) {
-				$failed[] = sprintf( '%s: %s', (string) ( $question['questionId'] ?? '?' ), $result->get_error_message() );
-				continue;
+			$batch_result = $this->populate_batch( $questions, $target, $final_status );
+			$successful_keys = array_merge( $successful_keys, $batch_result['successfulKeys'] );
+			$created         = array_merge( $created, $batch_result['created'] );
+			$failed          = array_merge( $failed, $batch_result['failed'] );
+			$created_by_target[ $target ] = count( $batch_result['created'] );
+			if ( ! empty( $batch_result['successfulKeys'] ) ) {
+				$synced_targets[] = $target;
 			}
-			$successful_keys[] = (string) ( $question['key'] ?? '' );
-			$created[] = $result;
 		}
 
 		if ( ! empty( $successful_keys ) ) {
@@ -270,12 +254,15 @@ class Citex_Populator {
 				)
 			);
 			Citex_Generator::save_pending_questions( $pending );
-			Citex_Scanner::sync_from_wordpress();
+			foreach ( array_unique( $synced_targets ) as $target ) {
+				Citex_Scanner::sync_from_wordpress( $target );
+			}
 		}
 
 		$message = sprintf(
-			__( 'Population complete. Created in Reference List: %1$d. Failed: %2$d.', 'citex-tools' ),
-			count( $created ),
+			__( 'Population complete. Created in Reference List: %1$d. Created in Citations: %2$d. Failed: %3$d.', 'citex-tools' ),
+			$created_by_target['reference'],
+			$created_by_target['citations'],
 			count( $failed )
 		);
 		if ( ! empty( $created ) ) {
@@ -308,7 +295,83 @@ class Citex_Populator {
 	}
 
 	/**
-	 * Create one real Reference List record from one validated pending record.
+	 * Resolves one destination's own scan/post type/DragDrop template/field
+	 * maps, then runs populate_one() for every question routed to it — the
+	 * per-batch body extracted from maybe_handle_submit() so it can run
+	 * once per destination (Reference List, Citations), each against its
+	 * own independently configured post type, since the two are never the
+	 * same real WordPress list.
+	 *
+	 * @param array  $questions Eligible questions already routed to this target.
+	 * @param string $target    'reference' or 'citations' (see Citex_Scanner::target_for_group()).
+	 * @return array{created: array[], failed: string[], successfulKeys: string[]}
+	 */
+	private function populate_batch( array $questions, $target, $final_status ) {
+		$created         = array();
+		$failed          = array();
+		$successful_keys = array();
+
+		$scan = Citex_Scanner::get_last_scan( $target );
+		if ( empty( $scan['postType'] ) ) {
+			$synced = Citex_Scanner::sync_from_wordpress( $target );
+			if ( is_wp_error( $synced ) ) {
+				foreach ( $questions as $question ) {
+					$failed[] = sprintf( '%s: %s', (string) ( $question['questionId'] ?? '?' ), $synced->get_error_message() );
+				}
+				return array( 'created' => $created, 'failed' => $failed, 'successfulKeys' => $successful_keys );
+			}
+			$scan = $synced;
+		}
+		$post_type = sanitize_key( (string) ( $scan['postType'] ?? '' ) );
+		if ( ! $post_type || ! post_type_exists( $post_type ) ) {
+			$message = 'citations' === $target
+				? __( 'Citex could not determine the real Citations post type.', 'citex-tools' )
+				: __( 'Citex could not determine the real Reference List post type.', 'citex-tools' );
+			foreach ( $questions as $question ) {
+				$failed[] = sprintf( '%s: %s', (string) ( $question['questionId'] ?? '?' ), $message );
+			}
+			return array( 'created' => $created, 'failed' => $failed, 'successfulKeys' => $successful_keys );
+		}
+
+		// find_template_post_id() only ever finds a real Book/DragDrop record
+		// (see its own filter) — it is never a valid clone source for an MCQ
+		// post (cloning it would leave DragDrop-only meta such as Question
+		// Parts/Fixed Text stray on the new MCQ post). So MCQ always takes
+		// the no-template path, and field maps are resolved per question
+		// TYPE (memoised), since one population run can mix both types.
+		$dragdrop_template_id = $this->find_template_post_id( $post_type, $scan );
+		$field_maps = array();
+
+		foreach ( $questions as $question ) {
+			$type        = 'MCQ' === ( $question['type'] ?? '' ) ? 'MCQ' : 'DragDrop';
+			$template_id = 'MCQ' === $type ? 0 : $dragdrop_template_id;
+
+			if ( ! isset( $field_maps[ $type ] ) ) {
+				$field_maps[ $type ] = $template_id
+					? $this->resolve_population_fields( $template_id, $post_type, $type )
+					: $this->resolve_population_fields_without_template( $post_type, $type );
+			}
+			$field_map = $field_maps[ $type ];
+			if ( is_wp_error( $field_map ) ) {
+				$failed[] = sprintf( '%s: %s', (string) ( $question['questionId'] ?? '?' ), $field_map->get_error_message() );
+				continue;
+			}
+
+			$result = $this->populate_one( $question, $post_type, $template_id, $field_map, $final_status );
+			if ( is_wp_error( $result ) ) {
+				$failed[] = sprintf( '%s: %s', (string) ( $question['questionId'] ?? '?' ), $result->get_error_message() );
+				continue;
+			}
+			$successful_keys[] = (string) ( $question['key'] ?? '' );
+			$created[] = $result;
+		}
+
+		return array( 'created' => $created, 'failed' => $failed, 'successfulKeys' => $successful_keys );
+	}
+
+	/**
+	 * Create one real Reference List or Citations record (per $post_type)
+	 * from one validated pending record.
 	 */
 	private function populate_one( $question, $post_type, $template_id, $field_map, $final_status ) {
 		$title = sanitize_text_field( (string) ( $question['title'] ?? '' ) );
@@ -334,7 +397,7 @@ class Citex_Populator {
 			)
 		);
 		if ( ! empty( $duplicates ) ) {
-			return new WP_Error( 'citex_duplicate_question', 'A Reference List record with this exact title already exists.' );
+			return new WP_Error( 'citex_duplicate_question', 'A record with this exact title already exists in this post type.' );
 		}
 
 		$template = get_post( $template_id );
