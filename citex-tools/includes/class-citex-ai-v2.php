@@ -129,6 +129,12 @@ class Citex_AI_V2 {
 		$quantity = max( 1, min( 100, absint( $args['quantity'] ?? 10 ) ) );
 		$difficulty = sanitize_key( $args['difficulty'] ?? 'medium' );
 		$verify = isset( $args['web_verify'] ) ? (bool) $args['web_verify'] : self::web_verification_enabled();
+		// 'mla' is the only other supported referencing style — anything else
+		// (including the default) stays the original Harvard path. MLA is
+		// currently Book-only (Phase 1) — Citex_Generator itself restricts
+		// $category to 'book' whenever style is 'mla', so this never needs
+		// checking again below.
+		$style = 'mla' === sanitize_key( $args['style'] ?? 'harvard' ) ? 'mla' : 'harvard';
 		// 'MCQ' is the only other supported type — anything else (including the
 		// default) is the original DragDrop path, so this can never silently
 		// switch an existing caller onto a different question shape. Same
@@ -200,9 +206,9 @@ class Citex_AI_V2 {
 		for ( $attempt = 1; $attempt <= self::MAX_GENERATION_ATTEMPTS; $attempt++ ) {
 			$body = array(
 				'model' => self::get_model(),
-				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction, $scenario_id, $exercise_design ),
-				'system_instruction' => self::system_instruction_for( $type, $category, $scenario_id ),
-				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => self::schema_for( $type, $category, $scenario_id ) ) ),
+				'input' => self::build_prompt_for( $type, $category, $ids, $difficulty, $verify, $last_error, $scenario_instruction, $scenario_id, $exercise_design, $style ),
+				'system_instruction' => self::system_instruction_for( $type, $category, $scenario_id, $style ),
+				'response_format' => array( array( 'type' => 'text', 'mime_type' => 'application/json', 'schema' => self::schema_for( $type, $category, $scenario_id, $style ) ) ),
 				'generation_config' => array( 'max_output_tokens' => max( 4000, min( 24000, $quantity * 650 ) ) ),
 			);
 			if ( $verify ) { $body['tools'] = array( array( 'type' => 'google_search' ) ); }
@@ -222,7 +228,7 @@ class Citex_AI_V2 {
 			$questions = isset( $decoded['questions'] ) && is_array( $decoded['questions'] ) ? $decoded['questions'] : array();
 			if ( count( $questions ) !== $quantity ) { $last_error = sprintf( 'The previous attempt returned %d questions instead of %d. Return exactly %d.', count( $questions ), $quantity, $quantity ); continue; }
 			$normalise_start = $debug ? microtime( true ) : 0;
-			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested, $exercise_design );
+			$result = self::normalise( $questions, $ids, $difficulty, $exercises, $type, $category, $target_count, $scenario_id, $rule_tested, $exercise_design, $style );
 			if ( $debug ) { error_log( sprintf( 'Citex AI: attempt %d/%d normalise took %.2fs', $attempt, self::MAX_GENERATION_ATTEMPTS, microtime( true ) - $normalise_start ) ); }
 			if ( is_wp_error( $result ) ) { $last_error = $result->get_error_message(); continue; }
 
@@ -283,6 +289,9 @@ class Citex_AI_V2 {
 			if ( 'website_mcq_variant' === $mcq_pattern && in_array( $candidate['websiteMcqVariant'] ?? '', Citex_Website_Mcq_Variants::website_independent_answer_variants(), true ) ) {
 				continue;
 			}
+			if ( 'mla_book_mcq_variant' === $mcq_pattern && in_array( $candidate['mlaBookMcqVariant'] ?? '', Citex_MLA_Book_Mcq_Variants::mla_book_independent_answer_variants(), true ) ) {
+				continue;
+			}
 			$reference = (string) ( $candidate['reconstructedReference'] ?? '' );
 			if ( Citex_Question_Diversity::is_duplicate_reference( $reference, $existing_references ) || Citex_Question_Diversity::is_duplicate_reference( $reference, $seen_in_batch ) ) {
 				return $reference;
@@ -299,7 +308,12 @@ class Citex_AI_V2 {
 	 * methods) — the request/response handling in generate_questions() above
 	 * never changes.
 	 */
-	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction = '', $scenario_id = '', $exercise_design = 'full_reference' ) {
+	private static function build_prompt_for( $type, $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction = '', $scenario_id = '', $exercise_design = 'full_reference', $style = 'harvard' ) {
+		if ( 'mla' === $style ) {
+			return 'MCQ' === $type
+				? self::build_prompt_mla_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+				: self::build_prompt_mla_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+		}
 		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
 			return self::build_prompt_identify_error( $category, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 		}
@@ -392,7 +406,10 @@ class Citex_AI_V2 {
 		return "AUTHOR TYPE AND DATE FOR THIS BATCH — CRITICAL:\n" . implode( "\n", $lines );
 	}
 
-	private static function schema_for( $type, $category, $scenario_id = '' ) {
+	private static function schema_for( $type, $category, $scenario_id = '', $style = 'harvard' ) {
+		if ( 'mla' === $style ) {
+			return 'MCQ' === $type ? self::schema_mla_book_mcq_variant() : self::schema_mla_book_dragdrop();
+		}
 		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
 			return self::schema_identify_error( $category );
 		}
@@ -411,7 +428,10 @@ class Citex_AI_V2 {
 		return 'MCQ' === $type ? self::schema_book_mcq_variant() : self::schema_book_dragdrop();
 	}
 
-	private static function system_instruction_for( $type, $category, $scenario_id = '' ) {
+	private static function system_instruction_for( $type, $category, $scenario_id = '', $style = 'harvard' ) {
+		if ( 'mla' === $style ) {
+			return self::system_instruction_mla_book( $type );
+		}
 		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
 			return self::system_instruction_identify_error( $category );
 		}
@@ -436,6 +456,24 @@ class Citex_AI_V2 {
 		return 'MCQ' === $type
 			? 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Book bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book — never a different edition or a different book, and never a different number of authors than the real book actually has. You are NOT asked for a scenario, question text, options, or a correct answer of any kind; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, drawing on a fixed catalogue of Harvard book-formatting rules (author joining and ordering, publication year formatting, place/publisher ordering, overall reference structure, and more) that varies from question to question. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: authorFullNames, year, bookTitle, place and publisher all describe the same book with no contradictions, and the real author count. Return only the requested JSON.'
 			: 'You are Citex, an academic question-generation engine. Generate usable Harvard ReferenceList Book DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book, and the scenario text must explicitly name that same title, EVERY author\'s full name, the same year, place and publisher — never a different edition, a different book, or a different number of authors than the real book actually has. Vary the place of publication GLOBALLY across the batch — never default to London (or any single city) for every question; spread it realistically across cities worldwide (UK and beyond) consistent with each real publisher\'s actual offices. You are NOT asked for questionParts, fixedText, or any distractor/confusingWords list at all; Citex builds the ENTIRE draggable question itself — deterministically, from this canonical record alone — deciding which 3 parts a student must drag into place (possibly including the joining word "and", not just whole bibliographic fields) and every wrong chip, covering a range of different Harvard book-formatting rules across the batch. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through. CRITICAL — the scenario must state every author\'s full real name naturally (for example "Alan Cole" or "Alan Cole and Jo Kaur") and must NEVER state, label, or abbreviate any author\'s initials or surname separately, must NEVER show a completed or abbreviated Harvard reference (never write anything like "Cole, A." or "Cole et al."), and must NEVER use the words "initial" or "surname" — the student must derive the initials and the Harvard format themselves from the full name(s) you provide. Before returning each question, perform a strict self-check: scenario, authorFullNames, year, bookTitle, place and publisher must all describe the same book with no contradictions; and the scenario must not reveal any answer value by labelling it as a surname, initial, year blank, title blank, or reference component. Return only the requested JSON.';
+	}
+
+	/**
+	 * MLA counterpart to system_instruction_for_book() — Phase 1: Book
+	 * only. The same "one canonical real record, Citex constructs the
+	 * reference itself" framing, but for MLA's genuinely different Book
+	 * rule (see Citex_MLA_Reference_Rules's own docblock): the FULL first
+	 * name is used (never an initial), there is no place of publication at
+	 * all, and three or more authors collapse to "et al." after the first
+	 * (the opposite of Harvard's own "always list every author in full"
+	 * rule) — Citex derives the surname and full given name itself from
+	 * each authorFullNames entry, exactly as Harvard's own
+	 * derive_author_parts() derives surname/initials.
+	 */
+	private static function system_instruction_mla_book( $type ) {
+		return 'MCQ' === $type
+			? 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Book bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles and years may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle and publisher must all describe ONE single, internally consistent book — never a different edition or a different book, and never a different number of authors than the real book actually has. There is no place of publication at all in MLA style — do not provide one. You are NOT asked for a scenario, question text, options, or a correct answer of any kind; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, drawing on a fixed catalogue of MLA book-formatting rules (the full first-name requirement, author joining and the "et al." rule for three or more authors, publisher/year ordering and punctuation, overall reference structure, and more) that varies from question to question. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: authorFullNames, year, bookTitle and publisher all describe the same book with no contradictions, and the real author count. Return only the requested JSON.'
+			: 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Book DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles and years may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle and publisher must all describe ONE single, internally consistent book, and the scenario text must explicitly name that same title, EVERY author\'s full name, the same year, and the same publisher — never a different edition, a different book, or a different number of authors than the real book actually has. There is no place of publication at all in MLA style — do not provide one. You are NOT asked for questionParts, fixedText, or any distractor/confusingWords list at all; Citex builds the ENTIRE draggable question itself — deterministically, from this canonical record alone — deciding which 3 parts a student must drag into place (possibly including the joining word "and"/"et al.", not just whole bibliographic fields) and every wrong chip, covering a range of different MLA book-formatting rules across the batch. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through. CRITICAL — the scenario must state every author\'s full real name naturally (for example "Alan Cole" or "Alan Cole and Jo Kaur") and must NEVER state, label, or abbreviate any author\'s given name separately, must NEVER show a completed or abbreviated MLA reference (never write anything like "Cole, Alan." or "Cole et al."), and must NEVER use the word "surname" — the student must derive the MLA format themselves from the full name(s) you provide. Before returning each question, perform a strict self-check: scenario, authorFullNames, year, bookTitle and publisher must all describe the same book with no contradictions; and the scenario must not reveal any answer value. Return only the requested JSON.';
 	}
 
 	/**
@@ -580,6 +618,35 @@ class Citex_AI_V2 {
 	private static function build_prompt_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Harvard / ReferenceList / Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Cole\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Keep the author count consistent throughout the question. Do NOT provide a surname or initials separately for any author — Citex derives both itself from each full name.\n- The scenario MUST explicitly state that same bookTitle, EVERY author's full name, the same year, the same place and the same publisher. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nMULTIPLE AUTHORS — LIVERPOOL HOPE'S REFERENCE-LIST RULE:\n- For the reference list (which is the only thing this question generates), EVERY author is always listed in full — 2 authors are joined with \"and\"; 3 or more are comma-separated with \"and\" before the final author; this never changes at 4 or more authors.\n- \"et al.\" must NEVER appear in the reference-list entry, for any author count. (\"et al.\" is Harvard's separate IN-TEXT-CITATION convention for 4+ authors — this question never generates an in-text citation, only a reference-list entry, so that abbreviation does not belong here at all.)\n- Citex constructs the joined author list itself from authorFullNames — you never write the joined form yourself.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are creating a reference for a book titled...' or 'You are referencing a book titled...'.\n- State the book title, EVERY author's FULL NAME, publication year, publisher and publication place.\n- Prefer concise real book titles; never truncate or alter the actual bibliographic title.\n- The scenario MUST NOT state, label, or abbreviate any author's initials or surname separately, MUST NOT use the words \"initial\" or \"initials\" or \"surname\" anywhere, and MUST NOT show any completed or abbreviated Harvard reference (e.g. never write \"Cole, A.\", \"Cole, A. (2012)\", or \"Cole et al.\").\n- GOOD (one author): \"You are referencing the book titled Social Research Methods by Alan Cole, published in 2012 by Oxford University Press in Oxford.\"\n- GOOD (two authors): \"You are referencing a book titled Understanding digital culture by Vincent Dale and Jo Kaur, published in 2020 by SAGE Publications in London.\"\n- BAD: \"...by Alan Cole (initials A.), published in 2012...\" — reveals the initials directly.\n- BAD: \"...by Cole, A., published in 2012...\" — states the abbreviated citation form directly.\n- BAD: \"...by Smith et al., published in 2020...\" — states the in-text-citation abbreviation directly, and is also not how the reference-list entry is written.\n- BAD: \"The author's surname is Cole and his initials are A.\" — explicitly labels both answers.\n- A full author name naturally containing the surname (e.g. \"Alan Cole\") is correct and required — the failure is explicitly labelling or abbreviating an answer value, not the surname appearing as part of the full name.\n- The student must transform the full bibliographic information you give into the Harvard reference themselves; do not do that transformation for them anywhere in the scenario.\n\nYou are NOT asked for questionParts, fixedText, or any distractor/confusingWords list — Citex builds the whole draggable question itself (which 3 parts are drawn from the record — possibly including the joining word \"and\" — Fixed Text, and every wrong chip), deterministically, after you respond. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. The scenario states every author's full name naturally and never the words \"initial\"/\"initials\"/\"surname\", and never a completed, abbreviated, or \"et al.\" reference.\n3. place and publisher are each a genuinely global/varied choice for this batch, not a repeat of a prior question's place or publisher.\n4. Only return questions that pass all three checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::place_publisher_diversity_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * MLA Book DragDrop prompt — mirrors build_prompt_book_dragdrop()'s
+	 * "Gemini supplies only the canonical record and a non-leaking
+	 * scenario" structure, but for MLA's own rule: no place of
+	 * publication at all, and authorFullNames' given names are kept in
+	 * FULL by Citex (never reduced to initials — see
+	 * Citex_AI_V2::derive_mla_author_parts()).
+	 */
+	private static function build_prompt_mla_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Cole\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Keep the author count consistent throughout the question. Do NOT provide a surname separately for any author — Citex derives it itself from each full name, keeping the given name in full (MLA never abbreviates a first name to an initial).\n- There is no place of publication at all in MLA style — do NOT provide one.\n- The scenario MUST explicitly state that same bookTitle, EVERY author's full name, the same year and the same publisher. Citex independently checks the scenario text against these fields and rejects the question if any of them is not named in the scenario.\n\nMULTIPLE AUTHORS — MLA'S WORKS-CITED RULE (the opposite of Harvard's):\n- For the reference list (which is the only thing this question generates), only the FIRST author's name is ever inverted; a second author (exactly 2) keeps their natural word order, joined by \"and\". For 3 or more authors, every author AFTER the first is dropped from the reference entirely, replaced by \"et al.\" — Citex constructs this itself; you never write the joined form yourself, and you must still provide every real author's full name in authorFullNames regardless of how many will actually appear in the constructed reference.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, preferably under 220 characters.\n- Use natural wording such as 'You are creating a reference for a book titled...' or 'You are referencing a book titled...'.\n- State the book title, EVERY author's FULL NAME, publication year and publisher.\n- Prefer concise real book titles; never truncate or alter the actual bibliographic title.\n- The scenario MUST NOT state, label, or abbreviate any author's given name separately, MUST NOT use the word \"surname\" anywhere, and MUST NOT show any completed or abbreviated MLA reference (e.g. never write \"Cole, Alan.\", \"Cole, Alan. The Great Adventure.\", or \"Cole et al.\").\n- GOOD (one author): \"You are referencing the book titled Social Research Methods by Alan Cole, published in 2012 by Oxford University Press.\"\n- GOOD (two authors): \"You are referencing a book titled Understanding digital culture by Vincent Dale and Jo Kaur, published in 2020 by SAGE Publications.\"\n- BAD: \"...by Cole, Alan., published in 2012...\" — states the abbreviated citation form directly.\n- BAD: \"...by Smith et al., published in 2020...\" — states the answer's own abbreviation directly.\n- The student must transform the full bibliographic information you give into the MLA reference themselves; do not do that transformation for them anywhere in the scenario.\n\nYou are NOT asked for questionParts, fixedText, or any distractor/confusingWords list — Citex builds the whole draggable question itself (which 3 parts are drawn from the record — possibly including \"and\"/\"et al.\" — Fixed Text, and every wrong chip), deterministically, after you respond. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, bookTitle and publisher all describe the exact same book — no contradictions, and the real author count.\n2. The scenario states every author's full name naturally and never the word \"surname\", and never a completed or abbreviated reference.\n3. publisher is a genuinely varied real choice for this batch, not a repeat of a prior question's publisher.\n4. Only return questions that pass all three checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::publisher_diversity_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * MLA Book MCQ prompt — mirrors build_prompt_book_mcq_variant()
+	 * exactly: Gemini supplies ONLY the canonical record, and
+	 * Citex_MLA_Book_Mcq_Variants builds the entire question.
+	 */
+	private static function build_prompt_mla_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Book bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Cole\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Use the book's true author count. Do NOT provide a surname separately for any author — Citex derives it itself from each full name, keeping the given name in full.\n- There is no place of publication at all in MLA style — do NOT provide one.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself (the stem and all 4 options) from this canonical record alone, covering a range of different MLA book-formatting rules across the batch. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, bookTitle and publisher all describe the exact same book — no contradictions, and the real author count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::publisher_diversity_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -919,6 +986,31 @@ class Citex_AI_V2 {
 	}
 
 	/**
+	 * MLA Book DragDrop schema — same shape as schema_book_dragdrop() but
+	 * with no `place` property at all (MLA has none).
+	 */
+	private static function schema_mla_book_dragdrop() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'scenario' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'publisher' => $s,
+		), 'required' => array( 'questionId','scenario','authorFullNames','year','bookTitle','publisher' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/**
+	 * MLA Book MCQ schema — mirrors schema_book_mcq_variant() exactly,
+	 * minus `place`. No `distractors` property at all —
+	 * Citex_MLA_Book_Mcq_Variants::build() constructs the entire question —
+	 * stem, all 4 options, and the answer — deterministically from this
+	 * record alone.
+	 */
+	private static function schema_mla_book_mcq_variant() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'publisher' => $s,
+		), 'required' => array( 'questionId','authorFullNames','year','bookTitle','publisher' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/**
 	 * Journal Article DragDrop schema — same shape as schema() (Book) but
 	 * with articleTitle/journalTitle/volume/issue/pages replacing
 	 * bookTitle/place/publisher; there is no place/publisher concept for a
@@ -1110,6 +1202,24 @@ class Citex_AI_V2 {
 		}
 		return array( 'surname' => $surname, 'initials' => $initials );
 	}
+
+	/**
+	 * MLA's own counterpart to derive_author_parts() — Citex is the sole
+	 * authority for the author's surname here too, but keeps the FULL given
+	 * name(s) rather than reducing them to initials (MLA never abbreviates
+	 * a first name — see Citex_MLA_Reference_Rules's own docblock).
+	 *
+	 * @return array{surname: string, givenName: string}|WP_Error
+	 */
+	private static function derive_mla_author_parts( $full_name ) {
+		$full_name = trim( preg_replace( '/\s+/', ' ', (string) $full_name ) );
+		$tokens = '' === $full_name ? array() : array_values( array_filter( explode( ' ', $full_name ), 'strlen' ) );
+		if ( count( $tokens ) < 2 ) {
+			return new WP_Error( 'citex_ai_incomplete_author_name', __( 'Author full name must include at least one given name and a surname.', 'citex-tools' ) );
+		}
+		$surname = array_pop( $tokens );
+		return array( 'surname' => $surname, 'givenName' => implode( ' ', $tokens ) );
+	}
 	private static function build_ids( $start, $quantity, $used_ids ) {
 		if ( ! preg_match( '/^([A-Z]+)(\d+)$/', $start, $m ) ) { return new WP_Error( 'citex_ai_bad_start_id', __( 'Starting ID must look like BK01, BK25, or BOOK001.', 'citex-tools' ) ); }
 		$prefix = $m[1]; $number = absint( $m[2] ); $width = max( 2, strlen( $m[2] ) ); $used = array(); foreach ( $used_ids as $id ) { $used[ strtoupper( trim( (string) $id ) ) ] = true; }
@@ -1127,7 +1237,7 @@ class Citex_AI_V2 {
 		}
 		return $count;
 	}
-	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null, $target_count = null, $scenario_id = '', $rule_tested = '', $exercise_design = 'full_reference' ) {
+	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null, $target_count = null, $scenario_id = '', $rule_tested = '', $exercise_design = 'full_reference', $style = 'harvard' ) {
 		$category = $category ?: Citex_Reference_Rules::CATEGORY_BOOK;
 		$out = array();
 		foreach ( $questions as $i => $item ) {
@@ -1289,6 +1399,27 @@ class Citex_AI_V2 {
 				$candidate = 'MCQ' === $type
 					? self::normalise_website_mcq_variant_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $exercise, $difficulty )
 					: self::normalise_website_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $scenario, $exercise, $difficulty );
+			} elseif ( 'mla' === $style ) {
+				// MLA (Phase 1: Book only) — mirrors the Harvard Book branch
+				// below exactly, just deriving each author's SURNAME and FULL
+				// GIVEN NAME (never initials — see
+				// Citex_MLA_Reference_Rules's own docblock) and never reading
+				// $place, since MLA's Book rule has no place-of-publication
+				// element at all.
+				if ( '' === $scenario || '' === $year || '' === $title || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
+				$author_names = array_values( array_filter( array_map( 'trim', (array) ( $item['authorFullNames'] ?? array() ) ), 'strlen' ) );
+				if ( empty( $author_names ) || count( $author_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_author_count', sprintf( __( 'Question %s must have 1 or more authors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $author_names ) ) ); }
+				if ( null !== $target_count && count( $author_names ) !== $target_count ) { return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d authors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $author_names ) ) ); }
+				$authors = array();
+				foreach ( $author_names as $author_full_name ) {
+					$author_parts = self::derive_mla_author_parts( $author_full_name );
+					if ( is_wp_error( $author_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $author_parts->get_error_message() ) ); }
+					$authors[] = array( 'fullName' => $author_full_name, 'surname' => $author_parts['surname'], 'givenName' => $author_parts['givenName'] );
+				}
+
+				$candidate = 'MCQ' === $type
+					? self::normalise_mla_book_mcq_variant_item( $item, $id, $authors, $year, $title, $publisher, $exercise, $difficulty )
+					: self::normalise_mla_book_dragdrop_item( $item, $id, $authors, $year, $title, $publisher, $scenario, $exercise, $difficulty );
 			} else {
 				if ( '' === $scenario || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
 				// Harvard's reference-list rule (confirmed): a Book can
@@ -1556,6 +1687,60 @@ class Citex_AI_V2 {
 
 		$author_full_names = array_column( $authors, 'fullName' );
 		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Harvard | ReferenceList | Book | MCQ | %s', $id ), 'source' => 'Harvard', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Harvard', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'book_mcq_variant', 'bookMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'initials' => sanitize_text_field( $author['initials'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorInitials' => sanitize_text_field( $authors[0]['initials'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * MLA counterpart to normalise_book_dragdrop_item() — Phase 1: Book
+	 * only. Citex — not Gemini — authors the ENTIRE MLA Book DragDrop
+	 * question via Citex_MLA_Book_Dragdrop_Parts, from the canonical
+	 * record's authors/year/title/publisher — there is no `place` field at
+	 * all in this record shape (see Citex_MLA_Reference_Rules's own
+	 * docblock). Field naming otherwise mirrors normalise_book_dragdrop_item()
+	 * exactly (same key names) for consistent downstream data handling,
+	 * except each author holds `givenName` (the full first name) instead
+	 * of `initials`, and there is a new `mlaBookMcqVariant`-style
+	 * `dragdropPartKeys` field reused verbatim from Book's own convention.
+	 *
+	 * @param array $authors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_mla_book_dragdrop_item( $item, $id, $authors, $year, $title, $publisher, $scenario, $exercise, $difficulty ) {
+		$fields = array( 'year' => $year, 'title' => $title, 'publisher' => $publisher );
+		$selected_keys = Citex_MLA_Book_Dragdrop_Parts::select_parts( $id, $authors );
+		$built = Citex_MLA_Book_Dragdrop_Parts::build( $selected_keys, $authors, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_mla_book_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build MLA Book DragDrop parts for this record.', 'citex-tools' ), $id ) );
+		}
+		$reference = Citex_MLA_Reference_Rules::build_reference( Citex_MLA_Reference_Rules::CATEGORY_BOOK, array_merge( $fields, array( 'authors' => $authors ) ) );
+		$author_full_names = array_column( $authors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MLA | ReferenceList | Book | DragDrop | %s', $id ), 'source' => 'MLA', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'MLA', 'difficulty' => ucfirst( $difficulty ), 'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorGivenName' => sanitize_text_field( $authors[0]['givenName'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * MLA counterpart to normalise_book_mcq_variant_item() — Phase 1: Book
+	 * only. Citex — not Gemini — authors the ENTIRE MLA Book MCQ question
+	 * via Citex_MLA_Book_Mcq_Variants::build(), from the canonical record's
+	 * authors/year/title/publisher.
+	 *
+	 * @param array $authors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_mla_book_mcq_variant_item( $item, $id, $authors, $year, $title, $publisher, $exercise, $difficulty ) {
+		$fields = array( 'authors' => $authors, 'year' => $year, 'title' => $title, 'publisher' => $publisher );
+		$variant = Citex_MLA_Book_Mcq_Variants::variant_for( $id, count( $authors ) );
+		$built   = Citex_MLA_Book_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_mla_book_mcq_variant_unknown', sprintf( __( 'Question %1$s: unrecognised MLA Book MCQ variant "%2$s".', 'citex-tools' ), $id, $variant ) );
+		}
+
+		$options = $built['wrongOptions'];
+		$options[] = '';
+
+		$hint = Citex_MLA_Reference_Rules::mcq_hint( Citex_MLA_Reference_Rules::CATEGORY_BOOK );
+		$answer_explanation = sprintf( 'This question tests the "%s" MLA formatting rule.', $variant );
+
+		$author_full_names = array_column( $authors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MLA | ReferenceList | Book | MCQ | %s', $id ), 'source' => 'MLA', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'MLA', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'mla_book_mcq_variant', 'mlaBookMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorGivenName' => sanitize_text_field( $authors[0]['givenName'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
 	}
 
 	/**

@@ -18,14 +18,21 @@ class Citex_Generator {
 	public function render() {
 		$this->maybe_handle_submit();
 
-		$referencing_styles = array( 'harvard' => 'Harvard' );
-		$institutions       = array( 'harvard' => 'Harvard (General)' );
+		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA' );
+		$institutions       = array( 'harvard' => 'Harvard (General)', 'mla' => 'MLA (General)' );
 		$categories         = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 		$id_prefixes        = array(
 			'book'            => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
 			'edited_book'     => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_EDITED_BOOK ),
 			'journal_article' => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
 			'website'         => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_WEBSITE ),
+		);
+		// MLA is Book-only for now (Phase 1) — every other category keeps
+		// its Harvard-only prefix above; the admin UI's JS below picks
+		// whichever of the two prefixes matches the currently selected
+		// Referencing Style.
+		$mla_id_prefixes    = array(
+			'book' => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_BOOK ),
 		);
 		$question_types     = array( 'dragdrop' => 'DragDrop', 'mcq' => 'MCQ' );
 		$difficulties       = array( 'easy' => 'Easy', 'medium' => 'Medium', 'hard' => 'Hard' );
@@ -187,9 +194,13 @@ class Citex_Generator {
 
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 
-		$quantity = max( 1, min( 100, $quantity ) );
-		if ( 'harvard' !== $style || 'harvard' !== $institution || ! isset( $category_labels[ $category ] ) || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Harvard → Book, Edited Book, Journal Article or Website → DragDrop or MCQ.', 'citex-tools' ), 'error' );
+		$quantity      = max( 1, min( 100, $quantity ) );
+		$style_pair_ok = ( 'harvard' === $style && 'harvard' === $institution ) || ( 'mla' === $style && 'mla' === $institution );
+		// Phase 1: MLA only supports Book — every other category stays
+		// Harvard-only until its own MLA pass lands.
+		$category_ok = isset( $category_labels[ $category ] ) && ( 'mla' !== $style || 'book' === $category );
+		if ( ! $style_pair_ok || ! $category_ok || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
+			Citex_Admin::set_notice( __( 'The current AI generator supports Harvard → Book, Edited Book, Journal Article or Website → DragDrop or MCQ, or MLA → Book → DragDrop or MCQ.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
@@ -197,12 +208,12 @@ class Citex_Generator {
 		}
 
 		$category_label = $category_labels[ $category ];
-		$starting_id    = self::normalise_starting_id( $starting_id, $category_label );
+		$starting_id    = self::normalise_starting_id( $starting_id, $category_label, $style );
 
 		$type_label  = 'mcq' === $type ? 'MCQ' : 'DragDrop';
 		$pending     = self::get_pending_questions();
 		$used_ids    = $this->collect_used_question_ids( $pending );
-		$result      = $this->generate_via_scenarios( $category_label, $category, $type_label, $type, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending );
+		$result      = $this->generate_via_scenarios( $category_label, $category, $type_label, $type, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style );
 
 		if ( is_wp_error( $result ) ) {
 			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
@@ -256,7 +267,7 @@ class Citex_Generator {
 	 *
 	 * @return array|WP_Error
 	 */
-	private function generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending ) {
+	private function generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style = 'harvard' ) {
 		// Citex — not Gemini — assigns each slot's Exercise and scenario,
 		// deterministically, before generation even starts. Gemini's
 		// response schema carries no exercise field, and is never trusted
@@ -299,6 +310,7 @@ class Citex_Generator {
 					'category'             => $category_key,
 					'scenario'             => $scenario_id,
 					'existing_references'  => $existing_references,
+					'style'                => $style,
 				)
 			);
 
@@ -406,9 +418,11 @@ class Citex_Generator {
 	 * be tested directly, unlike handle_generation() itself which redirects
 	 * (and exits) on every path.
 	 */
-	public static function normalise_starting_id( $starting_id, $category_label ) {
-		$starting_id      = strtoupper( trim( (string) $starting_id ) );
-		$expected_prefix  = Citex_Reference_Rules::id_prefix( $category_label );
+	public static function normalise_starting_id( $starting_id, $category_label, $style = 'harvard' ) {
+		$starting_id     = strtoupper( trim( (string) $starting_id ) );
+		$expected_prefix = 'mla' === $style
+			? Citex_MLA_Reference_Rules::id_prefix( $category_label )
+			: Citex_Reference_Rules::id_prefix( $category_label );
 		if ( 0 !== strpos( $starting_id, $expected_prefix ) ) {
 			return $expected_prefix . '01';
 		}

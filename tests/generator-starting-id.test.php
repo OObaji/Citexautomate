@@ -37,6 +37,7 @@ function update_option( $key, $value, $autoload = null ) {
 }
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-mla-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-populator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generator.php';
 
@@ -102,6 +103,30 @@ check( '[5] a lower-case, wrongly-prefixed ID is corrected to a fresh start', Ci
 // ---------------------------------------------------------------------
 check( '[6] an empty starting ID resolves to a fresh Book start', Citex_Generator::normalise_starting_id( '', Citex_Reference_Rules::CATEGORY_BOOK ), 'BK01' );
 check( '[6] garbage input resolves to a fresh Edited Book start', Citex_Generator::normalise_starting_id( '???', Citex_Reference_Rules::CATEGORY_EDITED_BOOK ), 'ED01' );
+
+// ---------------------------------------------------------------------
+// 7. MLA Book gets its own "MB" prefix, distinct from Harvard Book's "BK"
+// — normalise_starting_id()'s new $style parameter routes to
+// Citex_MLA_Reference_Rules::id_prefix() instead of Harvard's own when
+// $style is 'mla', so the two styles' Book questions can never collide
+// on the same pending-queue ID space.
+// ---------------------------------------------------------------------
+check( '[7] MLA Book\'s ID prefix is "MB"', Citex_MLA_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ), 'MB' );
+check(
+	'[7] a Harvard Book default ("BK01") is auto-corrected to "MB01" when MLA is selected',
+	Citex_Generator::normalise_starting_id( 'BK01', Citex_Reference_Rules::CATEGORY_BOOK, 'mla' ),
+	'MB01'
+);
+check(
+	'[7] an MLA-prefixed ID the admin deliberately typed ("MB05") is left untouched',
+	Citex_Generator::normalise_starting_id( 'MB05', Citex_Reference_Rules::CATEGORY_BOOK, 'mla' ),
+	'MB05'
+);
+check(
+	'[7] omitting $style defaults to Harvard\'s own "BK" prefix (no behaviour change for existing callers)',
+	Citex_Generator::normalise_starting_id( 'MB01', Citex_Reference_Rules::CATEGORY_BOOK ),
+	'BK01'
+);
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

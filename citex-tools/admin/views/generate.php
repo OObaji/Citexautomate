@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<table class="form-table" role="presentation">
 			<tr><th scope="row"><label for="citex_referencing_style"><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></label></th><td><select id="citex_referencing_style" name="citex_referencing_style"><?php foreach ( $referencing_styles as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_institution"><?php esc_html_e( 'Institution / Referencing Rules', 'citex-tools' ); ?></label></th><td><select id="citex_institution" name="citex_institution"><?php foreach ( $institutions as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
+			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>" data-mla-id-prefix="<?php echo esc_attr( $mla_id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_question_type"><?php esc_html_e( 'Question Type', 'citex-tools' ); ?></label></th><td><select id="citex_question_type" name="citex_question_type"><?php foreach ( $question_types as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'medium', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_starting_id"><?php esc_html_e( 'Starting Question ID', 'citex-tools' ); ?></label></th><td><input type="text" id="citex_starting_id" name="citex_starting_id" value="<?php echo esc_attr( ( $id_prefixes['book'] ?? 'BK' ) . '01' ); ?>" class="regular-text" /><p class="description"><?php esc_html_e( 'Each category has its own ID prefix (e.g. BK for Book, ED for Edited Book, JA for Journal Article, WR for Website) and starts its own numbering fresh at 01 — updates automatically when you change Category. Existing Reference List and pending IDs within that category are skipped automatically.', 'citex-tools' ); ?></p></td></tr>
@@ -40,19 +40,28 @@ if ( ! defined( 'ABSPATH' ) ) {
 		// (e.g. "ED05" to resume a gap) is left alone.
 		var categorySelect = document.getElementById( 'citex_category' );
 		var startingIdField = document.getElementById( 'citex_starting_id' );
+		var styleSelect = document.getElementById( 'citex_referencing_style' );
 		if ( ! categorySelect || ! startingIdField ) {
 			return;
 		}
-		categorySelect.addEventListener( 'change', function () {
+		function syncStartingId() {
 			var option = categorySelect.options[ categorySelect.selectedIndex ];
-			var prefix = option ? option.getAttribute( 'data-id-prefix' ) : '';
+			if ( ! option ) {
+				return;
+			}
+			var isMla = styleSelect && 'mla' === styleSelect.value;
+			var prefix = option.getAttribute( isMla ? 'data-mla-id-prefix' : 'data-id-prefix' );
 			if ( ! prefix ) {
 				return;
 			}
 			if ( /^[A-Z]+01$/.test( startingIdField.value.trim().toUpperCase() ) ) {
 				startingIdField.value = prefix + '01';
 			}
-		} );
+		}
+		categorySelect.addEventListener( 'change', syncStartingId );
+		if ( styleSelect ) {
+			styleSelect.addEventListener( 'change', syncStartingId );
+		}
 	} )();
 	</script>
 

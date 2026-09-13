@@ -23,14 +23,14 @@ class Citex_Generated_Validator {
 	 */
 	public static function validate( $question ) {
 		if (
-			'Harvard' !== (string) ( $question['source'] ?? '' ) ||
+			! in_array( (string) ( $question['source'] ?? '' ), array( 'Harvard', 'MLA' ), true ) ||
 			'ReferenceList' !== (string) ( $question['group'] ?? '' ) ||
 			! Citex_Reference_Rules::is_known_category( (string) ( $question['category'] ?? '' ) )
 		) {
 			return self::result(
 				'failed',
 				array(
-					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book, Edited Book, Journal Article or Website, DragDrop or MCQ.' ),
+					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book, Edited Book, Journal Article or Website, DragDrop or MCQ, or MLA / ReferenceList / Book, DragDrop or MCQ.' ),
 				),
 				null
 			);
@@ -70,6 +70,14 @@ class Citex_Generated_Validator {
 			// reference-format sanity checks.
 			if ( 'book_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
 				return self::validate_book_mcq_variant( $question );
+			}
+			// MLA's own fixed Book MCQ catalogue (see
+			// Citex_MLA_Book_Mcq_Variants) — mirrors book_mcq_variant's
+			// identical move for MLA's own reference rules (full given name,
+			// "et al." for 3+ authors, no place). Routed the same way, on
+			// `mcqPattern`.
+			if ( 'mla_book_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_mla_book_mcq_variant( $question );
 			}
 			// Website's own fixed MCQ variant catalogue (see
 			// Citex_Website_Mcq_Variants) — replaces the original "select
@@ -115,7 +123,50 @@ class Citex_Generated_Validator {
 		// {parts, fixedText, confusingWords} can be recomputed from the
 		// record and the question's own stored `dragdropPartKeys`
 		// selection and compared exactly, rather than merely sanity-checked.
-		if ( Citex_Reference_Rules::CATEGORY_BOOK === $category ) {
+		$source = (string) ( $question['source'] ?? '' );
+
+		if ( Citex_Reference_Rules::CATEGORY_BOOK === $category && 'MLA' === $source ) {
+			// MLA's own Book DragDrop block — mirrors Harvard's Book block
+			// below exactly (recompute-and-exact-match via
+			// Citex_MLA_Book_Dragdrop_Parts from the stored
+			// `dragdropPartKeys` selection), just with no `place` field and
+			// no explicit part-count bound, matching the same precedent
+			// already set by Edited Book/Journal Article/Website (whose own
+			// Dragdrop_Parts classes always draw exactly 3 by construction
+			// too, so the exact-match check alone already catches any
+			// deviation without a separate bound check).
+			$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+			if ( empty( $authors ) ) {
+				$fallback_surname    = trim( (string) ( $question['authorSurname'] ?? '' ) );
+				$fallback_given_name = trim( (string) ( $question['authorGivenName'] ?? '' ) );
+				if ( '' !== $fallback_surname || '' !== $fallback_given_name ) {
+					$authors = array( array( 'surname' => $fallback_surname, 'givenName' => $fallback_given_name, 'fullName' => (string) ( $question['authorFullName'] ?? '' ) ) );
+				}
+			}
+			$mla_book_title = trim( (string) ( $question['bookTitle'] ?? '' ) );
+			if ( ! ( empty( $authors ) && '' === $mla_book_title ) ) {
+				$selected_keys = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$mla_fields    = array(
+					'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+					'title'     => $mla_book_title,
+					'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+				);
+				$expected_build = ( empty( $selected_keys ) || empty( $authors ) ) ? null : Citex_MLA_Book_Dragdrop_Parts::build( $selected_keys, $authors, $mla_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'MLA_BOOK_DRAGDROP_PARTS_UNKNOWN', 'The MLA Book DragDrop part selection (dragdropPartKeys) is missing, malformed, or names an author index out of range.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'MLA_BOOK_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'MLA_BOOK_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'MLA_BOOK_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
+				}
+			}
+		} elseif ( Citex_Reference_Rules::CATEGORY_BOOK === $category ) {
 			$part_count = count( $question_parts );
 			if ( $part_count < Citex_Reference_Rules::BOOK_DRAGDROP_MIN_PARTS || $part_count > Citex_Reference_Rules::BOOK_DRAGDROP_MAX_PARTS ) {
 				$errors[] = self::error(
@@ -304,7 +355,8 @@ class Citex_Generated_Validator {
 			: null;
 
 		$reference = $reconstruction['reference'];
-		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category, $question['place'] ?? null, $question['publisher'] ?? null, self::expected_designation_for( $question, $category ), self::expected_editor_join_for( $question, $category ), $exercise_design ) );
+		$style     = ( Citex_Reference_Rules::CATEGORY_BOOK === $category && 'MLA' === $source ) ? 'mla' : 'harvard';
+		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category, $question['place'] ?? null, $question['publisher'] ?? null, self::expected_designation_for( $question, $category ), self::expected_editor_join_for( $question, $category ), $exercise_design, $style ) );
 
 		$correct_lower = array_map(
 			function ( $value ) {
@@ -366,6 +418,9 @@ class Citex_Generated_Validator {
 	 * MCQ exactly as before; only the scenario-text block is skipped.
 	 */
 	private static function validate_consistency( $question, $question_parts, $reference, $category, $check_scenario = true ) {
+		if ( Citex_Reference_Rules::CATEGORY_BOOK === $category && 'MLA' === (string) ( $question['source'] ?? '' ) ) {
+			return self::validate_mla_bibliographic_consistency( $question, $reference, $check_scenario );
+		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return self::validate_edited_book_consistency( $question, $reference, $check_scenario );
 		}
@@ -926,6 +981,105 @@ class Citex_Generated_Validator {
 	}
 
 	/**
+	 * MLA counterpart to validate_book_mcq_variant() — same exact-match
+	 * rationale (every option is Citex-authored, deterministically, from
+	 * the canonical record via Citex_MLA_Book_Mcq_Variants, never
+	 * Gemini's), reshaped for MLA's own author-name convention: a full
+	 * given name (`givenName`), never Harvard's abbreviated `initials`,
+	 * and no `place` field at all.
+	 */
+	private static function validate_mla_book_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$variant = (string) ( $question['mlaBookMcqVariant'] ?? '' );
+		$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		if ( empty( $authors ) ) {
+			$fallback_surname    = trim( (string) ( $question['authorSurname'] ?? '' ) );
+			$fallback_given_name = trim( (string) ( $question['authorGivenName'] ?? '' ) );
+			if ( '' !== $fallback_surname || '' !== $fallback_given_name ) {
+				$authors = array( array( 'surname' => $fallback_surname, 'givenName' => $fallback_given_name, 'fullName' => (string) ( $question['authorFullName'] ?? '' ) ) );
+			}
+		}
+		$fields = array(
+			'authors'   => $authors,
+			'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+			'title'     => trim( (string) ( $question['bookTitle'] ?? '' ) ),
+			'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+		);
+		$expected = empty( $authors ) ? null : Citex_MLA_Book_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'MLA_BOOK_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised MLA Book MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'MLA_BOOK_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'MLA_BOOK_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'MLA_BOOK_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
 	 * Validates a Website MCQ question built from Citex_Website_Mcq_Variants
 	 * — replaces the original "select the correct reference" mechanic for
 	 * Website entirely, mirroring Book's own identical move (see
@@ -1081,7 +1235,7 @@ class Citex_Generated_Validator {
 	 * categories provide instead of this method growing a new branch each
 	 * time.
 	 */
-	private static function validate_reference_format( $reference, $category = null, $place = null, $publisher = null, $expected_designation = null, $expected_editor_join = null, $exercise_design = null ) {
+	private static function validate_reference_format( $reference, $category = null, $place = null, $publisher = null, $expected_designation = null, $expected_editor_join = null, $exercise_design = null, $style = 'harvard' ) {
 		$category = $category ?? Citex_Reference_Rules::CATEGORY_BOOK;
 		$errors   = array();
 
@@ -1118,8 +1272,17 @@ class Citex_Generated_Validator {
 		// Place: Publisher. for Book; Editor(s), I. (ed.|eds) (Year) Title.
 		// Place: Publisher. for Edited Book. $exercise_design only ever
 		// affects Journal Article — every other category ignores it.
-		if ( ! preg_match( Citex_Reference_Rules::format_regex( $category, $exercise_design ), $reference ) ) {
-			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+		// MLA Book uses its own shape entirely (Citex_MLA_Reference_Rules'
+		// own format_regex(), never Harvard's) — the only style/category
+		// combination this method currently supports besides Harvard's own.
+		$format_regex = ( 'mla' === $style && Citex_Reference_Rules::CATEGORY_BOOK === $category )
+			? Citex_MLA_Reference_Rules::format_regex( $category )
+			: Citex_Reference_Rules::format_regex( $category, $exercise_design );
+		if ( ! preg_match( $format_regex, $reference ) ) {
+			if ( 'mla' === $style && Citex_Reference_Rules::CATEGORY_BOOK === $category ) {
+				$code    = 'MLA_BOOK_FORMAT_MISMATCH';
+				$message = 'Citation does not match the MLA Book format.';
+			} elseif ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 				$code    = 'EDITED_BOOK_FORMAT_MISMATCH';
 				$message = 'Citation does not match the Harvard Edited Book format.';
 			} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
@@ -1418,6 +1581,99 @@ class Citex_Generated_Validator {
 				list( $value, $label ) = $pair;
 				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
 					$errors[] = self::error( 'BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+				}
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * MLA Book counterpart to validate_bibliographic_consistency() — the
+	 * same academic-integrity safety net (scenario must describe the same
+	 * book the reference/Question Parts were built from), reshaped for
+	 * MLA's own author-name convention: a full given name (`givenName`),
+	 * never Harvard's abbreviated `initials`, and no `place` field at all
+	 * (MLA dropped place of publication in its 7th edition, so it is never
+	 * checked here). Otherwise identical in structure to Book's own check —
+	 * every author's surname/given name must appear in the reconstructed
+	 * reference, and (scenario checks only) every author's surname must
+	 * appear in the scenario.
+	 */
+	private static function validate_mla_bibliographic_consistency( $question, $reference, $check_scenario = true ) {
+		$errors  = array();
+		$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		if ( empty( $authors ) ) {
+			$fallback_surname    = trim( (string) ( $question['authorSurname'] ?? '' ) );
+			$fallback_given_name = trim( (string) ( $question['authorGivenName'] ?? '' ) );
+			if ( '' !== $fallback_surname || '' !== $fallback_given_name ) {
+				$authors = array( array( 'surname' => $fallback_surname, 'givenName' => $fallback_given_name ) );
+			}
+		}
+		$title = trim( (string) ( $question['bookTitle'] ?? '' ) );
+
+		if ( empty( $authors ) && '' === $title ) {
+			return $errors;
+		}
+		if ( empty( $authors ) ) {
+			$errors[] = self::error( 'MLA_BOOK_AUTHORS_MISSING', 'No authors were provided for this MLA Book question.' );
+			return $errors;
+		}
+
+		$year      = trim( (string) ( $question['year'] ?? '' ) );
+		$publisher = trim( (string) ( $question['publisher'] ?? '' ) );
+
+		// With 3+ authors, MLA's own rule replaces every author after the
+		// first with "et al." in the reference itself (the OPPOSITE of
+		// Harvard's "always list everyone" rule) — so only the first
+		// author's surname/given name is ever expected to actually appear
+		// in the reconstructed reference text once there are 3 or more.
+		// The scenario, however, must still describe every real author
+		// regardless of how the reference abbreviates them.
+		$author_count = count( $authors );
+		foreach ( $authors as $index => $author ) {
+			$author_surname    = trim( (string) ( $author['surname'] ?? '' ) );
+			$author_given_name = trim( (string) ( $author['givenName'] ?? '' ) );
+			$named_in_reference = $author_count < 3 || 0 === $index;
+			if ( $named_in_reference && '' !== $author_surname && ! self::text_contains( $reference, $author_surname ) ) {
+				$errors[] = self::error( 'MLA_BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
+			}
+			// Only the first author is ever named in full in an MLA
+			// reference of 3+ authors ("et al." replaces the rest) — so the
+			// given name is only required to appear for the first author.
+			if ( 0 === $index && '' !== $author_given_name && ! self::text_contains( $reference, $author_given_name ) ) {
+				$errors[] = self::error( 'MLA_BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s given name: "%2$s".', $index + 1, $author_given_name ) );
+			}
+			if ( $check_scenario && '' !== $author_surname && ! self::text_contains( (string) ( $question['scenario'] ?? '' ), $author_surname ) ) {
+				$errors[] = self::error( 'MLA_BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
+			}
+		}
+
+		foreach (
+			array(
+				'year'      => array( $year, 'publication year' ),
+				'title'     => array( $title, 'book title' ),
+				'publisher' => array( $publisher, 'publisher' ),
+			) as $pair
+		) {
+			list( $value, $label ) = $pair;
+			if ( '' !== $value && ! self::text_contains( $reference, $value ) ) {
+				$errors[] = self::error( 'MLA_BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', sprintf( 'The reconstructed reference does not contain the canonical %1$s: "%2$s".', $label, $value ) );
+			}
+		}
+
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach (
+				array(
+					'title'     => array( $title, 'book title' ),
+					'year'      => array( $year, 'publication year' ),
+					'publisher' => array( $publisher, 'publisher' ),
+				) as $pair
+			) {
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'MLA_BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
 				}
 			}
 		}
