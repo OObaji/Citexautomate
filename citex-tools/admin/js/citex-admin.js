@@ -14,6 +14,7 @@
 		wireSelectAll();
 		wireScannerSettings();
 		wireScanButtons();
+		wireDetectCitations();
 		wireValidation();
 		wireActionToast();
 	} );
@@ -126,6 +127,55 @@
 						button.disabled = false;
 					} );
 			} );
+		} );
+	}
+
+	/**
+	 * "Detect Automatically" — Citex runs as a local WordPress plugin (see
+	 * Citex_Scanner::detect_citations_post_type()'s own PHP-side docblock),
+	 * so it can look through the site's OWN registered post types itself
+	 * rather than making the admin copy a URL out of the browser's address
+	 * bar. Fills the Citations URL field and saves it in one click on
+	 * success; on failure (no matching post type found), leaves the field
+	 * for manual entry.
+	 */
+	function wireDetectCitations() {
+		var button = document.getElementById( 'citex-detect-citations-btn' );
+
+		if ( ! button || ! window.citexTools ) {
+			return;
+		}
+
+		button.addEventListener( 'click', function () {
+			var form = button.closest( 'form' );
+			var input = document.getElementById( 'citex_citations_list_url' );
+			var status = form ? form.querySelector( '.citex-settings-status' ) : null;
+
+			button.disabled = true;
+			setText( status, citexTools.strings.detecting );
+
+			postToAjax( {
+				action: citexTools.detectCitationsAction,
+				nonce: citexTools.nonce,
+			} )
+				.then( function ( result ) {
+					if ( result && result.success ) {
+						if ( input ) {
+							input.value = result.data.questionListUrl;
+						}
+						citexTools.citationsListUrl = result.data.questionListUrl;
+						setText( status, citexTools.strings.detected.replace( '%s', result.data.label ) );
+						toggleScanButtons( 'citations', true );
+					} else {
+						setText( status, citexTools.strings.detectFailed + ' ' + ( ( result && result.data && result.data.message ) || '' ) );
+					}
+				} )
+				.catch( function () {
+					setText( status, citexTools.strings.detectFailed );
+				} )
+				.finally( function () {
+					button.disabled = false;
+				} );
 		} );
 	}
 

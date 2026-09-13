@@ -29,12 +29,14 @@ class Citex_Scanner {
 	const OPTION_CITATIONS_URL  = 'citex_citations_list_url';
 	const OPTION_CITATIONS_SCAN = 'citex_last_scan_citations';
 
-	const AJAX_SAVE_SETTINGS = 'citex_save_scanner_settings';
-	const AJAX_SAVE_SCAN     = 'citex_save_scan_result';
+	const AJAX_SAVE_SETTINGS      = 'citex_save_scanner_settings';
+	const AJAX_SAVE_SCAN          = 'citex_save_scan_result';
+	const AJAX_DETECT_CITATIONS   = 'citex_detect_citations_post_type';
 
 	public function __construct() {
 		add_action( 'wp_ajax_' . self::AJAX_SAVE_SETTINGS, array( $this, 'ajax_save_settings' ) );
 		add_action( 'wp_ajax_' . self::AJAX_SAVE_SCAN, array( $this, 'ajax_save_scan' ) );
+		add_action( 'wp_ajax_' . self::AJAX_DETECT_CITATIONS, array( $this, 'ajax_detect_citations_post_type' ) );
 	}
 
 	/**
@@ -269,6 +271,57 @@ class Citex_Scanner {
 			$rows[] = array( 'name' => $name, 'count' => $count );
 		}
 		return $rows;
+	}
+
+	/**
+	 * Finds the real Citations post type by inspecting WordPress's OWN
+	 * registered post types directly (Citex runs as a local plugin on the
+	 * same install — see sync_from_wordpress()'s own class docblock — so
+	 * this needs no external request at all). Looks for the first
+	 * registered, non-builtin post type whose slug or label contains
+	 * "citation" (case-insensitively) — deliberately excluding the
+	 * Reference List's own configured post type, so a Reference List
+	 * post-type name that happens to also mention "citation" can never be
+	 * wrongly detected as Citations.
+	 *
+	 * @return array{slug: string, label: string}|null
+	 */
+	private static function detect_citations_post_type() {
+		$reference_post_type = self::post_type_from_url( self::get_question_list_url( 'reference' ) );
+		$types = get_post_types( array(), 'objects' );
+		foreach ( $types as $slug => $object ) {
+			if ( $slug === $reference_post_type ) {
+				continue;
+			}
+			$label = is_object( $object ) ? (string) ( $object->labels->name ?? $object->label ?? $slug ) : (string) $slug;
+			if ( false !== stripos( $slug, 'citation' ) || false !== stripos( $label, 'citation' ) ) {
+				return array( 'slug' => sanitize_key( $slug ), 'label' => $label );
+			}
+		}
+		return null;
+	}
+
+	public function ajax_detect_citations_post_type() {
+		if ( ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
+			wp_send_json_error( array( 'message' => __( 'Your session has expired. Please refresh the page and try again.', 'citex-tools' ) ), 403 );
+		}
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'You are not allowed to do this.', 'citex-tools' ) ), 403 );
+		}
+
+		$found = self::detect_citations_post_type();
+		if ( null === $found ) {
+			wp_send_json_error(
+				array(
+					'message' => __( 'Citex could not find a registered post type mentioning "citation". Open the Citations screen in WP Admin yourself and paste its URL below instead.', 'citex-tools' ),
+				),
+				404
+			);
+		}
+
+		$url = admin_url( 'edit.php?post_type=' . $found['slug'] );
+		update_option( self::OPTION_CITATIONS_URL, $url, false );
+		wp_send_json_success( array( 'questionListUrl' => $url, 'postType' => $found['slug'], 'label' => $found['label'] ) );
 	}
 
 	public function ajax_save_settings() {

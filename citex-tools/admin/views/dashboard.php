@@ -134,10 +134,11 @@ $breakdown_sections = array(
 					value="<?php echo esc_attr( $citations_list_url ); ?>"
 				/>
 				<button type="submit" class="button"><?php esc_html_e( 'Save', 'citex-tools' ); ?></button>
+				<button type="button" id="citex-detect-citations-btn" class="button"><?php esc_html_e( 'Detect Automatically', 'citex-tools' ); ?></button>
 				<span id="citex-citations-settings-status" class="citex-settings-status" aria-live="polite"></span>
 			</form>
 			<p class="description">
-				<?php esc_html_e( 'Enter the WordPress admin URL of the existing Citations screen (e.g. edit.php?post_type=citations). Citex scans this URL, authenticated as you, to build its index — it never modifies the underlying records.', 'citex-tools' ); ?>
+				<?php esc_html_e( '"Detect Automatically" looks through this WordPress site\'s own registered post types for one named Citations and fills this in for you — use it first. Otherwise, enter the admin URL of the existing Citations screen yourself (e.g. edit.php?post_type=citations). Citex scans this URL, authenticated as you, to build its index — it never modifies the underlying records.', 'citex-tools' ); ?>
 			</p>
 		</details>
 	</div>
