@@ -53,7 +53,6 @@ class Citex_Website_Mcq_Variants {
 			'online_and_available_from',
 			'url_formatting',
 			'accessed_date',
-			'author_or_organisation_format',
 			'identify_the_error',
 			'not_a_correct_reference',
 		);
@@ -98,8 +97,6 @@ class Citex_Website_Mcq_Variants {
 				return self::build_url_formatting( $fields );
 			case 'accessed_date':
 				return self::build_accessed_date( $fields );
-			case 'author_or_organisation_format':
-				return self::build_author_or_organisation_format( $fields );
 			case 'identify_the_error':
 				return self::build_identify_the_error( $fields );
 			case 'not_a_correct_reference':
@@ -191,46 +188,6 @@ class Citex_Website_Mcq_Variants {
 			self::full_reference( 'Kaur, A.', 'n.d.', 'Ethics review', 'https://www.un.org', '7 August 2024' ),
 			self::full_reference( 'National Health Service', '2018', 'Wellbeing guide', 'https://www.nhs.uk', '19 December 2025' ),
 		);
-	}
-
-	/** "Initials, Surname" — the surname/initials ORDER SWAP mistake (e.g. "L., Cole" instead of "Cole, L."). */
-	private static function person_initials_surname( array $person ) {
-		return sprintf( '%s, %s', $person['initials'], $person['surname'] );
-	}
-
-	/** "Surname, Given Name" — the "full given name instead of initials" mistake. */
-	private static function person_surname_given_name( array $person ) {
-		return sprintf( '%s, %s', $person['surname'], self::given_name_portion( $person['fullName'] ?? '', $person['surname'] ?? '' ) );
-	}
-
-	/** "Surname Initials" — the missing-comma-and-full-stop mistake. */
-	private static function person_missing_punctuation( array $person ) {
-		return sprintf( '%s %s', $person['surname'], str_replace( '.', '', $person['initials'] ) );
-	}
-
-	private static function given_name_portion( $full_name, $surname ) {
-		$full_name = trim( (string) $full_name );
-		$surname   = trim( (string) $surname );
-		if ( '' !== $surname && '' !== $full_name && strlen( $full_name ) > strlen( $surname )
-			&& 0 === strcasecmp( substr( $full_name, -strlen( $surname ) ), $surname ) ) {
-			return trim( substr( $full_name, 0, strlen( $full_name ) - strlen( $surname ) ) );
-		}
-		$words = preg_split( '/\s+/', $full_name );
-		if ( count( $words ) > 1 ) {
-			array_pop( $words );
-			return implode( ' ', $words );
-		}
-		return '' !== $full_name ? $full_name : $surname;
-	}
-
-	/** "Last, Rest" — treats an organisation name as if it were a person's surname/given-name, the never-comma-invert mistake. */
-	private static function organisation_comma_inverted( $name ) {
-		$words = preg_split( '/\s+/', trim( (string) $name ) );
-		if ( count( $words ) < 2 ) {
-			return $name . ',';
-		}
-		$last = array_pop( $words );
-		return sprintf( '%s, %s', $last, implode( ' ', $words ) );
 	}
 
 	// -----------------------------------------------------------------
@@ -334,36 +291,7 @@ class Citex_Website_Mcq_Variants {
 	}
 
 	// -----------------------------------------------------------------
-	// Variant 7 — Author/Organisation name formatting (fragment only,
-	// not a whole reference — mirrors Book's author_initials variant).
-	// -----------------------------------------------------------------
-	private static function build_author_or_organisation_format( array $fields ) {
-		$author = $fields['author'];
-		if ( 'organisation' === ( $author['type'] ?? '' ) ) {
-			$name = (string) ( $author['name'] ?? '' );
-			return array(
-				'stem'          => "Which option correctly formats the organisation's name?",
-				'wrongOptions'  => array(
-					self::organisation_comma_inverted( $name ),
-					'The ' . $name,
-					$name . '.',
-				),
-				'correctAnswer' => $name,
-			);
-		}
-		return array(
-			'stem'          => "Which option correctly formats the author's name?",
-			'wrongOptions'  => array(
-				self::person_initials_surname( $author ),
-				self::person_surname_given_name( $author ),
-				self::person_missing_punctuation( $author ),
-			),
-			'correctAnswer' => sprintf( '%s, %s', $author['surname'], $author['initials'] ),
-		);
-	}
-
-	// -----------------------------------------------------------------
-	// Variant 8 — Identify the Error (one deliberate mistake shown; pick
+	// Variant 7 — Identify the Error (one deliberate mistake shown; pick
 	// the statement that correctly names it).
 	// -----------------------------------------------------------------
 	private static function build_identify_the_error( array $fields ) {
@@ -392,7 +320,7 @@ class Citex_Website_Mcq_Variants {
 	}
 
 	// -----------------------------------------------------------------
-	// Variant 9 — "Which is NOT a correct reference?" Unlike every other
+	// Variant 8 — "Which is NOT a correct reference?" Unlike every other
 	// variant, `correctAnswer` here is the ONE FLAWED reference (the
 	// thing the student must pick out), and `wrongOptions` are 3
 	// genuinely, independently VALID references for different invented

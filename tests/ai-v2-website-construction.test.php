@@ -266,7 +266,7 @@ check( '[25] a duplicated distractor pair no longer blocks generation (quality g
 // tests/ai-v2-website-mcq-variant-wiring.test.php for the dedicated,
 // per-variant coverage) — Gemini supplies only the canonical record, so
 // this fixture no longer needs (and no longer reads) a `distractors` field
-// at all. "WR02" is deliberately chosen because it is known (see the
+// at all. "WR06" is deliberately chosen because it is known (see the
 // wiring test) to land on the 'complete_reference' variant, which still
 // produces a full reference containing the URL — keeping this regression
 // check meaningful.
@@ -278,7 +278,7 @@ $mcq_item = array(
 	'publisher'       => 'University of Leeds',
 	'url'             => 'https://www.leeds.ac.uk/study-skills',
 );
-$mcq_result = invoke_normalise( array( $mcq_item ), array( 'WR02' ), 'medium', array( 'Exercise 1' ), 'MCQ', $WR );
+$mcq_result = invoke_normalise( array( $mcq_item ), array( 'WR06' ), 'medium', array( 'Exercise 1' ), 'MCQ', $WR );
 check( '[24] normalise() succeeds for MCQ', is_wp_error( $mcq_result ), false );
 if ( ! is_wp_error( $mcq_result ) ) {
 	$mc = $mcq_result[0];
