@@ -26,12 +26,16 @@ class Citex_Generator {
 			'journal_article' => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
 			'website'         => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_WEBSITE ),
 		);
-		// MLA reference-list is Book-only for now (Phase 1) — every other
-		// category keeps its Harvard-only prefix above; the admin UI's JS
-		// below picks whichever of the four prefixes matches the currently
-		// selected Referencing Style + Question Focus combination.
+		// MLA reference-list now covers all 4 categories, each with its own
+		// prefix (an "M" prefixed onto Harvard's own letter — MB/ME/MJ/MW);
+		// the admin UI's JS below picks whichever of the four prefixes
+		// matches the currently selected Referencing Style + Question Focus
+		// combination.
 		$mla_id_prefixes    = array(
-			'book' => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_BOOK ),
+			'book'            => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_BOOK ),
+			'edited_book'     => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_EDITED_BOOK ),
+			'journal_article' => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
+			'website'         => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_WEBSITE ),
 		);
 		// In-text citation has no reference-list category restriction at
 		// all (see self::intext_id_prefix()'s docblock) — every category
@@ -70,8 +74,8 @@ class Citex_Generator {
 	 * built from BK's own pattern for MLA Book. Independent of
 	 * Citex_Reference_Rules::id_prefix()/Citex_MLA_Reference_Rules::id_prefix()
 	 * (which name reference-list prefixes only) since in-text citation is a
-	 * wholly separate `group`, with no category restriction under either
-	 * style (unlike MLA's own reference-list, still Book-only per Phase 1).
+	 * wholly separate `group` — both groups now cover all 4 categories
+	 * under both styles, with no restriction remaining either way.
 	 */
 	public static function intext_id_prefix( $category_label, $style = 'harvard' ) {
 		$harvard = array(
@@ -253,17 +257,14 @@ class Citex_Generator {
 
 		$quantity   = max( 1, min( 100, $quantity ) );
 		$style_ok   = in_array( $style, array( 'harvard', 'mla' ), true );
+		// MLA reference-list now covers all 4 categories (Book, Edited
+		// Book, Journal Article, Website) — the same shared-structure
+		// build-out already used for in-text citation (see
+		// self::intext_id_prefix()'s docblock). No category restriction
+		// remains for either style, under either group.
 		$category_ok = isset( $category_labels[ $category ] );
-		if ( 'intext' !== $group ) {
-			// Phase 1: MLA reference-list only supports Book — every other
-			// category stays Harvard-only until its own MLA pass lands. In-
-			// text citation has no such restriction (see
-			// self::intext_id_prefix()'s docblock) — all 4 categories are
-			// valid under both styles.
-			$category_ok = $category_ok && ( 'mla' !== $style || 'book' === $category );
-		}
 		if ( ! $style_ok || ! $category_ok || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List: Harvard → Book, Edited Book, Journal Article or Website → DragDrop or MCQ, or MLA → Book → DragDrop or MCQ. In-Text Citation: Harvard or MLA → Book, Edited Book, Journal Article or Website → DragDrop or MCQ.', 'citex-tools' ), 'error' );
+			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard or MLA, for Book, Edited Book, Journal Article or Website, as DragDrop or MCQ.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {

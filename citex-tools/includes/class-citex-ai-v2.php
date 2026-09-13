@@ -311,6 +311,9 @@ class Citex_AI_V2 {
 			if ( 'mla_book_mcq_variant' === $mcq_pattern && in_array( $candidate['mlaBookMcqVariant'] ?? '', Citex_MLA_Book_Mcq_Variants::mla_book_independent_answer_variants(), true ) ) {
 				continue;
 			}
+			if ( 'mla_edited_book_mcq_variant' === $mcq_pattern && in_array( $candidate['mlaEditedBookMcqVariant'] ?? '', Citex_MLA_Edited_Book_Mcq_Variants::mla_edited_book_independent_answer_variants(), true ) ) {
+				continue;
+			}
 			$reference = (string) ( $candidate['reconstructedReference'] ?? '' );
 			if ( Citex_Question_Diversity::is_duplicate_reference( $reference, $existing_references ) || Citex_Question_Diversity::is_duplicate_reference( $reference, $seen_in_batch ) ) {
 				return $reference;
@@ -332,6 +335,21 @@ class Citex_AI_V2 {
 			return self::build_prompt_intext( $category, $style, $citation_form, $type, $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 		}
 		if ( 'mla' === $style ) {
+			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				return 'MCQ' === $type
+					? self::build_prompt_mla_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+					: self::build_prompt_mla_edited_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+			}
+			if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+				return 'MCQ' === $type
+					? self::build_prompt_mla_journal_article_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+					: self::build_prompt_mla_journal_article_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+			}
+			if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+				return 'MCQ' === $type
+					? self::build_prompt_mla_website_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+					: self::build_prompt_mla_website_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+			}
 			return 'MCQ' === $type
 				? self::build_prompt_mla_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
 				: self::build_prompt_mla_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
@@ -433,6 +451,15 @@ class Citex_AI_V2 {
 			return self::schema_intext( $category, $style, $citation_form );
 		}
 		if ( 'mla' === $style ) {
+			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				return 'MCQ' === $type ? self::schema_mla_edited_book_mcq() : self::schema_mla_edited_book_dragdrop();
+			}
+			if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+				return 'MCQ' === $type ? self::schema_mla_journal_article_mcq() : self::schema_mla_journal_article_dragdrop();
+			}
+			if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+				return 'MCQ' === $type ? self::schema_mla_website_mcq() : self::schema_mla_website_dragdrop();
+			}
 			return 'MCQ' === $type ? self::schema_mla_book_mcq_variant() : self::schema_mla_book_dragdrop();
 		}
 		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
@@ -458,6 +485,15 @@ class Citex_AI_V2 {
 			return self::system_instruction_intext( $category, $style, $citation_form, $type );
 		}
 		if ( 'mla' === $style ) {
+			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				return self::system_instruction_mla_edited_book( $type );
+			}
+			if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+				return self::system_instruction_mla_journal_article( $type );
+			}
+			if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+				return self::system_instruction_mla_website( $type );
+			}
 			return self::system_instruction_mla_book( $type );
 		}
 		if ( 'MCQ' === $type && 'identify_error' === $scenario_id ) {
@@ -502,6 +538,47 @@ class Citex_AI_V2 {
 		return 'MCQ' === $type
 			? 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Book bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles and years may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle and publisher must all describe ONE single, internally consistent book — never a different edition or a different book, and never a different number of authors than the real book actually has. There is no place of publication at all in MLA style — do not provide one. You are NOT asked for a scenario, question text, options, or a correct answer of any kind; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, drawing on a fixed catalogue of MLA book-formatting rules (the full first-name requirement, author joining and the "et al." rule for three or more authors, publisher/year ordering and punctuation, overall reference structure, and more) that varies from question to question. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: authorFullNames, year, bookTitle and publisher all describe the same book with no contradictions, and the real author count. Return only the requested JSON.'
 			: 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Book DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles and years may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle and publisher must all describe ONE single, internally consistent book, and the scenario text must explicitly name that same title, EVERY author\'s full name, the same year, and the same publisher — never a different edition, a different book, or a different number of authors than the real book actually has. There is no place of publication at all in MLA style — do not provide one. You are NOT asked for questionParts, fixedText, or any distractor/confusingWords list at all; Citex builds the ENTIRE draggable question itself — deterministically, from this canonical record alone — deciding which 3 parts a student must drag into place (possibly including the joining word "and"/"et al.", not just whole bibliographic fields) and every wrong chip, covering a range of different MLA book-formatting rules across the batch. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through. CRITICAL — the scenario must state every author\'s full real name naturally (for example "Alan Cole" or "Alan Cole and Jo Kaur") and must NEVER state, label, or abbreviate any author\'s given name separately, must NEVER show a completed or abbreviated MLA reference (never write anything like "Cole, Alan." or "Cole et al."), and must NEVER use the word "surname" — the student must derive the MLA format themselves from the full name(s) you provide. Before returning each question, perform a strict self-check: scenario, authorFullNames, year, bookTitle and publisher must all describe the same book with no contradictions; and the scenario must not reveal any answer value. Return only the requested JSON.';
+	}
+
+	/**
+	 * MLA counterpart to system_instruction_mla_book(), for Edited Book:
+	 * editorFullNames replaces authorFullNames, and Citex derives each
+	 * editor's surname/full given name itself plus the "editor"/"editors"
+	 * designation and the "et al." rule for 3+ editors — see
+	 * Citex_MLA_Reference_Rules::join_editors()'s own docblock.
+	 */
+	private static function system_instruction_mla_edited_book( $type ) {
+		return 'MCQ' === $type
+			? 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Edited Book bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — editors, titles and years may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: editorFullNames (an array of ONE OR MORE editor full names, in the given editor order), year, bookTitle and publisher must all describe ONE single, internally consistent edited book — never a different edition or a different book, and never a different number of editors than the real book actually has. There is no place of publication at all in MLA style — do not provide one. You are NOT asked for a scenario, question text, options, or a correct answer of any kind; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, deciding the "editor"/"editors" designation and the "et al." rule for 3+ editors itself. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: editorFullNames, year, bookTitle and publisher all describe the same book with no contradictions, and the real editor count. Return only the requested JSON.'
+			: 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Edited Book DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — editors, titles and years may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: editorFullNames (an array of ONE OR MORE editor full names, in the given editor order), year, bookTitle and publisher must all describe ONE single, internally consistent edited book, and the scenario text must explicitly name that same title, EVERY editor\'s full name, the same year, and the same publisher. There is no place of publication at all in MLA style — do not provide one. You are NOT asked for questionParts, fixedText, or any distractor/confusingWords list at all; Citex builds the ENTIRE draggable question itself, deciding which parts a student must drag into place (including the "editor"/"editors" designation and the "and"/"et al." joining word) and every wrong chip. CRITICAL — the scenario must state every editor\'s full real name naturally and must NEVER state, label, or abbreviate any editor\'s given name separately, must NEVER show "editor"/"editors"/"(ed.)"/"(eds)", and must NEVER show a completed or abbreviated MLA reference. Before returning each question, perform a strict self-check: scenario, editorFullNames, year, bookTitle and publisher must all describe the same book with no contradictions; and the scenario must not reveal any answer value. Return only the requested JSON.';
+	}
+
+	/**
+	 * MLA counterpart to system_instruction_mla_book(), for Journal
+	 * Article: articleTitle/journalTitle/volume/issue/pages replace
+	 * bookTitle/publisher — there is no place/publisher concept for a
+	 * journal article.
+	 */
+	private static function system_instruction_mla_journal_article( $type ) {
+		return 'MCQ' === $type
+			? 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Journal Article multiple-choice questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — articles, authors, years, volumes, issues and page ranges may be invented, but the journal name must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical, real, published journal article: authorFullNames (an array of ONE OR MORE author full names, in the article\'s actual author order), year, articleTitle, journalTitle, volume, issue and pages must all describe ONE single, internally consistent article. You are NOT asked for a scenario, question text, options, or a correct answer of any kind; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, applying MLA\'s own rules (double quotation marks around the article title with the period inside them, "vol."/"no." labels, the year with no parentheses at all, and the "et al." rule for 3+ authors). There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: authorFullNames, year, articleTitle, journalTitle, volume, issue and pages all describe the same article with no contradictions, and the real author count. Return only the requested JSON.'
+			: 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Journal Article DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — articles, authors, years, volumes, issues and page ranges may be invented, but the journal name must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical, real, published journal article: authorFullNames (an array of ONE OR MORE author full names, in the article\'s actual author order), year, articleTitle, journalTitle, volume, issue and pages must all describe ONE single, internally consistent article, and the scenario text must explicitly name that same article title, journal title, EVERY author\'s full name, the same year, volume, issue and page range. You are NOT asked for questionParts, fixedText, or any distractor/confusingWords list at all; Citex builds the ENTIRE draggable question itself, deterministically, applying MLA\'s own article-title-quotation and "vol."/"no." rules. CRITICAL — the scenario must state every author\'s full real name naturally and must NEVER show a completed or abbreviated MLA reference, and must NEVER say "et al.". Before returning each question, perform a strict self-check: scenario, authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe the same article with no contradictions; and the scenario must not reveal any answer value. Return only the requested JSON.';
+	}
+
+	/**
+	 * MLA counterpart to system_instruction_mla_book(), for Website: a
+	 * single author-or-organisation, and NO "n.d." convention at all —
+	 * year is OPTIONAL, left completely empty when no date can be
+	 * identified, never a placeholder string. Accessed date is never asked
+	 * of Gemini at all — Citex supplies it itself, deterministically, from
+	 * the actual generation date. There is deliberately no `publisher`
+	 * field requested at all — see
+	 * Citex_AI_V2::normalise_mla_website_dispatch()'s own docblock.
+	 */
+	private static function system_instruction_mla_website( $type ) {
+		return 'MCQ' === $type
+			? 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Website bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent. Every question must describe exactly ONE canonical, real, currently-accessible webpage: authorType ("individual" or "organisation") plus either authorFullName or organisationName, title and url must all describe the same internally-consistent source; year is OPTIONAL — a real 4-digit year when one can genuinely be identified, otherwise left completely empty (never "n.d." or any placeholder text — real MLA style has no such convention at all). You are NOT asked for a scenario, question text, options, an accessed date, or a correct answer of any kind; Citex builds the ENTIRE multiple-choice question itself and computes the accessed date itself. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: authorType/author-or-organisation-name, title and url all describe the same real, currently-accessible source with no contradictions, and year is either a real 4-digit year or completely empty. Return only the requested JSON.'
+			: 'You are Citex, an academic question-generation engine. Generate usable MLA Works-Cited Website DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent. Every question must describe exactly ONE canonical, real, currently-accessible webpage: authorType ("individual" or "organisation") plus either authorFullName or organisationName, title and url must all describe the same internally-consistent source; year is OPTIONAL — a real 4-digit year when identifiable, otherwise left completely empty (never "n.d." or any placeholder text). The scenario text must explicitly name the same title, the author\'s full name or the organisation\'s name, the url, and (when provided) the same year. Citex computes the accessed date itself (never ask for or invent one) and constructs the ENTIRE draggable question itself. CRITICAL — the scenario must NEVER show a completed or abbreviated MLA reference and must NEVER use the words "n.d.", "no date", or "undated" even when no year is provided. Before returning each question, perform a strict self-check: scenario, authorType/author-or-organisation-name, title and url must all describe the same internally-consistent source with no contradictions; and the scenario must not reveal any answer value. Return only the requested JSON.';
 	}
 
 	/**
@@ -675,6 +752,88 @@ class Citex_AI_V2 {
 	private static function build_prompt_mla_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Book bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Cole\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Use the book's true author count. Do NOT provide a surname separately for any author — Citex derives it itself from each full name, keeping the given name in full.\n- There is no place of publication at all in MLA style — do NOT provide one.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself (the stem and all 4 options) from this canonical record alone, covering a range of different MLA book-formatting rules across the batch. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, bookTitle and publisher all describe the exact same book — no contradictions, and the real author count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::publisher_diversity_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * MLA Edited Book DragDrop prompt — mirrors build_prompt_mla_book_dragdrop()'s
+	 * shape, with editorFullNames replacing authorFullNames and Citex
+	 * constructing the "editor"/"editors" designation itself (see
+	 * Citex_MLA_Reference_Rules::join_editors()).
+	 */
+	private static function build_prompt_mla_edited_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Edited Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- editorFullNames, year, bookTitle and publisher must all describe ONE single, internally consistent edited book.\n- editorFullNames is an array of ONE OR MORE editor full names (given name(s) + surname each), in the book's real, actual editor order. Do NOT provide a surname separately — Citex derives it itself from each full name, keeping the given name in full, and decides the correct \"editor\"/\"editors\" designation and the \"et al.\" rule for 3+ editors itself.\n- There is no place of publication at all in MLA style — do NOT provide one.\n- The scenario MUST explicitly state that same bookTitle, EVERY editor's full name, the same year and the same publisher.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, under 220 characters, naming the book title, every editor's full name, year and publisher.\n- The scenario MUST NOT abbreviate any editor's given name, MUST NOT show \"editor\"/\"editors\"/\"(ed.)\"/\"(eds)\", and MUST NOT show a completed or abbreviated MLA reference.\n\nYou are NOT asked for questionParts, fixedText, or any distractor/confusingWords list — Citex builds the whole draggable question itself. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, editorFullNames, year, bookTitle and publisher all describe the exact same book — no contradictions, and the real editor count.\n2. publisher is a genuinely varied real choice for this batch, not a repeat of a prior question's publisher.\n3. Only return questions that pass both checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::publisher_diversity_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * MLA Edited Book MCQ prompt — mirrors build_prompt_mla_book_mcq_variant()
+	 * exactly, via editorFullNames instead.
+	 */
+	private static function build_prompt_mla_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Edited Book bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- editorFullNames, year, bookTitle and publisher must all describe ONE single, internally consistent edited book.\n- editorFullNames is an array of ONE OR MORE editor full names, in the book's real, actual editor order. Do NOT provide a surname separately — Citex derives it itself.\n- There is no place of publication at all in MLA style — do NOT provide one.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself from this canonical record alone. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. editorFullNames, year, bookTitle and publisher all describe the exact same book — no contradictions, and the real editor count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::publisher_diversity_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * MLA Journal Article DragDrop prompt — mirrors
+	 * build_prompt_mla_book_dragdrop()'s shape, via
+	 * articleTitle/journalTitle/volume/issue/pages instead of
+	 * bookTitle/publisher; no place or publisher concept at all.
+	 */
+	private static function build_prompt_mla_journal_article_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Journal Article / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the journal name is real.' : 'Invent a plausible, internally consistent record if needed — the journal name must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL, REAL, PUBLISHED JOURNAL ARTICLE — CRITICAL:\n- authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe ONE single, internally consistent article.\n- authorFullNames is an array of ONE OR MORE author full names, in the article's real, actual author order. Do NOT provide a surname separately — Citex derives it itself, keeping the given name in full, and decides the \"et al.\" rule for 3+ authors itself.\n- The scenario MUST explicitly state that same article title, journal title, EVERY author's full name, the same year, volume, issue and page range.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, under 220 characters.\n- The scenario MUST NOT abbreviate any author's given name, MUST NOT show the article title in quotation marks with \"vol.\"/\"no.\" labels, and MUST NOT show a completed or abbreviated MLA reference.\n\nYou are NOT asked for questionParts, fixedText, or any distractor/confusingWords list — Citex builds the whole draggable question itself. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, articleTitle, journalTitle, volume, issue and pages all describe the exact same article — no contradictions, and the real author count.\n2. Only return questions that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * MLA Journal Article MCQ prompt — mirrors build_prompt_mla_journal_article_dragdrop()
+	 * minus the scenario.
+	 */
+	private static function build_prompt_mla_journal_article_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Journal Article bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the journal name is real.' : 'Invent a plausible, internally consistent record if needed — the journal name must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL, REAL, PUBLISHED JOURNAL ARTICLE — CRITICAL:\n- authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe ONE single, internally consistent article.\n- authorFullNames is an array of ONE OR MORE author full names, in the article's real, actual author order. Do NOT provide a surname separately — Citex derives it itself.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself from this canonical record alone. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, articleTitle, journalTitle, volume, issue and pages all describe the exact same article — no contradictions, and the real author count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * MLA Website DragDrop prompt — mirrors build_prompt_mla_book_dragdrop()'s
+	 * shape, via a single author-or-organisation and NO "n.d." convention
+	 * at all: year is requested but may be left empty when no publication/
+	 * creation date can be identified (never a guessed year), in which
+	 * case Citex's built reference simply omits that segment and relies on
+	 * the Accessed date, which Citex supplies itself. There is deliberately
+	 * no `publisher` field requested at all for this category (see
+	 * Citex_AI_V2::normalise_mla_website_dispatch()'s own docblock).
+	 */
+	private static function build_prompt_mla_website_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Website / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the source is real where practical.' : 'Invent a plausible, internally consistent source.' ) . "\n\nONE QUESTION = ONE CANONICAL, REAL, CURRENTLY-ACCESSIBLE WEBPAGE — CRITICAL:\n- authorType must be exactly \"individual\" or \"organisation\". For \"individual\", provide authorFullName (given name(s) + surname) and leave organisationName empty; for \"organisation\", provide organisationName and leave authorFullName empty. Do NOT provide a surname separately for an individual — Citex derives it itself, keeping the given name in full.\n- title must describe ONE single, internally consistent webpage, and url must be its real (or plausible) address.\n- year is OPTIONAL: provide a real 4-digit publication/creation year when one can genuinely be identified; leave it completely empty when it cannot. NEVER write \"n.d.\", \"undated\", or any placeholder text in year — MLA style has no such convention at all; an empty value is the ONLY correct way to signal an unknown date.\n- The scenario MUST explicitly state the same title, the author's full name or the organisation's name, and the url — and, when a year is provided, that same year too.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, under 220 characters.\n- The scenario MUST NOT abbreviate the author's given name, MUST NOT show a completed or abbreviated MLA reference, and MUST NOT use the words \"n.d.\", \"no date\", or \"undated\" even when no year is provided.\n\nYou are NOT asked for questionParts, fixedText, confusingWords, or an accessed date — Citex builds the whole draggable question itself and computes the accessed date itself. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorType/author-or-organisation-name, title and url all describe the same real, currently-accessible source with no contradictions.\n2. year is either a real 4-digit year or left completely empty — never \"n.d.\" or any other placeholder.\n3. Only return questions that pass both checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * MLA Website MCQ prompt — mirrors build_prompt_mla_website_dragdrop()
+	 * minus the scenario.
+	 */
+	private static function build_prompt_mla_website_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct MLA / Works Cited / Website bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the source is real where practical.' : 'Invent a plausible, internally consistent source.' ) . "\n\nONE QUESTION = ONE CANONICAL, REAL, CURRENTLY-ACCESSIBLE WEBPAGE — CRITICAL:\n- authorType must be exactly \"individual\" or \"organisation\". For \"individual\", provide authorFullName and leave organisationName empty; for \"organisation\", provide organisationName and leave authorFullName empty. Do NOT provide a surname separately — Citex derives it itself.\n- title must describe ONE single, internally consistent webpage, and url must be its real (or plausible) address.\n- year is OPTIONAL: a real 4-digit year when identifiable, otherwise leave it completely empty. NEVER write \"n.d.\" or any placeholder text — MLA has no such convention.\n- You are NOT asked for a scenario, question text, options, an accessed date, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself and computes the accessed date itself. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorType/author-or-organisation-name, title, url and (when provided) year all describe the same real, currently-accessible source with no contradictions.\n2. year is either a real 4-digit year or left completely empty.\n3. Only return records that pass both checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -1187,6 +1346,72 @@ class Citex_AI_V2 {
 		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
 			'questionId' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'publisher' => $s,
 		), 'required' => array( 'questionId','authorFullNames','year','bookTitle','publisher' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/**
+	 * MLA Edited Book DragDrop schema — mirrors schema_mla_book_dragdrop()
+	 * exactly, via editorFullNames instead.
+	 */
+	private static function schema_mla_edited_book_dragdrop() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'scenario' => $s, 'editorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'publisher' => $s,
+		), 'required' => array( 'questionId','scenario','editorFullNames','year','bookTitle','publisher' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/** MLA Edited Book MCQ schema — mirrors schema_mla_book_mcq_variant() exactly, via editorFullNames instead. */
+	private static function schema_mla_edited_book_mcq() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'editorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'publisher' => $s,
+		), 'required' => array( 'questionId','editorFullNames','year','bookTitle','publisher' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/**
+	 * MLA Journal Article DragDrop schema — same shape as
+	 * schema_mla_book_dragdrop() but with articleTitle/journalTitle/
+	 * volume/issue/pages replacing bookTitle/publisher.
+	 */
+	private static function schema_mla_journal_article_dragdrop() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'scenario' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'articleTitle' => $s, 'journalTitle' => $s, 'volume' => $s, 'issue' => $s, 'pages' => $s,
+		), 'required' => array( 'questionId','scenario','authorFullNames','year','articleTitle','journalTitle','volume','issue','pages' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/** MLA Journal Article MCQ schema — mirrors schema_mla_journal_article_dragdrop() minus the scenario. */
+	private static function schema_mla_journal_article_mcq() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'articleTitle' => $s, 'journalTitle' => $s, 'volume' => $s, 'issue' => $s, 'pages' => $s,
+		), 'required' => array( 'questionId','authorFullNames','year','articleTitle','journalTitle','volume','issue','pages' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/**
+	 * MLA Website DragDrop schema — authorType plus EITHER authorFullName
+	 * OR organisationName (same either/or pattern as schema_website(), only
+	 * `authorType` itself is in `required`). `year` is deliberately NOT in
+	 * `required` at all — real MLA 9 has no "n.d." convention, so an
+	 * entirely absent year is a normal, valid value here (unlike Harvard's
+	 * schema_website(), which always requires one). There is no
+	 * `publisher`/`accessedDate` property at all — see
+	 * Citex_AI_V2::normalise_mla_website_dispatch()'s own docblock.
+	 */
+	private static function schema_mla_website_dragdrop() {
+		$s   = array( 'type' => 'string' );
+		$url = array( 'type' => 'string', 'maxLength' => 32 );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'scenario' => $s, 'authorType' => $s, 'authorFullName' => $s, 'organisationName' => $s, 'year' => $s, 'title' => $s, 'url' => $url,
+		), 'required' => array( 'questionId','scenario','authorType','title','url' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/** MLA Website MCQ schema — mirrors schema_mla_website_dragdrop() minus the scenario. */
+	private static function schema_mla_website_mcq() {
+		$s   = array( 'type' => 'string' );
+		$url = array( 'type' => 'string', 'maxLength' => 32 );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'authorType' => $s, 'authorFullName' => $s, 'organisationName' => $s, 'year' => $s, 'title' => $s, 'url' => $url,
+		), 'required' => array( 'questionId','authorType','title','url' ) ) ) ), 'required' => array( 'questions' ) );
 	}
 
 	/**
@@ -1919,7 +2144,22 @@ class Citex_AI_V2 {
 				? Citex_Reference_Rules::mcq_question_stem( $category, $exercise_design )
 				: trim( (string) ( $item['scenario'] ?? '' ) );
 
-			if ( 'MCQ' === $type && 0 === strpos( (string) $scenario_id, 'choose_treatment_' ) ) {
+			if ( 'mla' === $style ) {
+				// MLA is dispatched FIRST, before any Harvard-only
+				// scenario_id-based routing (choose_treatment_*/
+				// identify_error) or category branch below — $style is an
+				// independent dimension from $category and from
+				// $scenario_id (both dimensions reuse the SAME scenario
+				// catalogue as Harvard — see Citex_Question_Scenarios's own
+				// "reuse, not new buckets" docblock — so an Edited Book
+				// batch assigned e.g. "identify_error" must still be built
+				// through MLA's own rules, never silently fall through to
+				// Harvard's identify_error mechanic). MLA never uses that
+				// mechanic at all: each category's own curated
+				// *_Mcq_Variants catalogue already includes its own
+				// 'identify_the_error' variant, covering the same ground.
+				$candidate = self::normalise_mla_item( $item, $id, $category, $type, $exercise, $difficulty, $target_count );
+			} elseif ( 'MCQ' === $type && 0 === strpos( (string) $scenario_id, 'choose_treatment_' ) ) {
 				// "Choose the correct rule/treatment" needs none of the
 				// generic bibliographic-data fields at all — no book, no
 				// author/editor list — since it tests pure rule knowledge;
@@ -2057,27 +2297,6 @@ class Citex_AI_V2 {
 				$candidate = 'MCQ' === $type
 					? self::normalise_website_mcq_variant_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $exercise, $difficulty )
 					: self::normalise_website_item( $item, $id, $author, $year_field, $page_title, $publisher, $url, $scenario, $exercise, $difficulty );
-			} elseif ( 'mla' === $style ) {
-				// MLA (Phase 1: Book only) — mirrors the Harvard Book branch
-				// below exactly, just deriving each author's SURNAME and FULL
-				// GIVEN NAME (never initials — see
-				// Citex_MLA_Reference_Rules's own docblock) and never reading
-				// $place, since MLA's Book rule has no place-of-publication
-				// element at all.
-				if ( '' === $scenario || '' === $year || '' === $title || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
-				$author_names = array_values( array_filter( array_map( 'trim', (array) ( $item['authorFullNames'] ?? array() ) ), 'strlen' ) );
-				if ( empty( $author_names ) || count( $author_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_author_count', sprintf( __( 'Question %s must have 1 or more authors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $author_names ) ) ); }
-				if ( null !== $target_count && count( $author_names ) !== $target_count ) { return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d authors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $author_names ) ) ); }
-				$authors = array();
-				foreach ( $author_names as $author_full_name ) {
-					$author_parts = self::derive_mla_author_parts( $author_full_name );
-					if ( is_wp_error( $author_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $author_parts->get_error_message() ) ); }
-					$authors[] = array( 'fullName' => $author_full_name, 'surname' => $author_parts['surname'], 'givenName' => $author_parts['givenName'] );
-				}
-
-				$candidate = 'MCQ' === $type
-					? self::normalise_mla_book_mcq_variant_item( $item, $id, $authors, $year, $title, $publisher, $exercise, $difficulty )
-					: self::normalise_mla_book_dragdrop_item( $item, $id, $authors, $year, $title, $publisher, $scenario, $exercise, $difficulty );
 			} else {
 				if ( '' === $scenario || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
 				// Harvard's reference-list rule (confirmed): a Book can
@@ -2348,6 +2567,161 @@ class Citex_AI_V2 {
 	}
 
 	/**
+	 * The single MLA dispatcher for all 4 categories — mirrors
+	 * normalise_intext_item()'s own role (one early, category-agnostic
+	 * entry point, called before any Harvard-only scenario_id routing) but
+	 * for MLA's reference-list mechanic. Recomputes `$scenario` itself via
+	 * Citex_MLA_Reference_Rules::mcq_question_stem() for MCQ (the caller's
+	 * own $scenario was computed with Harvard's stem function, which would
+	 * be the wrong text for an MLA question) — DragDrop's own scenario
+	 * still comes from $item['scenario'] exactly like every other category.
+	 *
+	 * @return array|WP_Error
+	 */
+	private static function normalise_mla_item( $item, $id, $category, $type, $exercise, $difficulty, $target_count ) {
+		$scenario = 'MCQ' === $type
+			? Citex_MLA_Reference_Rules::mcq_question_stem( $category )
+			: trim( (string) ( $item['scenario'] ?? '' ) );
+
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			return self::normalise_mla_edited_book_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty, $target_count );
+		}
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return self::normalise_mla_journal_article_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty, $target_count );
+		}
+		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+			return self::normalise_mla_website_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty );
+		}
+
+		// Book (the default/only category before this task).
+		$year      = trim( (string) ( $item['year'] ?? '' ) );
+		$title     = trim( (string) ( $item['bookTitle'] ?? '' ) );
+		$publisher = trim( (string) ( $item['publisher'] ?? '' ) );
+		if ( '' === $scenario || '' === $year || '' === $title || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
+		$author_names = array_values( array_filter( array_map( 'trim', (array) ( $item['authorFullNames'] ?? array() ) ), 'strlen' ) );
+		if ( empty( $author_names ) || count( $author_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_author_count', sprintf( __( 'Question %s must have 1 or more authors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $author_names ) ) ); }
+		if ( null !== $target_count && count( $author_names ) !== $target_count ) { return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d authors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $author_names ) ) ); }
+		$authors = array();
+		foreach ( $author_names as $author_full_name ) {
+			$author_parts = self::derive_mla_author_parts( $author_full_name );
+			if ( is_wp_error( $author_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $author_parts->get_error_message() ) ); }
+			$authors[] = array( 'fullName' => $author_full_name, 'surname' => $author_parts['surname'], 'givenName' => $author_parts['givenName'] );
+		}
+		return 'MCQ' === $type
+			? self::normalise_mla_book_mcq_variant_item( $item, $id, $authors, $year, $title, $publisher, $exercise, $difficulty )
+			: self::normalise_mla_book_dragdrop_item( $item, $id, $authors, $year, $title, $publisher, $scenario, $exercise, $difficulty );
+	}
+
+	/**
+	 * Extracts and validates one MLA Edited Book record's fields
+	 * (editorFullNames/year/bookTitle/publisher — no `place` at all, same
+	 * as MLA Book) and dispatches to the DragDrop/MCQ leaf normaliser.
+	 * Mirrors the Harvard Edited Book extraction block's own shape,
+	 * deriving each editor's surname/FULL given name via
+	 * derive_mla_author_parts() instead of Harvard's surname/initials.
+	 */
+	private static function normalise_mla_edited_book_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty, $target_count ) {
+		$year      = trim( (string) ( $item['year'] ?? '' ) );
+		$title     = trim( (string) ( $item['bookTitle'] ?? '' ) );
+		$publisher = trim( (string) ( $item['publisher'] ?? '' ) );
+		if ( '' === $scenario || '' === $year || '' === $title || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
+		$editor_names = array_values( array_filter( array_map( 'trim', (array) ( $item['editorFullNames'] ?? array() ) ), 'strlen' ) );
+		if ( empty( $editor_names ) || count( $editor_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_editor_count', sprintf( __( 'Question %s must have 1 or more editors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $editor_names ) ) ); }
+		if ( null !== $target_count && count( $editor_names ) !== $target_count ) { return new WP_Error( 'citex_ai_editor_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d editors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $editor_names ) ) ); }
+		$editors = array();
+		foreach ( $editor_names as $editor_full_name ) {
+			$editor_parts = self::derive_mla_author_parts( $editor_full_name );
+			if ( is_wp_error( $editor_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $editor_parts->get_error_message() ) ); }
+			$editors[] = array( 'fullName' => $editor_full_name, 'surname' => $editor_parts['surname'], 'givenName' => $editor_parts['givenName'] );
+		}
+		return 'MCQ' === $type
+			? self::normalise_mla_edited_book_mcq_item( $item, $id, $editors, $year, $title, $publisher, $exercise, $difficulty )
+			: self::normalise_mla_edited_book_dragdrop_item( $item, $id, $editors, $year, $title, $publisher, $scenario, $exercise, $difficulty );
+	}
+
+	/**
+	 * Extracts and validates one MLA Journal Article record's fields
+	 * (authorFullNames/year/articleTitle/journalTitle/volume/issue/pages —
+	 * no place/publisher at all, same as Harvard's own Journal Article).
+	 */
+	private static function normalise_mla_journal_article_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty, $target_count ) {
+		$year          = trim( (string) ( $item['year'] ?? '' ) );
+		$article_title = trim( (string) ( $item['articleTitle'] ?? '' ) );
+		$journal_title = trim( (string) ( $item['journalTitle'] ?? '' ) );
+		$volume        = trim( (string) ( $item['volume'] ?? '' ) );
+		$issue         = trim( (string) ( $item['issue'] ?? '' ) );
+		$pages         = trim( (string) ( $item['pages'] ?? '' ) );
+		if ( '' === $scenario || '' === $year || '' === $article_title || '' === $journal_title || '' === $volume || '' === $issue || '' === $pages ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
+		$author_names = array_values( array_filter( array_map( 'trim', (array) ( $item['authorFullNames'] ?? array() ) ), 'strlen' ) );
+		if ( empty( $author_names ) || count( $author_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_author_count', sprintf( __( 'Question %s must have 1 or more authors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $author_names ) ) ); }
+		if ( null !== $target_count && count( $author_names ) !== $target_count ) { return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d authors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $author_names ) ) ); }
+		$authors = array();
+		foreach ( $author_names as $author_full_name ) {
+			$author_parts = self::derive_mla_author_parts( $author_full_name );
+			if ( is_wp_error( $author_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $author_parts->get_error_message() ) ); }
+			$authors[] = array( 'fullName' => $author_full_name, 'surname' => $author_parts['surname'], 'givenName' => $author_parts['givenName'] );
+		}
+		return 'MCQ' === $type
+			? self::normalise_mla_journal_article_mcq_item( $item, $id, $authors, $article_title, $journal_title, $volume, $issue, $year, $pages, $exercise, $difficulty )
+			: self::normalise_mla_journal_article_dragdrop_item( $item, $id, $authors, $article_title, $journal_title, $volume, $issue, $year, $pages, $scenario, $exercise, $difficulty );
+	}
+
+	/**
+	 * Extracts and validates one MLA Website record's fields — authorType
+	 * plus authorFullName/organisationName, pageTitle(title), url, and an
+	 * OPTIONAL year (never "n.d." — real MLA 9 has no such convention; an
+	 * empty year simply means the built reference omits that segment
+	 * entirely, see Citex_MLA_Reference_Rules::build_website_reference()'s
+	 * own docblock). There is deliberately no `publisher` field requested
+	 * or stored at all — MLA's own Website format never shows one, unlike
+	 * Harvard's (which keeps it purely for source-realism verification) —
+	 * a deliberate simplification for this category, consistent with how
+	 * the rest of this app already accepts an invented-but-plausible
+	 * source for every non-publisher/journal field.
+	 */
+	private static function normalise_mla_website_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty ) {
+		$author_type = sanitize_key( trim( (string) ( $item['authorType'] ?? '' ) ) );
+		if ( ! in_array( $author_type, array( 'individual', 'organisation' ), true ) ) {
+			return new WP_Error( 'citex_ai_website_author_type_invalid', sprintf( __( 'Question %s: authorType must be exactly "individual" or "organisation".', 'citex-tools' ), $id ) );
+		}
+		$page_title = trim( (string) ( $item['title'] ?? '' ) );
+		$url        = trim( (string) ( $item['url'] ?? '' ) );
+		$year_field = trim( (string) ( $item['year'] ?? '' ) );
+		if ( '' === $scenario || '' === $page_title || '' === $url ) {
+			return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) );
+		}
+		if ( '' !== $year_field && ! preg_match( '/^\d{4}$/', $year_field ) ) {
+			return new WP_Error( 'citex_ai_website_year_invalid', sprintf( __( 'Question %1$s: year must be a real 4-digit year, or left empty when none can be identified (MLA never uses "n.d."); got "%2$s".', 'citex-tools' ), $id, $year_field ) );
+		}
+		if ( ! preg_match( '#^https?://\S+$#', $url ) ) {
+			return new WP_Error( 'citex_ai_website_url_malformed', sprintf( __( 'Question %s has a malformed URL.', 'citex-tools' ), $id ) );
+		}
+
+		$author = array( 'type' => $author_type );
+		if ( 'individual' === $author_type ) {
+			$author_full_name = trim( (string) ( $item['authorFullName'] ?? '' ) );
+			if ( '' === $author_full_name ) {
+				return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing authorFullName for an individual author.', 'citex-tools' ), $id ) );
+			}
+			$author_parts = self::derive_mla_author_parts( $author_full_name );
+			if ( is_wp_error( $author_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $author_parts->get_error_message() ) ); }
+			$author['fullName']  = $author_full_name;
+			$author['surname']   = $author_parts['surname'];
+			$author['givenName'] = $author_parts['givenName'];
+		} else {
+			$organisation_name = trim( (string) ( $item['organisationName'] ?? '' ) );
+			if ( '' === $organisation_name ) {
+				return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing organisationName for an organisation author.', 'citex-tools' ), $id ) );
+			}
+			$author['name'] = $organisation_name;
+		}
+
+		return 'MCQ' === $type
+			? self::normalise_mla_website_mcq_variant_item( $item, $id, $author, $year_field, $page_title, $url, $exercise, $difficulty )
+			: self::normalise_mla_website_dragdrop_item( $item, $id, $author, $year_field, $page_title, $url, $scenario, $exercise, $difficulty );
+	}
+
+	/**
 	 * MLA counterpart to normalise_book_dragdrop_item() — Phase 1: Book
 	 * only. Citex — not Gemini — authors the ENTIRE MLA Book DragDrop
 	 * question via Citex_MLA_Book_Dragdrop_Parts, from the canonical
@@ -2399,6 +2773,156 @@ class Citex_AI_V2 {
 
 		$author_full_names = array_column( $authors, 'fullName' );
 		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MLA | ReferenceList | Book | MCQ | %s', $id ), 'source' => 'MLA', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'MLA', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'mla_book_mcq_variant', 'mlaBookMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorGivenName' => sanitize_text_field( $authors[0]['givenName'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * MLA Edited Book DragDrop — mirrors normalise_mla_book_dragdrop_item()
+	 * exactly, via Citex_MLA_Edited_Book_Dragdrop_Parts/
+	 * Citex_MLA_Reference_Rules::CATEGORY_EDITED_BOOK instead.
+	 *
+	 * @param array $editors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_mla_edited_book_dragdrop_item( $item, $id, $editors, $year, $title, $publisher, $scenario, $exercise, $difficulty ) {
+		$fields        = array( 'year' => $year, 'title' => $title, 'publisher' => $publisher );
+		$selected_keys = Citex_MLA_Edited_Book_Dragdrop_Parts::select_parts( $id, $editors );
+		$built         = Citex_MLA_Edited_Book_Dragdrop_Parts::build( $selected_keys, $editors, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_mla_edited_book_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build MLA Edited Book DragDrop parts for this record.', 'citex-tools' ), $id ) );
+		}
+		$reference          = Citex_MLA_Reference_Rules::build_reference( Citex_MLA_Reference_Rules::CATEGORY_EDITED_BOOK, array_merge( $fields, array( 'editors' => $editors ) ) );
+		$editor_full_names  = array_column( $editors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MLA | ReferenceList | Edited Book | DragDrop | %s', $id ), 'source' => 'MLA', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'MLA', 'difficulty' => ucfirst( $difficulty ), 'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'givenName' => sanitize_text_field( $editor['givenName'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * MLA Edited Book MCQ — mirrors normalise_mla_book_mcq_variant_item()
+	 * exactly, via Citex_MLA_Edited_Book_Mcq_Variants instead.
+	 *
+	 * @param array $editors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_mla_edited_book_mcq_item( $item, $id, $editors, $year, $title, $publisher, $exercise, $difficulty ) {
+		$fields  = array( 'editors' => $editors, 'year' => $year, 'title' => $title, 'publisher' => $publisher );
+		$variant = Citex_MLA_Edited_Book_Mcq_Variants::variant_for( $id, count( $editors ) );
+		$built   = Citex_MLA_Edited_Book_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_mla_edited_book_mcq_variant_unknown', sprintf( __( 'Question %1$s: unrecognised MLA Edited Book MCQ variant "%2$s".', 'citex-tools' ), $id, $variant ) );
+		}
+		$options   = $built['wrongOptions'];
+		$options[] = '';
+		$hint      = Citex_MLA_Reference_Rules::mcq_hint( Citex_MLA_Reference_Rules::CATEGORY_EDITED_BOOK );
+		$answer_explanation = sprintf( 'This question tests the "%s" MLA formatting rule.', $variant );
+
+		$editor_full_names = array_column( $editors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MLA | ReferenceList | Edited Book | MCQ | %s', $id ), 'source' => 'MLA', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'MLA', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'mla_edited_book_mcq_variant', 'mlaEditedBookMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'givenName' => sanitize_text_field( $editor['givenName'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * MLA Journal Article DragDrop — mirrors normalise_mla_book_dragdrop_item()'s
+	 * own shape, via Citex_MLA_Journal_Article_Dragdrop_Parts/
+	 * Citex_MLA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE instead. No
+	 * place/publisher fields at all — same as Harvard's own Journal
+	 * Article.
+	 *
+	 * @param array $authors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_mla_journal_article_dragdrop_item( $item, $id, $authors, $article_title, $journal_title, $volume, $issue, $year, $pages, $scenario, $exercise, $difficulty ) {
+		$fields        = array( 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'year' => $year, 'pages' => $pages );
+		$selected_keys = Citex_MLA_Journal_Article_Dragdrop_Parts::select_parts( $id, $authors );
+		$built         = Citex_MLA_Journal_Article_Dragdrop_Parts::build( $selected_keys, $authors, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_mla_journal_article_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build MLA Journal Article DragDrop parts for this record.', 'citex-tools' ), $id ) );
+		}
+		$reference         = Citex_MLA_Reference_Rules::build_reference( Citex_MLA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, array_merge( $fields, array( 'authors' => $authors ) ) );
+		$author_full_names = array_column( $authors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MLA | ReferenceList | Journal Article | DragDrop | %s', $id ), 'source' => 'MLA', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'MLA', 'difficulty' => ucfirst( $difficulty ), 'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorGivenName' => sanitize_text_field( $authors[0]['givenName'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * MLA Journal Article MCQ — mirrors normalise_mla_book_mcq_variant_item()'s
+	 * own shape, via Citex_MLA_Journal_Article_Mcq_Variants instead.
+	 *
+	 * @param array $authors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_mla_journal_article_mcq_item( $item, $id, $authors, $article_title, $journal_title, $volume, $issue, $year, $pages, $exercise, $difficulty ) {
+		$fields  = array( 'authors' => $authors, 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'year' => $year, 'pages' => $pages );
+		$variant = Citex_MLA_Journal_Article_Mcq_Variants::variant_for( $id, count( $authors ) );
+		$built   = Citex_MLA_Journal_Article_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_mla_journal_article_mcq_variant_unknown', sprintf( __( 'Question %1$s: unrecognised MLA Journal Article MCQ variant "%2$s".', 'citex-tools' ), $id, $variant ) );
+		}
+		$options   = $built['wrongOptions'];
+		$options[] = '';
+		$hint      = Citex_MLA_Reference_Rules::mcq_hint( Citex_MLA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE );
+		$answer_explanation = sprintf( 'This question tests the "%s" MLA formatting rule.', $variant );
+
+		$author_full_names = array_column( $authors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MLA | ReferenceList | Journal Article | MCQ | %s', $id ), 'source' => 'MLA', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'MLA', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'mla_journal_article_mcq_variant', 'mlaJournalArticleMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorGivenName' => sanitize_text_field( $authors[0]['givenName'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * MLA Website DragDrop — mirrors normalise_website_item()'s own role,
+	 * via Citex_MLA_Website_Dragdrop_Parts/Citex_MLA_Reference_Rules::CATEGORY_WEBSITE
+	 * instead. No `accessedDate` is requested of Gemini at all — same as
+	 * Harvard's own Website mechanic, Citex supplies it itself,
+	 * deterministically, from the actual generation date. No `publisher`
+	 * field either — see normalise_mla_website_dispatch()'s own docblock.
+	 *
+	 * @param array $author {type, surname?, givenName?, name?, fullName?}.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_mla_website_dragdrop_item( $item, $id, $author, $year, $title, $url, $scenario, $exercise, $difficulty ) {
+		$accessed_date = self::current_accessed_date();
+		$fields        = array( 'year' => $year, 'title' => $title, 'url' => $url, 'accessedDate' => $accessed_date );
+		$has_year      = '' !== $year;
+		$selected_keys = Citex_MLA_Website_Dragdrop_Parts::select_parts( $id, $has_year );
+		$built         = Citex_MLA_Website_Dragdrop_Parts::build( $selected_keys, $author, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_mla_website_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build MLA Website DragDrop parts for this record.', 'citex-tools' ), $id ) );
+		}
+		$reference = Citex_MLA_Reference_Rules::build_reference( Citex_MLA_Reference_Rules::CATEGORY_WEBSITE, array_merge( $fields, array( 'author' => $author ) ) );
+		return array(
+			'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MLA | ReferenceList | Website | DragDrop | %s', $id ), 'source' => 'MLA', 'group' => 'ReferenceList', 'category' => 'Website', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'MLA', 'difficulty' => ucfirst( $difficulty ),
+			'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ),
+			'authorType' => sanitize_key( $author['type'] ), 'authors' => 'individual' === $author['type'] ? array( array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ) ) : array(), 'organisationName' => 'organisation' === $author['type'] ? sanitize_text_field( $author['name'] ) : '',
+			'year' => sanitize_text_field( $year ), 'pageTitle' => sanitize_text_field( $title ), 'url' => sanitize_text_field( $url ), 'accessedDate' => sanitize_text_field( $accessed_date ),
+			'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ),
+			'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ),
+		);
+	}
+
+	/**
+	 * MLA Website MCQ — mirrors normalise_website_mcq_variant_item()'s own
+	 * role, via Citex_MLA_Website_Mcq_Variants instead.
+	 *
+	 * @param array $author {type, surname?, givenName?, name?, fullName?}.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_mla_website_mcq_variant_item( $item, $id, $author, $year, $title, $url, $exercise, $difficulty ) {
+		$accessed_date = self::current_accessed_date();
+		$fields        = array( 'author' => $author, 'year' => $year, 'title' => $title, 'url' => $url, 'accessedDate' => $accessed_date );
+		$is_individual = 'individual' === $author['type'];
+		$variant       = Citex_MLA_Website_Mcq_Variants::variant_for( $id, $is_individual );
+		$built         = Citex_MLA_Website_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_mla_website_mcq_variant_unknown', sprintf( __( 'Question %1$s: unrecognised or incompatible MLA Website MCQ variant "%2$s".', 'citex-tools' ), $id, $variant ) );
+		}
+		$options   = $built['wrongOptions'];
+		$options[] = '';
+		$hint      = Citex_MLA_Reference_Rules::mcq_hint( Citex_MLA_Reference_Rules::CATEGORY_WEBSITE );
+		$answer_explanation = sprintf( 'This question tests the "%s" MLA formatting rule.', $variant );
+
+		return array(
+			'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MLA | ReferenceList | Website | MCQ | %s', $id ), 'source' => 'MLA', 'group' => 'ReferenceList', 'category' => 'Website', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'MLA', 'difficulty' => ucfirst( $difficulty ),
+			'mcqPattern' => 'mla_website_mcq_variant', 'mlaWebsiteMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ),
+			'authorType' => sanitize_key( $author['type'] ), 'authors' => 'individual' === $author['type'] ? array( array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ) ) : array(), 'organisationName' => 'organisation' === $author['type'] ? sanitize_text_field( $author['name'] ) : '',
+			'year' => sanitize_text_field( $year ), 'pageTitle' => sanitize_text_field( $title ), 'url' => sanitize_text_field( $url ), 'accessedDate' => sanitize_text_field( $accessed_date ),
+			'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ),
+			'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ),
+		);
 	}
 
 	/**
