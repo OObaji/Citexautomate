@@ -1468,16 +1468,22 @@ class Citex_Reference_Rules {
 	}
 
 	/**
-	 * A genuine title-boundary/content mistake — never a random
-	 * character-level misspelling — rotating deterministically (seeded by
+	 * A genuine title-boundary/formatting mistake — never a spelling or
+	 * pluralisation trick — rotating deterministically (seeded by
 	 * $seed_key) between four flavours, mirroring
 	 * Citex_Book_Dragdrop_Parts::title_distractor()'s identical technique:
 	 * - a full stop wrongly attached to the title itself,
 	 * - a comma wrongly attached the same way,
 	 * - $fold_in (typically the record's own year) wrongly folded into the
 	 *   title chip in parentheses, and
-	 * - a subtle wording alteration (a plural/singular flip on the title's
-	 *   last word).
+	 * - the title cut short by its own last word, as if truncated —
+	 *   genuinely different CONTENT, not merely a case or spelling change
+	 *   (Citex_Generated_Validator's DISTRACTOR_MATCHES_CORRECT_PART check
+	 *   compares case-insensitively, so a distractor that only ever changed
+	 *   letter case — e.g. Title Case vs sentence case — would be
+	 *   indistinguishable from the correct value and always rejected; see
+	 *   the near-identical "organisation ALL CAPS" bug this class of
+	 *   mistake caused for Website MCQ author distractors).
 	 */
 	public static function title_like_distractor( $value, $fold_in, $seed_key ) {
 		$flavor = abs( crc32( $seed_key . '|flavor' ) ) % 4;
@@ -1489,16 +1495,7 @@ class Citex_Reference_Rules {
 			$candidate = $value . ' (' . (string) $fold_in . ')';
 		} else {
 			$words = preg_split( '/\s+/', trim( (string) $value ) );
-			$last  = array_pop( $words );
-			if ( null === $last ) {
-				$last = '';
-			}
-			if ( '' !== $last && 's' === strtolower( substr( $last, -1 ) ) ) {
-				$last = substr( $last, 0, -1 );
-			} else {
-				$last .= 's';
-			}
-			$words[]   = $last;
+			array_pop( $words );
 			$candidate = trim( implode( ' ', $words ) );
 		}
 		return ( '' !== $candidate && $candidate !== $value ) ? $candidate : $value . '.';
