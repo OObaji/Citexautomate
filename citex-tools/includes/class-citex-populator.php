@@ -433,7 +433,7 @@ class Citex_Populator {
 			// template-clone above, and replaces (never appends to) that
 			// taxonomy's term set — so a template's own Category/Exercise can
 			// never leak into, or survive alongside, the generated question's.
-			$classification_result = $this->assign_generated_classification( $new_id, $post_type, $classification );
+			$classification_result = $this->assign_generated_classification( $new_id, $post_type, $classification, $question );
 			if ( is_wp_error( $classification_result ) ) {
 				throw new Exception( 'Category/Exercise: ' . $classification_result->get_error_message() );
 			}
@@ -974,6 +974,45 @@ class Citex_Populator {
 	}
 
 	/**
+	 * The real Category taxonomy term NAME to look up for one question —
+	 * genuinely different for the two destinations. The Reference List's
+	 * own Category taxonomy is Book/Edited Book/Journal Article/Website
+	 * (the same as $classification['category']). The Citations post type
+	 * uses a COMPLETELY DIFFERENT Category taxonomy shape on the live site
+	 * (confirmed live, via its own Categories screen): terms grouped by
+	 * PERSON COUNT — "Single Author"/"Two Authors"/"Three Authors"/"More
+	 * than Three Authors" — each with the same Exercise 1-5 children,
+	 * never Book/Edited Book/Journal Article/Website at all. Website's own
+	 * in-text citation record always has exactly one author-or-organisation
+	 * entity (see class-citex-mla-website-mcq-variants.php's own docblock
+	 * for the same "only ever ONE entity" rule at the reference-list
+	 * layer), so it always resolves to "Single Author".
+	 */
+	private function taxonomy_category_label( $question, $classification ) {
+		if ( 'InTextCitation' !== (string) ( $question['group'] ?? '' ) ) {
+			return $classification['category'];
+		}
+		$category = (string) ( $question['category'] ?? '' );
+		if ( 'Website' === $category ) {
+			$count = 1;
+		} elseif ( 'Edited Book' === $category ) {
+			$count = count( is_array( $question['editors'] ?? null ) ? $question['editors'] : array() );
+		} else {
+			$count = count( is_array( $question['authors'] ?? null ) ? $question['authors'] : array() );
+		}
+		if ( $count <= 1 ) {
+			return 'Single Author';
+		}
+		if ( 2 === $count ) {
+			return 'Two Authors';
+		}
+		if ( 3 === $count ) {
+			return 'Three Authors';
+		}
+		return 'More than Three Authors';
+	}
+
+	/**
 	 * Assign the real WordPress Category/Exercise taxonomy terms named by
 	 * the generated question's own classification — never inherited from a
 	 * template. Uses only dynamic, name-based lookup (find_taxonomy_term_by_name())
@@ -993,16 +1032,25 @@ class Citex_Populator {
 	 * terms for that same taxonomy can never survive alongside — or leak
 	 * into — the generated question's classification.
 	 *
+	 * $question (the full generated record, not just $classification) is
+	 * needed here purely to resolve the CORRECT Category term NAME to
+	 * search for via taxonomy_category_label() above — $classification['category']
+	 * itself (Book/Edited Book/...) is left completely untouched, still
+	 * used as-is everywhere else (the success-message summary, the
+	 * returned result array, population coverage tracking).
+	 *
 	 * @return array|WP_Error {categoryTaxonomy, categoryTermId,
 	 *         exerciseTaxonomy, exerciseTermId} on success, or a WP_Error
 	 *         naming exactly which term could not be found.
 	 */
-	private function assign_generated_classification( $new_id, $post_type, $classification ) {
+	private function assign_generated_classification( $new_id, $post_type, $classification, $question = array() ) {
 		if ( ! function_exists( 'wp_set_object_terms' ) ) {
 			return new WP_Error( 'citex_taxonomy_unavailable', 'WordPress taxonomy functions are unavailable.' );
 		}
 
-		$category_match = $this->find_taxonomy_term_by_name( $post_type, $classification['category'] );
+		$category_label = $this->taxonomy_category_label( $question, $classification );
+
+		$category_match = $this->find_taxonomy_term_by_name( $post_type, $category_label );
 		if ( null === $category_match ) {
 			// The category NAME this codebase generates internally
 			// (Citex_Reference_Rules::CATEGORY_WEBSITE, etc.) is a best
@@ -1011,7 +1059,7 @@ class Citex_Populator {
 			// build time (see that constant's own docblock) — try known
 			// real-world alternates before giving up, so a site that named
 			// its term differently still populates without a code change.
-			foreach ( self::category_term_alternates( $classification['category'] ) as $alternate ) {
+			foreach ( self::category_term_alternates( $category_label ) as $alternate ) {
 				$category_match = $this->find_taxonomy_term_by_name( $post_type, $alternate );
 				if ( null !== $category_match ) {
 					break;
@@ -1019,10 +1067,10 @@ class Citex_Populator {
 			}
 		}
 		if ( null === $category_match ) {
-			$alternates = self::category_term_alternates( $classification['category'] );
+			$alternates = self::category_term_alternates( $category_label );
 			$message    = $alternates
-				? sprintf( 'Citex could not find a "%1$s" Reference Category term for this post type (also tried: %2$s).', $classification['category'], implode( ', ', array_map( function ( $name ) { return '"' . $name . '"'; }, $alternates ) ) )
-				: sprintf( 'Citex could not find a "%s" Reference Category term for this post type.', $classification['category'] );
+				? sprintf( 'Citex could not find a "%1$s" Reference Category term for this post type (also tried: %2$s).', $category_label, implode( ', ', array_map( function ( $name ) { return '"' . $name . '"'; }, $alternates ) ) )
+				: sprintf( 'Citex could not find a "%s" Reference Category term for this post type.', $category_label );
 			return new WP_Error( 'citex_category_term_not_found', $message );
 		}
 
@@ -1033,7 +1081,7 @@ class Citex_Populator {
 		if ( null === $exercise_match ) {
 			return new WP_Error(
 				'citex_exercise_term_not_found',
-				sprintf( 'Citex could not find an "%1$s" term (checked under "%2$s" and across the post type).', $classification['exercise'], $classification['category'] )
+				sprintf( 'Citex could not find an "%1$s" term (checked under "%2$s" and across the post type).', $classification['exercise'], $category_label )
 			);
 		}
 
