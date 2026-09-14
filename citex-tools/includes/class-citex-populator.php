@@ -433,7 +433,7 @@ class Citex_Populator {
 			// template-clone above, and replaces (never appends to) that
 			// taxonomy's term set — so a template's own Category/Exercise can
 			// never leak into, or survive alongside, the generated question's.
-			$classification_result = $this->assign_generated_classification( $new_id, $post_type, $classification, $question );
+			$classification_result = $this->assign_generated_classification( $new_id, $post_type, $classification );
 			if ( is_wp_error( $classification_result ) ) {
 				throw new Exception( 'Category/Exercise: ' . $classification_result->get_error_message() );
 			}
@@ -974,45 +974,6 @@ class Citex_Populator {
 	}
 
 	/**
-	 * The real Category taxonomy term NAME to look up for one question —
-	 * genuinely different for the two destinations. The Reference List's
-	 * own Category taxonomy is Book/Edited Book/Journal Article/Website
-	 * (the same as $classification['category']). The Citations post type
-	 * uses a COMPLETELY DIFFERENT Category taxonomy shape on the live site
-	 * (confirmed live, via its own Categories screen): terms grouped by
-	 * PERSON COUNT — "Single Author"/"Two Authors"/"Three Authors"/"More
-	 * than Three Authors" — each with the same Exercise 1-5 children,
-	 * never Book/Edited Book/Journal Article/Website at all. Website's own
-	 * in-text citation record always has exactly one author-or-organisation
-	 * entity (see class-citex-mla-website-mcq-variants.php's own docblock
-	 * for the same "only ever ONE entity" rule at the reference-list
-	 * layer), so it always resolves to "Single Author".
-	 */
-	private function taxonomy_category_label( $question, $classification ) {
-		if ( 'InTextCitation' !== (string) ( $question['group'] ?? '' ) ) {
-			return $classification['category'];
-		}
-		$category = (string) ( $question['category'] ?? '' );
-		if ( 'Website' === $category ) {
-			$count = 1;
-		} elseif ( 'Edited Book' === $category ) {
-			$count = count( is_array( $question['editors'] ?? null ) ? $question['editors'] : array() );
-		} else {
-			$count = count( is_array( $question['authors'] ?? null ) ? $question['authors'] : array() );
-		}
-		if ( $count <= 1 ) {
-			return 'Single Author';
-		}
-		if ( 2 === $count ) {
-			return 'Two Authors';
-		}
-		if ( 3 === $count ) {
-			return 'Three Authors';
-		}
-		return 'More than Three Authors';
-	}
-
-	/**
 	 * Assign the real WordPress Category/Exercise taxonomy terms named by
 	 * the generated question's own classification — never inherited from a
 	 * template. Uses only dynamic, name-based lookup (find_taxonomy_term_by_name())
@@ -1032,23 +993,23 @@ class Citex_Populator {
 	 * terms for that same taxonomy can never survive alongside — or leak
 	 * into — the generated question's classification.
 	 *
-	 * $question (the full generated record, not just $classification) is
-	 * needed here purely to resolve the CORRECT Category term NAME to
-	 * search for via taxonomy_category_label() above — $classification['category']
-	 * itself (Book/Edited Book/...) is left completely untouched, still
-	 * used as-is everywhere else (the success-message summary, the
-	 * returned result array, population coverage tracking).
+	 * Both real destinations (Reference List and Citations) now share the
+	 * same Book/Edited Book/Journal Article/Website Category taxonomy
+	 * shape and plain "Exercise N" child terms, so $classification['category']
+	 * is looked up as-is regardless of which post type this is; only
+	 * category_term_alternates() below absorbs live per-site naming
+	 * differences (e.g. "Web Resource").
 	 *
 	 * @return array|WP_Error {categoryTaxonomy, categoryTermId,
 	 *         exerciseTaxonomy, exerciseTermId} on success, or a WP_Error
 	 *         naming exactly which term could not be found.
 	 */
-	private function assign_generated_classification( $new_id, $post_type, $classification, $question = array() ) {
+	private function assign_generated_classification( $new_id, $post_type, $classification ) {
 		if ( ! function_exists( 'wp_set_object_terms' ) ) {
 			return new WP_Error( 'citex_taxonomy_unavailable', 'WordPress taxonomy functions are unavailable.' );
 		}
 
-		$category_label = $this->taxonomy_category_label( $question, $classification );
+		$category_label = $classification['category'];
 
 		$category_match = $this->find_taxonomy_term_by_name( $post_type, $category_label );
 		if ( null === $category_match ) {
@@ -1114,7 +1075,10 @@ class Citex_Populator {
 	 */
 	private static function category_term_alternates( $category ) {
 		$map = array(
-			'Website' => array( 'Web Resource', 'Website/Web Resource', 'Websites', 'Web Resources' ),
+			'Website'         => array( 'Web Resource', 'Website/Web Resource', 'Websites', 'Web Resources' ),
+			'Book'            => array( 'Books' ),
+			'Edited Book'     => array( 'Edited Books' ),
+			'Journal Article' => array( 'Journal Articles' ),
 		);
 		return $map[ $category ] ?? array();
 	}
@@ -1126,20 +1090,16 @@ class Citex_Populator {
 	 * that taxonomy is searched, optionally constrained to children of
 	 * $parent_term_id.
 	 *
-	 * A second, fallback matching pass handles a real term-naming
-	 * convention confirmed live on the Citations post type: its own child
-	 * Exercise terms are not bare "Exercise 4" but carry their PARENT
-	 * category's own name baked into the term itself as a "{Parent} |
-	 * Exercise 4" compound (e.g. "Single Author | Exercise 4" — and, on
-	 * this same site, inconsistently abbreviated for one bucket as "More
-	 * than 3 Author | Exercise 4" rather than matching that parent
-	 * category term's own full name "More than Three Authors" at all).
-	 * Reconstructing that exact prefix programmatically is therefore
-	 * unreliable — instead, whatever text follows the LAST "|" in the
-	 * term's own name is compared to $label on its own, so this works
-	 * regardless of how the prefix itself is spelled. Reference List's own
-	 * plain "Exercise 1"-style names never contain "|" at all, so this
-	 * pass can never produce a false match there.
+	 * A second, defensive fallback matching pass guards against a Category
+	 * taxonomy that names its child Exercise terms as a "{Parent} |
+	 * Exercise 4" compound rather than bare "Exercise 4" (the live
+	 * Citations post type briefly did this under a since-reverted
+	 * person-count Category scheme) — whatever text follows the LAST "|"
+	 * in the term's own name is compared to $label on its own, so this
+	 * still matches regardless of how the prefix itself is spelled, without
+	 * ever needing to reconstruct it. Plain "Exercise 1"-style names never
+	 * contain "|" at all, so this pass can never produce a false match
+	 * against them.
 	 *
 	 * @return array{taxonomy: string, termId: int}|null
 	 */
