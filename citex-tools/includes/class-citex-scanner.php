@@ -201,6 +201,63 @@ class Citex_Scanner {
 		return $scan;
 	}
 
+	/**
+	 * Combines any number of per-target scans (Reference List, Citations —
+	 * see target_for_group()'s own docblock) into ONE scan-shaped array,
+	 * for callers that need a single combined view (the Dashboard's own
+	 * "Total Questions"/breakdown cards, in particular — which, before
+	 * this method existed, only ever reflected the Reference List's own
+	 * scan, silently excluding every Citations question from every total).
+	 * A null/WP_Error entry (a target whose URL isn't configured, or that
+	 * has never been scanned) is skipped, not treated as an error.
+	 *
+	 * @param array $scans Any number of scan arrays (as returned by
+	 *              sync_from_wordpress()/get_last_scan()), or null/WP_Error
+	 *              entries to skip.
+	 * @return array|null The combined scan, or null if every entry was
+	 *         empty (mirrors get_last_scan()'s own "never scanned" null).
+	 */
+	public static function merge_scans( array $scans ) {
+		$questions   = array();
+		$scanned_ats = array();
+		foreach ( $scans as $scan ) {
+			if ( ! is_array( $scan ) ) {
+				continue;
+			}
+			foreach ( ( $scan['questions'] ?? array() ) as $question ) {
+				$questions[] = $question;
+			}
+			if ( ! empty( $scan['scannedAt'] ) ) {
+				$scanned_ats[] = (string) $scan['scannedAt'];
+			}
+		}
+		if ( empty( $questions ) && empty( $scanned_ats ) ) {
+			return null;
+		}
+
+		$harvard = array_filter(
+			$questions,
+			function ( $question ) {
+				return false !== stripos( (string) ( $question['source'] ?? '' ), 'harvard' );
+			}
+		);
+
+		return array(
+			'scannedAt'    => empty( $scanned_ats ) ? gmdate( 'c' ) : max( $scanned_ats ),
+			'total'        => count( $questions ),
+			'harvardTotal' => count( $harvard ),
+			'questions'    => $questions,
+			'breakdowns'   => array(
+				'sources'      => self::count_by( $questions, 'source' ),
+				'groups'       => self::count_by( $questions, 'group' ),
+				'categories'   => self::count_by( $questions, 'category' ),
+				'types'        => self::count_by( $questions, 'type' ),
+				'postStatuses' => self::count_by( $questions, 'postStatus' ),
+				'combinations' => self::count_combinations( $questions ),
+			),
+		);
+	}
+
 	private static function post_type_from_url( $url ) {
 		$query = wp_parse_url( $url, PHP_URL_QUERY );
 		if ( ! $query ) {
