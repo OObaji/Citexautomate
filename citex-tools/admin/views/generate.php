@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<tr><th scope="row"><label for="citex_question_group"><?php esc_html_e( 'Question Focus', 'citex-tools' ); ?></label></th><td><select id="citex_question_group" name="citex_question_group"><?php foreach ( $question_groups as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p class="description"><?php esc_html_e( 'Reference List builds a full bibliography entry. In-Text Citation builds the short in-sentence/parenthetical citation instead — available for every category under both styles.', 'citex-tools' ); ?></p></td></tr>
 			<tr id="citex_citation_form_row" style="display:none;"><th scope="row"><label for="citex_citation_form"><?php esc_html_e( 'Citation Form', 'citex-tools' ); ?></label></th><td><select id="citex_citation_form" name="citex_citation_form"><?php foreach ( $citation_forms as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_referencing_style"><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></label></th><td><select id="citex_referencing_style" name="citex_referencing_style"><?php foreach ( $referencing_styles as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>" data-mla-id-prefix="<?php echo esc_attr( $mla_id_prefixes[ $value ] ?? '' ); ?>" data-apa-id-prefix="<?php echo esc_attr( $apa_id_prefixes[ $value ] ?? '' ); ?>" data-intext-id-prefix="<?php echo esc_attr( $intext_id_prefixes[ $value ] ?? '' ); ?>" data-mla-intext-id-prefix="<?php echo esc_attr( $mla_intext_id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p class="description citex-apa-scope-note" style="display:none;"><?php esc_html_e( 'APA is currently Book / Reference List only.', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>" data-mla-id-prefix="<?php echo esc_attr( $mla_id_prefixes[ $value ] ?? '' ); ?>" data-apa-id-prefix="<?php echo esc_attr( $apa_id_prefixes[ $value ] ?? '' ); ?>" data-intext-id-prefix="<?php echo esc_attr( $intext_id_prefixes[ $value ] ?? '' ); ?>" data-mla-intext-id-prefix="<?php echo esc_attr( $mla_intext_id_prefixes[ $value ] ?? '' ); ?>" data-apa-intext-id-prefix="<?php echo esc_attr( $apa_intext_id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_question_type"><?php esc_html_e( 'Question Type', 'citex-tools' ); ?></label></th><td><select id="citex_question_type" name="citex_question_type"><?php foreach ( $question_types as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_author_count_scenario"><?php esc_html_e( 'Author Count', 'citex-tools' ); ?></label></th><td><select id="citex_author_count_scenario" name="citex_author_count_scenario"><option value="auto"><?php esc_html_e( 'Mixed / Auto (recommended)', 'citex-tools' ); ?></option></select><p class="description"><?php esc_html_e( 'Leave on Auto to spread the batch across every author-count scenario for this category. Pick one to force the whole batch onto it instead — e.g. generate a batch of single-author questions only.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'medium', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
@@ -63,7 +63,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 			var isIntext = groupSelect && 'intext' === groupSelect.value;
 			var attr;
 			if ( isIntext ) {
-				attr = 'mla' === style ? 'data-mla-intext-id-prefix' : 'data-intext-id-prefix';
+				attr = 'mla' === style ? 'data-mla-intext-id-prefix' : ( 'apa' === style ? 'data-apa-intext-id-prefix' : 'data-intext-id-prefix' );
 			} else if ( 'apa' === style ) {
 				attr = 'data-apa-id-prefix';
 			} else if ( 'mla' === style ) {
@@ -77,33 +77,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 			}
 			if ( /^[A-Z]+01$/.test( startingIdField.value.trim().toUpperCase() ) ) {
 				startingIdField.value = prefix + '01';
-			}
-		}
-
-		// APA is currently Book / Reference List only (Phase 1) — mirrors
-		// the same server-side restriction in Citex_Generator::handle_generation().
-		// When APA is selected, forces Category to Book and Question Focus
-		// to Reference List, disabling every other option in both selects
-		// so an admin can't submit a combination the server will reject;
-		// re-enables them the moment a different style is chosen.
-		function syncApaScope() {
-			if ( ! styleSelect || ! categorySelect || ! groupSelect ) {
-				return;
-			}
-			var isApa = 'apa' === styleSelect.value;
-			var note  = document.querySelector( '.citex-apa-scope-note' );
-			if ( note ) {
-				note.style.display = isApa ? '' : 'none';
-			}
-			Array.prototype.forEach.call( categorySelect.options, function ( opt ) {
-				opt.disabled = isApa && 'book' !== opt.value;
-			} );
-			Array.prototype.forEach.call( groupSelect.options, function ( opt ) {
-				opt.disabled = isApa && 'referencelist' !== opt.value;
-			} );
-			if ( isApa ) {
-				categorySelect.value = 'book';
-				groupSelect.value    = 'referencelist';
 			}
 		}
 
@@ -160,7 +133,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 		}
 		if ( styleSelect ) {
 			styleSelect.addEventListener( 'change', function () {
-				syncApaScope();
 				syncStartingId();
 				syncAuthorCountOptions();
 			} );
@@ -175,7 +147,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 			typeSelect.addEventListener( 'change', syncAuthorCountOptions );
 		}
 
-		syncApaScope();
 		syncCitationFormVisibility();
 		syncAuthorCountOptions();
 	} )();

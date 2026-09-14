@@ -94,6 +94,18 @@ class Citex_Generated_Validator {
 			if ( 'apa_book_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
 				return self::validate_apa_book_mcq_variant( $question );
 			}
+			// APA's own Edited Book/Journal Article/Website MCQ catalogues —
+			// mirror apa_book_mcq_variant's identical move, routed the same
+			// way, on `mcqPattern`.
+			if ( 'apa_edited_book_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_apa_edited_book_mcq_variant( $question );
+			}
+			if ( 'apa_journal_article_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_apa_journal_article_mcq_variant( $question );
+			}
+			if ( 'apa_website_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_apa_website_mcq_variant( $question );
+			}
 			// MLA's own Edited Book/Journal Article/Website MCQ catalogues
 			// — mirror mla_book_mcq_variant's identical move, routed the
 			// same way, on `mcqPattern`.
@@ -122,6 +134,9 @@ class Citex_Generated_Validator {
 			}
 			if ( 'mla_intext_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
 				return self::validate_mla_intext_mcq_variant( $question );
+			}
+			if ( 'apa_intext_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_apa_intext_mcq_variant( $question );
 			}
 			return self::validate_mcq( $question );
 		}
@@ -336,6 +351,35 @@ class Citex_Generated_Validator {
 					}
 				}
 			}
+		} elseif ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && 'APA' === $source ) {
+			// APA's own Edited Book DragDrop block — mirrors the MLA Edited
+			// Book block above exactly, via Citex_APA_Edited_Book_Dragdrop_Parts
+			// instead (surname/initials, "(Ed.)"/"(Eds.)" designation, no
+			// `place`).
+			$editors_for_shape = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
+			$eb_title          = trim( (string) ( $question['bookTitle'] ?? '' ) );
+			if ( ! ( empty( $editors_for_shape ) && '' === $eb_title ) ) {
+				$selected_keys = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$eb_fields     = array(
+					'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+					'title'     => $eb_title,
+					'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+				);
+				$expected_build = ( empty( $selected_keys ) || empty( $editors_for_shape ) ) ? null : Citex_APA_Edited_Book_Dragdrop_Parts::build( $selected_keys, $editors_for_shape, $eb_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'APA_EDITED_BOOK_DRAGDROP_PARTS_UNKNOWN', 'The APA Edited Book DragDrop part selection (dragdropPartKeys) is missing, malformed, or names an editor index out of range.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'APA_EDITED_BOOK_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'APA_EDITED_BOOK_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'APA_EDITED_BOOK_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
+				}
+			}
 		} elseif ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			$editors_for_shape = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
 			$eb_title          = trim( (string) ( $question['bookTitle'] ?? '' ) );
@@ -392,6 +436,47 @@ class Citex_Generated_Validator {
 					}
 					if ( $confusing !== $expected_build['confusingWords'] ) {
 						$errors[] = self::error( 'MLA_JOURNAL_ARTICLE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
+				}
+			}
+		} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category && 'APA' === $source ) {
+			// APA's own Journal Article DragDrop block — mirrors the MLA
+			// Journal Article block above exactly, via
+			// Citex_APA_Journal_Article_Dragdrop_Parts instead (surname/
+			// initials, no quotes around the article title, no "pp." prefix).
+			$ja_authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+			if ( empty( $ja_authors ) && '' !== trim( (string) ( $question['authorSurname'] ?? '' ) ) ) {
+				$ja_authors = array(
+					array(
+						'surname'  => trim( (string) ( $question['authorSurname'] ?? '' ) ),
+						'initials' => trim( (string) ( $question['authorInitials'] ?? '' ) ),
+						'fullName' => trim( (string) ( $question['authorFullName'] ?? '' ) ),
+					),
+				);
+			}
+			$ja_title = trim( (string) ( $question['articleTitle'] ?? '' ) );
+			if ( ! ( empty( $ja_authors ) && '' === $ja_title ) ) {
+				$selected_keys = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$ja_fields     = array(
+					'year'         => trim( (string) ( $question['year'] ?? '' ) ),
+					'articleTitle' => $ja_title,
+					'journalTitle' => trim( (string) ( $question['journalTitle'] ?? '' ) ),
+					'volume'       => trim( (string) ( $question['volume'] ?? '' ) ),
+					'issue'        => trim( (string) ( $question['issue'] ?? '' ) ),
+					'pages'        => trim( (string) ( $question['pages'] ?? '' ) ),
+				);
+				$expected_build = ( empty( $selected_keys ) || empty( $ja_authors ) ) ? null : Citex_APA_Journal_Article_Dragdrop_Parts::build( $selected_keys, $ja_authors, $ja_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'APA_JOURNAL_ARTICLE_DRAGDROP_PARTS_UNKNOWN', 'The APA Journal Article DragDrop part selection (dragdropPartKeys) is missing, malformed, or names an author index out of range.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'APA_JOURNAL_ARTICLE_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'APA_JOURNAL_ARTICLE_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'APA_JOURNAL_ARTICLE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
 					}
 				}
 			}
@@ -474,6 +559,49 @@ class Citex_Generated_Validator {
 					}
 					if ( $confusing !== $expected_build['confusingWords'] ) {
 						$errors[] = self::error( 'MLA_WEBSITE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
+				}
+			}
+		} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category && 'APA' === $source ) {
+			// APA's own Website DragDrop block — mirrors the MLA Website
+			// block above, via Citex_APA_Website_Dragdrop_Parts instead:
+			// surname/initials, no `accessedDate`/`publisher` in the built
+			// record, and `year` always present (either digits or the
+			// literal "n.d." — see Citex_APA_Website_Dragdrop_Parts's own
+			// docblock).
+			$web_author_type = (string) ( $question['authorType'] ?? '' );
+			$web_authors_arr = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+			$web_title       = trim( (string) ( $question['pageTitle'] ?? '' ) );
+			$has_web_author  = 'individual' === $web_author_type
+				? '' !== trim( (string) ( $web_authors_arr[0]['surname'] ?? '' ) )
+				: ( 'organisation' === $web_author_type && '' !== trim( (string) ( $question['organisationName'] ?? '' ) ) );
+			if ( ! ( ! $has_web_author && '' === $web_title ) ) {
+				$web_author = array( 'type' => $web_author_type );
+				if ( 'individual' === $web_author_type ) {
+					$web_author['fullName'] = trim( (string) ( $web_authors_arr[0]['fullName'] ?? '' ) );
+					$web_author['surname']  = trim( (string) ( $web_authors_arr[0]['surname'] ?? '' ) );
+					$web_author['initials'] = trim( (string) ( $web_authors_arr[0]['initials'] ?? '' ) );
+				} else {
+					$web_author['name'] = trim( (string) ( $question['organisationName'] ?? '' ) );
+				}
+				$web_fields = array(
+					'year'  => trim( (string) ( $question['year'] ?? '' ) ),
+					'title' => $web_title,
+					'url'   => trim( (string) ( $question['url'] ?? '' ) ),
+				);
+				$selected_keys  = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$expected_build = ( empty( $selected_keys ) || ! $has_web_author ) ? null : Citex_APA_Website_Dragdrop_Parts::build( $selected_keys, $web_author, $web_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'APA_WEBSITE_DRAGDROP_PARTS_UNKNOWN', 'The APA Website DragDrop part selection (dragdropPartKeys) is missing or malformed.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'APA_WEBSITE_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'APA_WEBSITE_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'APA_WEBSITE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
 					}
 				}
 			}
@@ -604,11 +732,13 @@ class Citex_Generated_Validator {
 			return self::validate_mla_bibliographic_consistency( $question, $reference, $check_scenario );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_BOOK === $category && $is_apa ) {
-			// Phase 1: Book only.
 			return self::validate_apa_bibliographic_consistency( $question, $reference, $check_scenario );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && $is_mla ) {
 			return self::validate_mla_edited_book_consistency( $question, $reference, $check_scenario );
+		}
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && $is_apa ) {
+			return self::validate_apa_edited_book_consistency( $question, $reference, $check_scenario );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return self::validate_edited_book_consistency( $question, $reference, $check_scenario );
@@ -616,11 +746,17 @@ class Citex_Generated_Validator {
 		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category && $is_mla ) {
 			return self::validate_mla_journal_article_consistency( $question, $reference, $check_scenario );
 		}
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category && $is_apa ) {
+			return self::validate_apa_journal_article_consistency( $question, $reference, $check_scenario );
+		}
 		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return self::validate_journal_article_consistency( $question, $question_parts, $reference, $check_scenario );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category && $is_mla ) {
 			return self::validate_mla_website_consistency( $question, $reference, $check_scenario );
+		}
+		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category && $is_apa ) {
+			return self::validate_apa_website_consistency( $question, $reference, $check_scenario );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			return self::validate_website_consistency( $question, $question_parts, $reference, $check_scenario );
@@ -1384,6 +1520,287 @@ class Citex_Generated_Validator {
 	}
 
 	/**
+	 * APA counterpart to validate_apa_book_mcq_variant(), for Edited Book —
+	 * same exact-match rationale, via Citex_APA_Edited_Book_Mcq_Variants
+	 * instead. Field shape mirrors normalise_apa_edited_book_mcq_item()'s
+	 * own output: `editors` array<{surname, initials, fullName}>, no
+	 * `place`.
+	 */
+	private static function validate_apa_edited_book_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$variant = (string) ( $question['apaEditedBookMcqVariant'] ?? '' );
+		$editors = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
+		$fields  = array(
+			'editors'   => $editors,
+			'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+			'title'     => trim( (string) ( $question['bookTitle'] ?? '' ) ),
+			'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+		);
+		$expected = empty( $editors ) ? null : Citex_APA_Edited_Book_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'APA_EDITED_BOOK_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised APA Edited Book MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'APA_EDITED_BOOK_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'APA_EDITED_BOOK_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'APA_EDITED_BOOK_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * APA counterpart to validate_apa_book_mcq_variant(), for Journal
+	 * Article — via Citex_APA_Journal_Article_Mcq_Variants instead.
+	 */
+	private static function validate_apa_journal_article_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$variant = (string) ( $question['apaJournalArticleMcqVariant'] ?? '' );
+		$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		$fields  = array(
+			'authors'      => $authors,
+			'articleTitle' => trim( (string) ( $question['articleTitle'] ?? '' ) ),
+			'journalTitle' => trim( (string) ( $question['journalTitle'] ?? '' ) ),
+			'volume'       => trim( (string) ( $question['volume'] ?? '' ) ),
+			'issue'        => trim( (string) ( $question['issue'] ?? '' ) ),
+			'year'         => trim( (string) ( $question['year'] ?? '' ) ),
+			'pages'        => trim( (string) ( $question['pages'] ?? '' ) ),
+		);
+		$expected = empty( $authors ) ? null : Citex_APA_Journal_Article_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'APA_JOURNAL_ARTICLE_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised APA Journal Article MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'APA_JOURNAL_ARTICLE_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'APA_JOURNAL_ARTICLE_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'APA_JOURNAL_ARTICLE_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * APA counterpart to validate_apa_book_mcq_variant(), for Website — via
+	 * Citex_APA_Website_Mcq_Variants instead. Field shape mirrors
+	 * normalise_apa_website_mcq_variant_item()'s own output: `authorType`
+	 * plus `authors[0]`/`organisationName`, no `accessedDate` at all.
+	 */
+	private static function validate_apa_website_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$variant     = (string) ( $question['apaWebsiteMcqVariant'] ?? '' );
+		$author_type = (string) ( $question['authorType'] ?? '' );
+		$authors_arr = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+		$author      = array( 'type' => $author_type );
+		if ( 'individual' === $author_type ) {
+			$author['fullName'] = trim( (string) ( $authors_arr[0]['fullName'] ?? '' ) );
+			$author['surname']  = trim( (string) ( $authors_arr[0]['surname'] ?? '' ) );
+			$author['initials'] = trim( (string) ( $authors_arr[0]['initials'] ?? '' ) );
+		} elseif ( 'organisation' === $author_type ) {
+			$author['name'] = trim( (string) ( $question['organisationName'] ?? '' ) );
+		}
+		$fields = array(
+			'author' => $author,
+			'year'   => trim( (string) ( $question['year'] ?? '' ) ),
+			'title'  => trim( (string) ( $question['pageTitle'] ?? '' ) ),
+			'url'    => trim( (string) ( $question['url'] ?? '' ) ),
+		);
+		$expected = in_array( $author_type, array( 'individual', 'organisation' ), true ) ? Citex_APA_Website_Mcq_Variants::build( $variant, $fields ) : null;
+		if ( null === $expected ) {
+			$errors[] = self::error( 'APA_WEBSITE_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised or incompatible APA Website MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'APA_WEBSITE_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'APA_WEBSITE_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'APA_WEBSITE_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
 	 * MLA counterpart to validate_mla_book_mcq_variant(), for Edited Book —
 	 * same exact-match rationale, via Citex_MLA_Edited_Book_Mcq_Variants
 	 * instead. Field shape mirrors normalise_mla_edited_book_mcq_item()'s
@@ -1681,7 +2098,7 @@ class Citex_Generated_Validator {
 	 *         ok is false when the record's canonical person data is
 	 *         missing/malformed, in which case who/surnames are meaningless.
 	 */
-	private static function intext_who_and_surnames( $question, $is_mla ) {
+	private static function intext_who_and_surnames( $question, $is_mla, $is_apa = false, $form = '' ) {
 		$category = (string) ( $question['category'] ?? '' );
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			$author_type = (string) ( $question['authorType'] ?? '' );
@@ -1699,7 +2116,13 @@ class Citex_Generated_Validator {
 			} else {
 				return array( '', array(), false );
 			}
-			$who = $is_mla ? Citex_MLA_Intext_Citation_Rules::display_person_or_org( $author_record ) : Citex_Intext_Citation_Rules::display_person_or_org( $author_record );
+			if ( $is_mla ) {
+				$who = Citex_MLA_Intext_Citation_Rules::display_person_or_org( $author_record );
+			} elseif ( $is_apa ) {
+				$who = Citex_APA_Intext_Citation_Rules::display_person_or_org( $author_record );
+			} else {
+				$who = Citex_Intext_Citation_Rules::display_person_or_org( $author_record );
+			}
 			return array( $who, $surnames, true );
 		}
 		$people_key = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ? 'editors' : 'authors';
@@ -1711,8 +2134,24 @@ class Citex_Generated_Validator {
 			if ( '' === $surname ) { return array( '', array(), false ); }
 			$surnames[] = $surname;
 		}
-		$who = $is_mla ? Citex_MLA_Intext_Citation_Rules::join_people_intext( $people ) : Citex_Intext_Citation_Rules::join_people_intext( $people );
+		if ( $is_mla ) {
+			$who = Citex_MLA_Intext_Citation_Rules::join_people_intext( $people );
+		} elseif ( $is_apa ) {
+			$who = Citex_APA_Intext_Citation_Rules::join_people_intext( $people, Citex_APA_Intext_Citation_Rules::joiner_for_form( $form ) );
+		} else {
+			$who = Citex_Intext_Citation_Rules::join_people_intext( $people );
+		}
 		return array( $who, $surnames, true );
+	}
+
+	private static function apa_intext_full_sentence( $form, $who, $year, $clause, $page, $quote ) {
+		if ( Citex_APA_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			return Citex_APA_Intext_Citation_Rules::narrative_sentence( $who, $year, $clause );
+		}
+		if ( Citex_APA_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			return Citex_APA_Intext_Citation_Rules::parenthetical_sentence( $who, $year, $clause );
+		}
+		return Citex_APA_Intext_Citation_Rules::parenthetical_quote_sentence( $who, $year, $page, $quote );
 	}
 
 	private static function intext_full_sentence( $form, $who, $year, $clause, $page, $quote ) {
@@ -1749,6 +2188,7 @@ class Citex_Generated_Validator {
 		$errors = array();
 		$source = (string) ( $question['source'] ?? '' );
 		$is_mla = 'MLA' === $source;
+		$is_apa = 'APA' === $source;
 		$form   = (string) ( $question['citationForm'] ?? '' );
 
 		$fixed_text     = (string) ( $question['fixedText'] ?? '' );
@@ -1762,7 +2202,7 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'QUESTION_PARTS_MISSING', 'Question Parts are missing.' );
 		}
 
-		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, $is_mla );
+		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, $is_mla, $is_apa, $form );
 		if ( ! $people_ok ) {
 			$errors[] = self::error( 'INTEXT_PEOPLE_UNKNOWN', 'The in-text citation record is missing its author/editor/organisation data.' );
 			return self::result( 'failed', $errors, null );
@@ -1773,9 +2213,13 @@ class Citex_Generated_Validator {
 		$page   = (string) ( $question['page'] ?? '' );
 		$year   = (string) ( $question['year'] ?? '' );
 
-		$expected_build = $is_mla
-			? Citex_MLA_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $clause, '' === $page ? null : $page, $quote )
-			: Citex_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $year, $clause, '' === $page ? null : $page, $quote );
+		if ( $is_mla ) {
+			$expected_build = Citex_MLA_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $clause, '' === $page ? null : $page, $quote );
+		} elseif ( $is_apa ) {
+			$expected_build = Citex_APA_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $year, $clause, $page, $quote );
+		} else {
+			$expected_build = Citex_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $year, $clause, '' === $page ? null : $page, $quote );
+		}
 
 		if ( null === $expected_build ) {
 			$errors[] = self::error( 'INTEXT_DRAGDROP_PARTS_UNKNOWN', 'The in-text citation DragDrop parts could not be recomputed from the record.' );
@@ -1798,9 +2242,13 @@ class Citex_Generated_Validator {
 		}
 		$reference = $reconstruction['reference'];
 
-		$expected_reference = $is_mla
-			? self::mla_intext_full_sentence( $form, $who, $clause, $page, $quote )
-			: self::intext_full_sentence( $form, $who, $year, $clause, $page, $quote );
+		if ( $is_mla ) {
+			$expected_reference = self::mla_intext_full_sentence( $form, $who, $clause, $page, $quote );
+		} elseif ( $is_apa ) {
+			$expected_reference = self::apa_intext_full_sentence( $form, $who, $year, $clause, $page, $quote );
+		} else {
+			$expected_reference = self::intext_full_sentence( $form, $who, $year, $clause, $page, $quote );
+		}
 		if ( $reference !== $expected_reference ) {
 			$errors[] = self::error( 'INTEXT_RECONSTRUCTED_REFERENCE_MISMATCH', sprintf( 'The reconstructed in-text citation must be exactly: "%s".', $expected_reference ) );
 		}
@@ -1992,6 +2440,106 @@ class Citex_Generated_Validator {
 			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
 			if ( $actual_option !== $expected_option ) {
 				$errors[] = self::error( 'MLA_INTEXT_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * APA in-text citation MCQ — mirrors validate_mla_intext_mcq_variant()'s
+	 * own exact-match rationale, via Citex_APA_Intext_Mcq_Variants and
+	 * intext_who_and_surnames() instead. `who` is recomputed with the
+	 * correct form-dependent joiner ("&" or "and" — see
+	 * Citex_APA_Intext_Citation_Rules::joiner_for_form()), never re-decided
+	 * by this method.
+	 */
+	private static function validate_apa_intext_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$form = (string) ( $question['citationForm'] ?? '' );
+		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, false, true, $form );
+		if ( ! $people_ok ) {
+			$errors[] = self::error( 'INTEXT_PEOPLE_UNKNOWN', 'The in-text citation record is missing its author/editor/organisation data.' );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		$variant = (string) ( $question['apaIntextMcqVariant'] ?? '' );
+		$fields  = array(
+			'form'     => $form,
+			'who'      => $who,
+			'surnames' => $surnames,
+			'year'     => (string) ( $question['year'] ?? '' ),
+			'clause'   => (string) ( $question['clause'] ?? '' ),
+			'page'     => (string) ( $question['page'] ?? '' ),
+			'quote'    => (string) ( $question['quote'] ?? '' ),
+		);
+		$expected = Citex_APA_Intext_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'APA_INTEXT_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised APA in-text MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'APA_INTEXT_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'APA_INTEXT_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'APA_INTEXT_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
 			}
 		}
 
@@ -2238,8 +2786,16 @@ class Citex_Generated_Validator {
 			} elseif ( $is_mla ) {
 				$code    = 'MLA_BOOK_FORMAT_MISMATCH';
 				$message = 'Citation does not match the MLA Book format.';
+			} elseif ( $is_apa && Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				$code    = 'APA_EDITED_BOOK_FORMAT_MISMATCH';
+				$message = 'Citation does not match the APA Edited Book format.';
+			} elseif ( $is_apa && Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+				$code    = 'APA_JOURNAL_ARTICLE_FORMAT_MISMATCH';
+				$message = 'Citation does not match the APA Journal Article format.';
+			} elseif ( $is_apa && Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+				$code    = 'APA_WEBSITE_FORMAT_MISMATCH';
+				$message = 'Citation does not match the APA Website format.';
 			} elseif ( $is_apa ) {
-				// Phase 1: Book only.
 				$code    = 'APA_BOOK_FORMAT_MISMATCH';
 				$message = 'Citation does not match the APA Book format.';
 			} elseif ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
@@ -2714,6 +3270,213 @@ class Citex_Generated_Validator {
 				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
 					$errors[] = self::error( 'APA_BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
 				}
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * APA counterpart to validate_mla_edited_book_consistency() — same
+	 * "reconstruct + exact match" pattern, via
+	 * Citex_APA_Reference_Rules::build_reference() instead (surname/
+	 * initials, "(Ed.)"/"(Eds.)" designation, no `place`).
+	 */
+	private static function validate_apa_edited_book_consistency( $question, $reference, $check_scenario = true ) {
+		$errors  = array();
+		$editors = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
+		$title   = trim( (string) ( $question['bookTitle'] ?? '' ) );
+
+		if ( empty( $editors ) && '' === $title ) {
+			return $errors;
+		}
+		if ( empty( $editors ) ) {
+			$errors[] = self::error( 'APA_EDITED_BOOK_EDITORS_MISSING', 'No editors were provided for this APA Edited Book question.' );
+			return $errors;
+		}
+
+		$year      = trim( (string) ( $question['year'] ?? '' ) );
+		$publisher = trim( (string) ( $question['publisher'] ?? '' ) );
+
+		$fields             = array( 'editors' => $editors, 'year' => $year, 'title' => $title, 'publisher' => $publisher );
+		$expected_reference = trim( Citex_APA_Reference_Rules::build_reference( Citex_APA_Reference_Rules::CATEGORY_EDITED_BOOK, $fields ) );
+		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
+			$errors[] = self::error(
+				'APA_EDITED_BOOK_RECONSTRUCTION_MISMATCH',
+				sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
+			);
+		}
+
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach ( $editors as $index => $editor ) {
+				$editor_surname = trim( (string) ( $editor['surname'] ?? '' ) );
+				if ( '' !== $editor_surname && ! self::text_contains( $scenario, $editor_surname ) ) {
+					$errors[] = self::error( 'APA_EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention editor %1$d\'s surname: "%2$s".', $index + 1, $editor_surname ) );
+				}
+			}
+			foreach (
+				array(
+					'title'     => array( $title, 'book title' ),
+					'year'      => array( $year, 'publication year' ),
+					'publisher' => array( $publisher, 'publisher' ),
+				) as $pair
+			) {
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'APA_EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+				}
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * APA counterpart to validate_mla_journal_article_consistency() — same
+	 * "reconstruct + exact match" pattern, via
+	 * Citex_APA_Reference_Rules::build_reference() instead (no quotes around
+	 * the article title, no "pp." prefix before the page range).
+	 */
+	private static function validate_apa_journal_article_consistency( $question, $reference, $check_scenario = true ) {
+		$errors        = array();
+		$authors       = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		$article_title = trim( (string) ( $question['articleTitle'] ?? '' ) );
+
+		if ( empty( $authors ) && '' === $article_title ) {
+			return $errors;
+		}
+		if ( empty( $authors ) ) {
+			$errors[] = self::error( 'APA_JOURNAL_ARTICLE_AUTHORS_MISSING', 'No authors were provided for this APA Journal Article question.' );
+			return $errors;
+		}
+
+		$journal_title = trim( (string) ( $question['journalTitle'] ?? '' ) );
+		$volume        = trim( (string) ( $question['volume'] ?? '' ) );
+		$issue         = trim( (string) ( $question['issue'] ?? '' ) );
+		$year          = trim( (string) ( $question['year'] ?? '' ) );
+		$pages         = trim( (string) ( $question['pages'] ?? '' ) );
+
+		$fields             = array( 'authors' => $authors, 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'year' => $year, 'pages' => $pages );
+		$expected_reference = trim( Citex_APA_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields ) );
+		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
+			$errors[] = self::error(
+				'APA_JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH',
+				sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
+			);
+		}
+
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach ( $authors as $index => $author ) {
+				$author_surname = trim( (string) ( $author['surname'] ?? '' ) );
+				if ( '' !== $author_surname && ! self::text_contains( $scenario, $author_surname ) ) {
+					$errors[] = self::error( 'APA_JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
+				}
+			}
+			foreach (
+				array(
+					'articleTitle' => array( $article_title, 'article title' ),
+					'journalTitle' => array( $journal_title, 'journal title' ),
+					'year'         => array( $year, 'publication year' ),
+					'volume'       => array( $volume, 'volume' ),
+					'issue'        => array( $issue, 'issue' ),
+				) as $pair
+			) {
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'APA_JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+				}
+			}
+			if ( '' !== $pages && ! self::scenario_mentions_page_range( $scenario, $pages ) ) {
+				$errors[] = self::error( 'APA_JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical page range: "%s".', $pages ) );
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * APA counterpart to validate_mla_website_consistency() — same
+	 * "reconstruct + exact match" pattern, via
+	 * Citex_APA_Reference_Rules::build_reference() instead: surname/
+	 * initials, `year` always present (a real 4-digit year or exactly
+	 * "n.d." — same convention as Harvard, never MLA's "omit the segment"),
+	 * and no accessed date at all (APA's own Website format has none for a
+	 * stable source).
+	 */
+	private static function validate_apa_website_consistency( $question, $reference, $check_scenario = true ) {
+		$errors      = array();
+		$author_type = trim( (string) ( $question['authorType'] ?? '' ) );
+
+		$author_surname    = '';
+		$author_initials   = '';
+		$organisation_name = '';
+		if ( 'individual' === $author_type ) {
+			$authors = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+			if ( ! empty( $authors ) ) {
+				$author_surname  = trim( (string) ( $authors[0]['surname'] ?? '' ) );
+				$author_initials = trim( (string) ( $authors[0]['initials'] ?? '' ) );
+			}
+		} elseif ( 'organisation' === $author_type ) {
+			$organisation_name = trim( (string) ( $question['organisationName'] ?? '' ) );
+		}
+		$title = trim( (string) ( $question['pageTitle'] ?? '' ) );
+
+		if ( '' === $author_type && '' === $title ) {
+			return $errors;
+		}
+		if ( 'individual' !== $author_type && 'organisation' !== $author_type ) {
+			$errors[] = self::error( 'APA_WEBSITE_AUTHOR_TYPE_INVALID', 'authorType must be exactly "individual" or "organisation".' );
+			return $errors;
+		}
+		if ( 'individual' === $author_type && ( '' === $author_surname || '' === $author_initials ) ) {
+			$errors[] = self::error( 'APA_WEBSITE_AUTHOR_MISSING', 'No individual author surname/initials were provided for this APA Website question.' );
+			return $errors;
+		}
+		if ( 'organisation' === $author_type && '' === $organisation_name ) {
+			$errors[] = self::error( 'APA_WEBSITE_AUTHOR_MISSING', 'No organisation name was provided for this APA Website question.' );
+			return $errors;
+		}
+
+		$year = trim( (string) ( $question['year'] ?? '' ) );
+		$url  = trim( (string) ( $question['url'] ?? '' ) );
+
+		if ( ! preg_match( '/^(?:\d{4}|n\.d\.)$/', $year ) ) {
+			$errors[] = self::error( 'APA_WEBSITE_YEAR_INVALID', 'The year must be either a real 4-digit year or exactly "n.d." when none can be identified.' );
+		}
+		if ( '' === $url || ! preg_match( '#^https?://\S+$#', $url ) ) {
+			$errors[] = self::error( 'APA_WEBSITE_URL_MALFORMED', 'The URL must be a well-formed http(s) address with no spaces.' );
+		}
+
+		$author = array( 'type' => $author_type );
+		if ( 'individual' === $author_type ) {
+			$author['surname']  = $author_surname;
+			$author['initials'] = $author_initials;
+		} else {
+			$author['name'] = $organisation_name;
+		}
+		$fields = array( 'author' => $author, 'year' => $year, 'title' => $title, 'url' => $url );
+
+		$expected_reference = trim( Citex_APA_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields ) );
+		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
+			$errors[] = self::error(
+				'APA_WEBSITE_RECONSTRUCTION_MISMATCH',
+				sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
+			);
+		}
+
+		if ( $check_scenario ) {
+			$scenario      = (string) ( $question['scenario'] ?? '' );
+			$name_to_check = 'individual' === $author_type ? $author_surname : $organisation_name;
+			if ( '' !== $name_to_check && ! self::text_contains( $scenario, $name_to_check ) ) {
+				$errors[] = self::error( 'APA_WEBSITE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical author/organisation name: "%s".', $name_to_check ) );
+			}
+			if ( '' !== $title && ! self::text_contains( $scenario, $title ) ) {
+				$errors[] = self::error( 'APA_WEBSITE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical page title: "%s".', $title ) );
+			}
+			if ( '' !== $url && ! self::text_contains( $scenario, $url ) ) {
+				$errors[] = self::error( 'APA_WEBSITE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical url: "%s".', $url ) );
 			}
 		}
 

@@ -148,5 +148,34 @@ check(
 	'AB05'
 );
 
+// ---------------------------------------------------------------------
+// 9. APA now covers all 4 reference-list categories (Phase 2) — each gets
+// its own prefix (AE/AJ/AW), distinct from Book's own "AB" and from every
+// Harvard/MLA equivalent.
+// ---------------------------------------------------------------------
+check( '[9] APA Edited Book\'s ID prefix is "AE"', Citex_APA_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_EDITED_BOOK ), 'AE' );
+check( '[9] APA Journal Article\'s ID prefix is "AJ"', Citex_APA_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ), 'AJ' );
+check( '[9] APA Website\'s ID prefix is "AW"', Citex_APA_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_WEBSITE ), 'AW' );
+check(
+	'[9] a Harvard Edited Book default ("ED01") is auto-corrected to "AE01" when APA is selected',
+	Citex_Generator::normalise_starting_id( 'ED01', Citex_Reference_Rules::CATEGORY_EDITED_BOOK, 'apa' ),
+	'AE01'
+);
+check(
+	'[9] an APA Journal Article-prefixed ID the admin deliberately typed ("AJ07") is left untouched',
+	Citex_Generator::normalise_starting_id( 'AJ07', Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, 'apa' ),
+	'AJ07'
+);
+
+// ---------------------------------------------------------------------
+// 10. In-text citation's own id_prefix() now covers APA too — "AI"
+// prefixed onto each Harvard letter (AIB/AIE/AIJ/AIW), distinct from both
+// Harvard's own "I" prefixes and MLA's own "MI" prefixes.
+// ---------------------------------------------------------------------
+check( '[10] APA in-text Book prefix is "AIB"', Citex_Generator::intext_id_prefix( 'Book', 'apa' ), 'AIB' );
+check( '[10] APA in-text Website prefix is "AIW"', Citex_Generator::intext_id_prefix( 'Website', 'apa' ), 'AIW' );
+check( '[10] APA in-text prefix is distinct from Harvard\'s own', Citex_Generator::intext_id_prefix( 'Book', 'apa' ) === Citex_Generator::intext_id_prefix( 'Book', 'harvard' ), false );
+check( '[10] APA in-text prefix is distinct from MLA\'s own', Citex_Generator::intext_id_prefix( 'Book', 'apa' ) === Citex_Generator::intext_id_prefix( 'Book', 'mla' ), false );
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
