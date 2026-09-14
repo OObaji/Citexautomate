@@ -1126,6 +1126,21 @@ class Citex_Populator {
 	 * that taxonomy is searched, optionally constrained to children of
 	 * $parent_term_id.
 	 *
+	 * A second, fallback matching pass handles a real term-naming
+	 * convention confirmed live on the Citations post type: its own child
+	 * Exercise terms are not bare "Exercise 4" but carry their PARENT
+	 * category's own name baked into the term itself as a "{Parent} |
+	 * Exercise 4" compound (e.g. "Single Author | Exercise 4" — and, on
+	 * this same site, inconsistently abbreviated for one bucket as "More
+	 * than 3 Author | Exercise 4" rather than matching that parent
+	 * category term's own full name "More than Three Authors" at all).
+	 * Reconstructing that exact prefix programmatically is therefore
+	 * unreliable — instead, whatever text follows the LAST "|" in the
+	 * term's own name is compared to $label on its own, so this works
+	 * regardless of how the prefix itself is spelled. Reference List's own
+	 * plain "Exercise 1"-style names never contain "|" at all, so this
+	 * pass can never produce a false match there.
+	 *
 	 * @return array{taxonomy: string, termId: int}|null
 	 */
 	private function find_taxonomy_term_by_name( $post_type, $label, $parent_taxonomy = null, $parent_term_id = null ) {
@@ -1154,6 +1169,21 @@ class Citex_Populator {
 			}
 			foreach ( $terms as $term ) {
 				if ( is_object( $term ) && isset( $term->name, $term->term_id ) && 0 === strcasecmp( trim( (string) $term->name ), $label ) ) {
+					return array(
+						'taxonomy' => $taxonomy,
+						'termId'   => (int) $term->term_id,
+					);
+				}
+			}
+			foreach ( $terms as $term ) {
+				if ( ! is_object( $term ) || ! isset( $term->name, $term->term_id ) ) {
+					continue;
+				}
+				$segments = explode( '|', (string) $term->name );
+				if ( count( $segments ) < 2 ) {
+					continue;
+				}
+				if ( 0 === strcasecmp( trim( end( $segments ) ), $label ) ) {
 					return array(
 						'taxonomy' => $taxonomy,
 						'termId'   => (int) $term->term_id,

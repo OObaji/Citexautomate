@@ -161,8 +161,13 @@ check(
 // 5. assign_generated_classification() end-to-end: a real Citations
 // taxonomy shaped by person count (Single Author/Two Authors/Three
 // Authors/More than Three Authors, each with Exercise 1-5 children —
-// mirroring the live site's own Categories screen exactly) correctly
-// classifies an InTextCitation question by its own author count, leaving
+// mirroring the live site's own Categories screen exactly, COMPOUND
+// child-term names included: "Two Authors | Exercise 2", never a bare
+// "Exercise 2" — the exact real-world shape confirmed live, and the
+// second real bug this fix addresses) correctly classifies an
+// InTextCitation question by its own author count using the PLAIN
+// "Exercise 2" label Citex_AI_V2 actually generates (never the compound
+// form itself — that would defeat the point of this test), leaving
 // $classification['category'] (still "Book") completely untouched.
 // ---------------------------------------------------------------------
 $GLOBALS['__taxonomies_by_post_type']['citex-citations'] = array( 'reference_category' );
@@ -173,23 +178,43 @@ $GLOBALS['__terms_full']['reference_category'] = array(
 	21 => array( 'name' => 'Two Authors | Exercise 1', 'parent' => 20 ),
 	22 => array( 'name' => 'Two Authors | Exercise 2', 'parent' => 20 ),
 	30 => array( 'name' => 'Three Authors', 'parent' => 0 ),
+	// The live site's own naming is inconsistent for this one bucket:
+	// the PARENT term itself is "More than Three Authors", but its own
+	// children are abbreviated "More than 3 Author | Exercise N" —
+	// neither "Three" nor plural "Authors" — proving the fix matches on
+	// whatever follows the last "|" alone, never by reconstructing the
+	// parent's own name into an assumed prefix.
 	40 => array( 'name' => 'More than Three Authors', 'parent' => 0 ),
+	41 => array( 'name' => 'More than 3 Author | Exercise 4', 'parent' => 40 ),
 );
-// The live site's own term names carry a "Category | Exercise N" suffix
-// (see the earlier screenshot: "— Two Authors | Exercise 1") rather than
-// a bare "Exercise 1" — exercised here to prove the lookup works with
-// whatever exact child-term naming the real site actually uses, not an
-// assumed bare "Exercise N" form.
 $GLOBALS['__post_terms'] = array();
 $two_author_question = array( 'group' => 'InTextCitation', 'category' => 'Book', 'authors' => array( array( 'surname' => 'Ross' ), array( 'surname' => 'Carter' ) ) );
-$two_author_classification = array( 'category' => 'Book', 'exercise' => 'Two Authors | Exercise 2', 'type' => 'DragDrop' );
+$two_author_classification = array( 'category' => 'Book', 'exercise' => 'Exercise 2', 'type' => 'DragDrop' );
 $result = invoke_private( $populator, 'assign_generated_classification', array( 501, 'citex-citations', $two_author_classification, $two_author_question ) );
-check( '[5] assign_generated_classification() succeeds against the real person-count taxonomy shape', is_wp_error( $result ), false );
+check( '[5] assign_generated_classification() succeeds with a PLAIN "Exercise 2" label against a COMPOUND "Two Authors | Exercise 2" term name', is_wp_error( $result ), false );
 if ( ! is_wp_error( $result ) ) {
 	$saved = $GLOBALS['__post_terms'][501]['reference_category'] ?? array();
 	check( '[5] the "Two Authors" term (20) is assigned, never "Book"', in_array( 20, $saved, true ), true );
 	check( '[5] the "Two Authors | Exercise 2" term (22), its own real child, is assigned', in_array( 22, $saved, true ), true );
 	check( '[5] $classification[\'category\'] itself is left untouched (still reports "Book")', $two_author_classification['category'], 'Book' );
+}
+
+// ---------------------------------------------------------------------
+// 5b. The "More than Three Authors" bucket resolves too, even though its
+// OWN child term's name is abbreviated/inconsistent ("More than 3 Author
+// | Exercise 4") relative to its parent's own full name ("More than
+// Three Authors") — proving the match works from the term's own text
+// after the last "|", never by reconstructing an assumed prefix from the
+// parent category's name.
+// ---------------------------------------------------------------------
+$four_author_question = array( 'group' => 'InTextCitation', 'category' => 'Book', 'authors' => array( array( 'surname' => 'A' ), array( 'surname' => 'B' ), array( 'surname' => 'C' ), array( 'surname' => 'D' ) ) );
+$four_author_classification = array( 'category' => 'Book', 'exercise' => 'Exercise 4', 'type' => 'DragDrop' );
+$four_author_result = invoke_private( $populator, 'assign_generated_classification', array( 504, 'citex-citations', $four_author_classification, $four_author_question ) );
+check( '[5b] "More than Three Authors" resolves despite its own child term\'s inconsistent naming', is_wp_error( $four_author_result ), false );
+if ( ! is_wp_error( $four_author_result ) ) {
+	$saved = $GLOBALS['__post_terms'][504]['reference_category'] ?? array();
+	check( '[5b] the "More than Three Authors" term (40) is assigned', in_array( 40, $saved, true ), true );
+	check( '[5b] the "More than 3 Author | Exercise 4" term (41) is assigned despite its abbreviated prefix', in_array( 41, $saved, true ), true );
 }
 
 // ---------------------------------------------------------------------
