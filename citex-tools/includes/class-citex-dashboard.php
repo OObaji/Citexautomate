@@ -16,6 +16,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * combined question list. Generated/Pending comes from the Citex
  * generator's WordPress-native pending store and does not imply anything
  * has been published to the real question bank.
+ *
+ * $style_breakdowns additionally splits the same combined question list by
+ * referencing style (Harvard/MLA), each with its own Group/Category/Type
+ * breakdown, so a style-specific gap (e.g. MLA Website coverage) is visible
+ * without having to infer it from the combined tables above.
  */
 class Citex_Dashboard {
 
@@ -60,6 +65,32 @@ class Citex_Dashboard {
 			: null;
 
 		$breakdowns = $scan ? $scan['breakdowns'] : null;
+
+		// A dedicated breakdown PER REFERENCING STYLE (Harvard, MLA) — never
+		// computed from styles named/discovered dynamically, since a
+		// referencing style here is a fixed part of Citex's own generation
+		// pipeline (Citex_Generator's own $referencing_styles map), not
+		// arbitrary scanned data. Each style's own breakdown is scoped to
+		// that style's own questions only, across BOTH destinations
+		// (combined $scan, not just Reference List), via the exact same
+		// compute_breakdowns() used above so the numbers are directly
+		// comparable.
+		$style_breakdowns = array();
+		foreach ( array( 'harvard' => 'Harvard', 'mla' => 'MLA' ) as $style_key => $style_label ) {
+			$style_questions = array_values(
+				array_filter(
+					$scan['questions'] ?? array(),
+					function ( $question ) use ( $style_label ) {
+						return false !== stripos( (string) ( $question['source'] ?? '' ), $style_label );
+					}
+				)
+			);
+			$style_breakdowns[ $style_key ] = array(
+				'label'      => $style_label,
+				'total'      => count( $style_questions ),
+				'breakdowns' => Citex_Scanner::compute_breakdowns( $style_questions ),
+			);
+		}
 
 		require CITEX_TOOLS_PATH . 'admin/views/dashboard.php';
 	}

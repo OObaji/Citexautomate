@@ -6,9 +6,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Question Bank page.
  *
- * Mirrors the latest Reference List snapshot, including each record's native
- * WordPress post status. The Refresh / Sync button is deliberately handled
- * server-side so it still works even if admin JavaScript fails to initialise.
+ * Mirrors the latest snapshot of BOTH real destinations combined — the
+ * Reference List and the separate Citations post type (see
+ * Citex_Scanner::target_for_group()'s own docblock) — via
+ * Citex_Scanner::merge_scans(), so a Citations question gets the exact
+ * same listing, filters, "Finalise" (re-run the save lifecycle) and bulk
+ * status/Bin actions a Reference List question already has, rather than
+ * being invisible here and only fixable by hand-opening the post. Each
+ * record's native WordPress post status is shown as-is. The Refresh / Sync
+ * button is deliberately handled server-side so it still works even if
+ * admin JavaScript fails to initialise.
  */
 class Citex_Questions {
 
@@ -27,24 +34,37 @@ class Citex_Questions {
 		check_admin_referer( self::SYNC_NONCE_ACTION, 'citex_sync_nonce' );
 
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to synchronise the Reference List.', 'citex-tools' ) );
+			wp_die( esc_html__( 'You are not allowed to synchronise the Question Bank.', 'citex-tools' ) );
 		}
 
-		$result = Citex_Scanner::sync_from_wordpress();
-		if ( is_wp_error( $result ) ) {
-			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
+		$reference_result = Citex_Scanner::sync_from_wordpress( 'reference' );
+		$citations_result  = Citex_Scanner::sync_from_wordpress( 'citations' );
+
+		// Citations may legitimately not be configured yet on some sites;
+		// that alone must never block a Reference-List-only sync from
+		// succeeding and reporting its own counts.
+		if ( is_wp_error( $reference_result ) ) {
+			Citex_Admin::set_notice( $reference_result->get_error_message(), 'error' );
 		} else {
-			$counts = $result['statusCounts'] ?? array();
-			Citex_Admin::set_notice(
-				sprintf(
-					__( 'Reference List synced from WordPress. All: %1$d, Published: %2$d, Drafts: %3$d, Bin: %4$d.', 'citex-tools' ),
-					(int) ( $counts['all'] ?? 0 ),
-					(int) ( $counts['publish'] ?? 0 ),
-					(int) ( $counts['draft'] ?? 0 ),
-					(int) ( $counts['trash'] ?? 0 )
-				),
-				'success'
+			$counts  = $reference_result['statusCounts'] ?? array();
+			$message = sprintf(
+				__( 'Question Bank synced from WordPress. Reference List — All: %1$d, Published: %2$d, Drafts: %3$d, Bin: %4$d.', 'citex-tools' ),
+				(int) ( $counts['all'] ?? 0 ),
+				(int) ( $counts['publish'] ?? 0 ),
+				(int) ( $counts['draft'] ?? 0 ),
+				(int) ( $counts['trash'] ?? 0 )
 			);
+			if ( ! is_wp_error( $citations_result ) ) {
+				$citations_counts = $citations_result['statusCounts'] ?? array();
+				$message          .= ' ' . sprintf(
+					__( 'Citations — All: %1$d, Published: %2$d, Drafts: %3$d, Bin: %4$d.', 'citex-tools' ),
+					(int) ( $citations_counts['all'] ?? 0 ),
+					(int) ( $citations_counts['publish'] ?? 0 ),
+					(int) ( $citations_counts['draft'] ?? 0 ),
+					(int) ( $citations_counts['trash'] ?? 0 )
+				);
+			}
+			Citex_Admin::set_notice( $message, 'success' );
 		}
 
 		wp_safe_redirect( admin_url( 'admin.php?page=citex-questions' ) );
@@ -54,8 +74,14 @@ class Citex_Questions {
 	public function render() {
 		$this->maybe_handle_sync_submit();
 
-		$scan              = Citex_Scanner::get_last_scan();
+		$reference_scan     = Citex_Scanner::get_last_scan( 'reference' );
+		$citations_scan      = Citex_Scanner::get_last_scan( 'citations' );
+		$scan               = Citex_Scanner::merge_scans( array( $reference_scan, $citations_scan ) );
 		$question_list_url = Citex_Scanner::get_question_list_url();
+		// Enables the Sync button whenever EITHER destination has a URL
+		// configured — a site that has only set up Citations so far must
+		// still be able to sync, not just one that has Reference List.
+		$citations_list_url_configured = (bool) Citex_Scanner::get_question_list_url( 'citations' );
 		$search            = isset( $_GET['citex_search'] ) ? sanitize_text_field( wp_unslash( $_GET['citex_search'] ) ) : '';
 
 		$filters = array(
@@ -78,9 +104,10 @@ class Citex_Questions {
 		$total_pages    = max( 1, (int) ceil( $total_filtered / self::PER_PAGE ) );
 
 		$filtered_post_ids    = self::extract_post_ids( $filtered );
-		// Every indexed Reference List post, regardless of the current
-		// search/filter — this is what "Clear Question Bank" moves to Bin,
-		// distinct from the existing filtered/selected bulk-status editor.
+		// Every indexed post across BOTH destinations, regardless of the
+		// current search/filter — this is what "Clear Question Bank" moves
+		// to Bin, distinct from the existing filtered/selected bulk-status
+		// editor.
 		$all_indexed_post_ids = self::extract_post_ids( $all_questions );
 
 		$paged     = isset( $_GET['citex_paged'] ) ? max( 1, absint( $_GET['citex_paged'] ) ) : 1;

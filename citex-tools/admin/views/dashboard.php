@@ -12,6 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @var string       $citations_list_url     Configured WordPress Citations admin URL — a genuinely separate real post type/list from the Reference List; In-Text Citation questions populate there instead.
  * @var string|null  $citations_last_scanned Formatted last-scan date/time for Citations, or null if never scanned.
  * @var string       $citations_total        Total Citations question count from the last scan, or "—".
+ * @var array        $style_breakdowns   {harvard,mla} => {label, total, breakdowns} — each style's own Group/Category/Type breakdown across both destinations combined.
  */
 
 $breakdown_sections = array(
@@ -194,6 +195,57 @@ $breakdown_sections = array(
 				</div>
 			<?php endforeach; ?>
 		</div>
+	<?php endif; ?>
+
+	<h2><?php esc_html_e( 'Breakdown by Referencing Style', 'citex-tools' ); ?></h2>
+	<?php if ( ! $breakdowns ) : ?>
+		<p class="description"><?php esc_html_e( 'No scan yet — run a scan to see the per-style breakdown.', 'citex-tools' ); ?></p>
+	<?php else : ?>
+		<?php foreach ( $style_breakdowns as $style ) : ?>
+			<h3 class="citex-style-breakdown-heading">
+				<?php
+				printf(
+					/* translators: 1: referencing style name (Harvard/MLA). 2: total question count for that style. */
+					esc_html__( '%1$s — %2$s questions', 'citex-tools' ),
+					esc_html( $style['label'] ),
+					esc_html( number_format_i18n( $style['total'] ) )
+				);
+				?>
+			</h3>
+			<?php if ( 0 === $style['total'] ) : ?>
+				<p class="description"><?php esc_html_e( 'No questions for this style yet.', 'citex-tools' ); ?></p>
+			<?php else : ?>
+				<div class="citex-breakdown-grid">
+					<?php foreach ( array( 'groups' => __( 'Group', 'citex-tools' ), 'categories' => __( 'Category', 'citex-tools' ), 'types' => __( 'Question Type', 'citex-tools' ) ) as $key => $label ) : ?>
+						<div class="citex-breakdown-card">
+							<h3><?php echo esc_html( $label ); ?></h3>
+							<table class="widefat striped citex-table citex-breakdown-table">
+								<thead>
+									<tr>
+										<th><?php echo esc_html( $label ); ?></th>
+										<th><?php esc_html_e( 'Questions', 'citex-tools' ); ?></th>
+									</tr>
+								</thead>
+								<tbody>
+								<?php if ( empty( $style['breakdowns'][ $key ] ) ) : ?>
+									<tr>
+										<td colspan="2"><?php esc_html_e( 'No data.', 'citex-tools' ); ?></td>
+									</tr>
+								<?php else : ?>
+									<?php foreach ( $style['breakdowns'][ $key ] as $row ) : ?>
+										<tr>
+											<td><?php echo esc_html( $row['name'] ); ?></td>
+											<td><?php echo esc_html( number_format_i18n( $row['count'] ) ); ?></td>
+										</tr>
+									<?php endforeach; ?>
+								<?php endif; ?>
+								</tbody>
+							</table>
+						</div>
+					<?php endforeach; ?>
+				</div>
+			<?php endif; ?>
+		<?php endforeach; ?>
 	<?php endif; ?>
 
 	<p class="citex-version-badge">

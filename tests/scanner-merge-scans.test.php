@@ -51,6 +51,7 @@ $reference_scan = array(
 	'scannedAt' => '2026-09-14T10:00:00+00:00',
 	'total'     => 2,
 	'harvardTotal' => 1,
+	'statusCounts' => array( 'all' => 2, 'publish' => 1, 'draft' => 1, 'pending' => 0, 'private' => 0, 'future' => 0, 'trash' => 1 ),
 	'questions' => array(
 		scan_question( 'Harvard', 'ReferenceList', 'Book', 'DragDrop', 'BK01' ),
 		scan_question( 'MLA', 'ReferenceList', 'Website', 'MCQ', 'MW01' ),
@@ -60,6 +61,7 @@ $citations_scan = array(
 	'scannedAt' => '2026-09-14T11:30:00+00:00',
 	'total'     => 3,
 	'harvardTotal' => 3,
+	'statusCounts' => array( 'all' => 3, 'publish' => 2, 'draft' => 1, 'pending' => 0, 'private' => 0, 'future' => 0, 'trash' => 0 ),
 	'questions' => array(
 		scan_question( 'Harvard', 'InTextCitation', 'Book', 'DragDrop', 'IB01' ),
 		scan_question( 'Harvard', 'InTextCitation', 'Book', 'DragDrop', 'IB02' ),
@@ -83,6 +85,16 @@ check( '[1] a Reference List question (BK01) is also still present', in_array( '
 // 2. scannedAt is the MORE RECENT of the two (the Citations scan here).
 // ---------------------------------------------------------------------
 check( '[2] merged scannedAt is the more recent of the two scans', $merged['scannedAt'], '2026-09-14T11:30:00+00:00' );
+
+// ---------------------------------------------------------------------
+// 2b. statusCounts are summed per status across both scans — used by the
+// Question Bank page's "All/Published/Drafts/Bin" strip so it reflects
+// both destinations, not just Reference List's own counts.
+// ---------------------------------------------------------------------
+check( '[2b] merged statusCounts[all] is the sum of both scans (2 + 3 = 5)', $merged['statusCounts']['all'], 5 );
+check( '[2b] merged statusCounts[publish] is the sum of both scans (1 + 2 = 3)', $merged['statusCounts']['publish'], 3 );
+check( '[2b] merged statusCounts[draft] is the sum of both scans (1 + 1 = 2)', $merged['statusCounts']['draft'], 2 );
+check( '[2b] merged statusCounts[trash] is the sum of both scans (1 + 0 = 1)', $merged['statusCounts']['trash'], 1 );
 
 // ---------------------------------------------------------------------
 // 3. Breakdowns reflect the combined question list — "groups" shows both

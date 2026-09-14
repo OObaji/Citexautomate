@@ -33,13 +33,13 @@ $wp_status_labels = array(
 			<?php if ( $scan && ! empty( $scan['scannedAt'] ) ) : ?>
 				<?php
 				printf(
-					esc_html__( 'Last synced from Reference List: %1$s — %2$s active questions indexed.', 'citex-tools' ),
+					esc_html__( 'Last synced: %1$s — %2$s active questions indexed across the Reference List and Citations combined.', 'citex-tools' ),
 					esc_html( Citex_Scanner::format_scanned_at( $scan['scannedAt'] ) ),
 					esc_html( number_format_i18n( $scan['total'] ) )
 				);
 				?>
 			<?php else : ?>
-				<?php esc_html_e( 'No sync yet. Configure the Reference List URL on the Dashboard first.', 'citex-tools' ); ?>
+				<?php esc_html_e( 'No sync yet. Configure the Reference List and/or Citations URL on the Dashboard first.', 'citex-tools' ); ?>
 			<?php endif; ?>
 		</p>
 
@@ -56,11 +56,11 @@ $wp_status_labels = array(
 		<form method="post" action="">
 			<?php wp_nonce_field( Citex_Questions::SYNC_NONCE_ACTION, 'citex_sync_nonce' ); ?>
 			<input type="hidden" name="citex_sync_reference_list" value="1" />
-			<button type="submit" class="button button-primary" <?php disabled( empty( $question_list_url ) ); ?>>
-				<?php echo $scan ? esc_html__( 'Refresh / Sync Reference List', 'citex-tools' ) : esc_html__( 'Sync Reference List', 'citex-tools' ); ?>
+			<button type="submit" class="button button-primary" <?php disabled( empty( $question_list_url ) && ! $citations_list_url_configured ); ?>>
+				<?php echo $scan ? esc_html__( 'Refresh / Sync Question Bank', 'citex-tools' ) : esc_html__( 'Sync Question Bank', 'citex-tools' ); ?>
 			</button>
 		</form>
-		<p class="description" style="margin-top:8px;"><?php esc_html_e( 'This refresh now reads the Reference List directly from WordPress; it does not depend on browser JavaScript.', 'citex-tools' ); ?></p>
+		<p class="description" style="margin-top:8px;"><?php esc_html_e( 'This refresh reads the Reference List and Citations directly from WordPress; it does not depend on browser JavaScript.', 'citex-tools' ); ?></p>
 	</div>
 
 	<form method="get" class="citex-filter-bar">
@@ -107,11 +107,11 @@ $wp_status_labels = array(
 	</form>
 
 	<div id="citex-bulk-status-editor" class="citex-scan-panel" data-filtered-post-ids="<?php echo esc_attr( wp_json_encode( $filtered_post_ids ) ); ?>">
-		<h2><?php esc_html_e( 'Bulk Edit Real Reference List Status', 'citex-tools' ); ?></h2>
+		<h2><?php esc_html_e( 'Bulk Edit Real WordPress Status', 'citex-tools' ); ?></h2>
 		<p class="description">
 			<?php
 			printf(
-				esc_html__( 'Change the same Published/Draft status shown on the real Reference List for all %s matching records.', 'citex-tools' ),
+				esc_html__( 'Change the same Published/Draft status shown on the real Reference List/Citations post for all %s matching records.', 'citex-tools' ),
 				esc_html( number_format_i18n( count( $filtered_post_ids ) ) )
 			);
 			?>
@@ -128,7 +128,7 @@ $wp_status_labels = array(
 			<?php endforeach; ?>
 		</select>
 
-		<button type="button" id="citex-apply-bulk-status" class="button button-primary" <?php disabled( empty( $filtered_post_ids ) ); ?>><?php esc_html_e( 'Apply to Reference List', 'citex-tools' ); ?></button>
+		<button type="button" id="citex-apply-bulk-status" class="button button-primary" <?php disabled( empty( $filtered_post_ids ) ); ?>><?php esc_html_e( 'Apply', 'citex-tools' ); ?></button>
 		<p id="citex-bulk-status-progress" aria-live="polite"></p>
 	</div>
 
@@ -138,7 +138,7 @@ $wp_status_labels = array(
 			<?php
 			printf(
 				/* translators: %s: number of indexed questions */
-				esc_html__( 'Move ALL %s indexed Reference List questions to the WordPress Bin — regardless of any search/filter above. This does not permanently delete anything; every question can be restored from Bin afterwards.', 'citex-tools' ),
+				esc_html__( 'Move ALL %s indexed questions (Reference List AND Citations combined) to the WordPress Bin — regardless of any search/filter above. This does not permanently delete anything; every question can be restored from Bin afterwards.', 'citex-tools' ),
 				esc_html( number_format_i18n( count( $all_indexed_post_ids ) ) )
 			);
 			?>
@@ -153,6 +153,7 @@ $wp_status_labels = array(
 				<td class="manage-column column-cb check-column"><input type="checkbox" id="citex-select-all" /></td>
 				<th><?php esc_html_e( 'Question ID', 'citex-tools' ); ?></th>
 				<th><?php esc_html_e( 'Title', 'citex-tools' ); ?></th>
+				<th><?php esc_html_e( 'Destination', 'citex-tools' ); ?></th>
 				<th><?php esc_html_e( 'WordPress Status', 'citex-tools' ); ?></th>
 				<th><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></th>
 				<th><?php esc_html_e( 'Category', 'citex-tools' ); ?></th>
@@ -163,7 +164,7 @@ $wp_status_labels = array(
 		</thead>
 		<tbody>
 		<?php if ( empty( $questions ) ) : ?>
-			<tr><td colspan="9"><?php echo $scan ? esc_html__( 'No questions match your search/filters.', 'citex-tools' ) : esc_html__( 'No questions synced yet.', 'citex-tools' ); ?></td></tr>
+			<tr><td colspan="10"><?php echo $scan ? esc_html__( 'No questions match your search/filters.', 'citex-tools' ) : esc_html__( 'No questions synced yet.', 'citex-tools' ); ?></td></tr>
 		<?php else : ?>
 			<?php foreach ( $questions as $question ) : ?>
 				<tr>
@@ -172,6 +173,7 @@ $wp_status_labels = array(
 					</th>
 					<td><?php echo esc_html( $question['questionId'] ? $question['questionId'] : '—' ); ?></td>
 					<td><?php echo esc_html( $question['original'] ); ?></td>
+					<td><?php echo esc_html( 'citations' === Citex_Scanner::target_for_group( $question['group'] ?? '' ) ? __( 'Citations', 'citex-tools' ) : __( 'Reference List', 'citex-tools' ) ); ?></td>
 					<td><strong><?php echo esc_html( $wp_status_labels[ $question['postStatus'] ?? '' ] ?? ucfirst( (string) ( $question['postStatus'] ?? '' ) ) ); ?></strong></td>
 					<td><?php echo esc_html( $question['source'] ? $question['source'] : '—' ); ?></td>
 					<td><?php echo esc_html( $question['category'] ? $question['category'] : '—' ); ?></td>

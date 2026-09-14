@@ -186,14 +186,7 @@ class Citex_Scanner {
 			'harvardTotal'    => count( $harvard ),
 			'statusCounts'    => $status_counts,
 			'questions'       => $questions,
-			'breakdowns'      => array(
-				'sources'      => self::count_by( $questions, 'source' ),
-				'groups'       => self::count_by( $questions, 'group' ),
-				'categories'   => self::count_by( $questions, 'category' ),
-				'types'        => self::count_by( $questions, 'type' ),
-				'postStatuses' => self::count_by( $questions, 'postStatus' ),
-				'combinations' => self::count_combinations( $questions ),
-			),
+			'breakdowns'      => self::compute_breakdowns( $questions ),
 		);
 
 		list( , $scan_option ) = self::option_names( $target );
@@ -218,8 +211,17 @@ class Citex_Scanner {
 	 *         empty (mirrors get_last_scan()'s own "never scanned" null).
 	 */
 	public static function merge_scans( array $scans ) {
-		$questions   = array();
-		$scanned_ats = array();
+		$questions     = array();
+		$scanned_ats   = array();
+		$status_counts = array(
+			'all'     => 0,
+			'publish' => 0,
+			'draft'   => 0,
+			'pending' => 0,
+			'private' => 0,
+			'future'  => 0,
+			'trash'   => 0,
+		);
 		foreach ( $scans as $scan ) {
 			if ( ! is_array( $scan ) ) {
 				continue;
@@ -229,6 +231,11 @@ class Citex_Scanner {
 			}
 			if ( ! empty( $scan['scannedAt'] ) ) {
 				$scanned_ats[] = (string) $scan['scannedAt'];
+			}
+			foreach ( ( is_array( $scan['statusCounts'] ?? null ) ? $scan['statusCounts'] : array() ) as $status => $count ) {
+				if ( isset( $status_counts[ $status ] ) ) {
+					$status_counts[ $status ] += (int) $count;
+				}
 			}
 		}
 		if ( empty( $questions ) && empty( $scanned_ats ) ) {
@@ -246,15 +253,29 @@ class Citex_Scanner {
 			'scannedAt'    => empty( $scanned_ats ) ? gmdate( 'c' ) : max( $scanned_ats ),
 			'total'        => count( $questions ),
 			'harvardTotal' => count( $harvard ),
+			'statusCounts' => $status_counts,
 			'questions'    => $questions,
-			'breakdowns'   => array(
-				'sources'      => self::count_by( $questions, 'source' ),
-				'groups'       => self::count_by( $questions, 'group' ),
-				'categories'   => self::count_by( $questions, 'category' ),
-				'types'        => self::count_by( $questions, 'type' ),
-				'postStatuses' => self::count_by( $questions, 'postStatus' ),
-				'combinations' => self::count_combinations( $questions ),
-			),
+			'breakdowns'   => self::compute_breakdowns( $questions ),
+		);
+	}
+
+	/**
+	 * The Source/Group/Category/Type/PostStatus/Combination breakdown shape
+	 * shared by sync_from_wordpress() and merge_scans() (and, for a single
+	 * referencing style's own slice, Citex_Dashboard) — factored out so both
+	 * compute it identically rather than duplicating the same five calls.
+	 *
+	 * @param array[] $questions
+	 * @return array{sources:array,groups:array,categories:array,types:array,postStatuses:array,combinations:array}
+	 */
+	public static function compute_breakdowns( $questions ) {
+		return array(
+			'sources'      => self::count_by( $questions, 'source' ),
+			'groups'       => self::count_by( $questions, 'group' ),
+			'categories'   => self::count_by( $questions, 'category' ),
+			'types'        => self::count_by( $questions, 'type' ),
+			'postStatuses' => self::count_by( $questions, 'postStatus' ),
+			'combinations' => self::count_combinations( $questions ),
 		);
 	}
 
