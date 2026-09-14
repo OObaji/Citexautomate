@@ -23,14 +23,14 @@ class Citex_Generated_Validator {
 	 */
 	public static function validate( $question ) {
 		if (
-			! in_array( (string) ( $question['source'] ?? '' ), array( 'Harvard', 'MLA', 'APA' ), true ) ||
+			! in_array( (string) ( $question['source'] ?? '' ), array( 'Harvard', 'MLA', 'APA', 'Chicago' ), true ) ||
 			! in_array( (string) ( $question['group'] ?? '' ), array( 'ReferenceList', 'InTextCitation' ), true ) ||
 			! Citex_Reference_Rules::is_known_category( (string) ( $question['category'] ?? '' ) )
 		) {
 			return self::result(
 				'failed',
 				array(
-					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book, Edited Book, Journal Article or Website, DragDrop or MCQ, or MLA / ReferenceList / Book, DragDrop or MCQ, or APA / ReferenceList / Book, DragDrop or MCQ, or Harvard/MLA / InTextCitation / any category / DragDrop or MCQ.' ),
+					self::error( 'UNSUPPORTED_GENERATED_FORMAT', 'Generated validation currently supports only Harvard / ReferenceList / Book, Edited Book, Journal Article or Website, DragDrop or MCQ, or MLA / ReferenceList / Book, DragDrop or MCQ, or APA / ReferenceList / Book, DragDrop or MCQ, or Chicago / ReferenceList / Book, DragDrop or MCQ, or Harvard/MLA / InTextCitation / any category / DragDrop or MCQ.' ),
 				),
 				null
 			);
@@ -93,6 +93,15 @@ class Citex_Generated_Validator {
 			// full stop after the year). Routed the same way, on `mcqPattern`.
 			if ( 'apa_book_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
 				return self::validate_apa_book_mcq_variant( $question );
+			}
+			// Chicago (Author-Date)'s own fixed Book MCQ catalogue (see
+			// Citex_Chicago_Book_Mcq_Variants) — mirrors book_mcq_variant's/
+			// mla_book_mcq_variant's/apa_book_mcq_variant's identical move for
+			// Chicago's own reference rules (full given name, comma-before-
+			// "and" joining, no parentheses around the year, place kept).
+			// Routed the same way, on `mcqPattern`.
+			if ( 'chicago_book_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_chicago_book_mcq_variant( $question );
 			}
 			// APA's own Edited Book/Journal Article/Website MCQ catalogues —
 			// mirror apa_book_mcq_variant's identical move, routed the same
@@ -254,6 +263,47 @@ class Citex_Generated_Validator {
 					}
 					if ( $confusing !== $expected_build['confusingWords'] ) {
 						$errors[] = self::error( 'APA_BOOK_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
+				}
+			}
+		} elseif ( Citex_Reference_Rules::CATEGORY_BOOK === $category && 'Chicago' === $source ) {
+			// Chicago (Author-Date)'s own Book DragDrop block — mirrors the
+			// MLA Book block above exactly (recompute-and-exact-match via
+			// Citex_Chicago_Book_Dragdrop_Parts from the stored
+			// `dragdropPartKeys` selection), with the SAME surname/givenName
+			// field shape MLA's own Book block uses (never Harvard/APA's own
+			// surname/initials) but WITH `place` included, like Harvard's own
+			// Book block below — see Citex_Chicago_Reference_Rules's own
+			// docblock.
+			$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+			if ( empty( $authors ) ) {
+				$fallback_surname    = trim( (string) ( $question['authorSurname'] ?? '' ) );
+				$fallback_given_name = trim( (string) ( $question['authorGivenName'] ?? '' ) );
+				if ( '' !== $fallback_surname || '' !== $fallback_given_name ) {
+					$authors = array( array( 'surname' => $fallback_surname, 'givenName' => $fallback_given_name, 'fullName' => (string) ( $question['authorFullName'] ?? '' ) ) );
+				}
+			}
+			$chicago_book_title = trim( (string) ( $question['bookTitle'] ?? '' ) );
+			if ( ! ( empty( $authors ) && '' === $chicago_book_title ) ) {
+				$selected_keys   = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$chicago_fields  = array(
+					'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+					'title'     => $chicago_book_title,
+					'place'     => trim( (string) ( $question['place'] ?? '' ) ),
+					'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+				);
+				$expected_build = ( empty( $selected_keys ) || empty( $authors ) ) ? null : Citex_Chicago_Book_Dragdrop_Parts::build( $selected_keys, $authors, $chicago_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'CHICAGO_BOOK_DRAGDROP_PARTS_UNKNOWN', 'The Chicago Book DragDrop part selection (dragdropPartKeys) is missing, malformed, or names an author index out of range.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'CHICAGO_BOOK_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'CHICAGO_BOOK_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'CHICAGO_BOOK_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
 					}
 				}
 			}
@@ -663,7 +713,7 @@ class Citex_Generated_Validator {
 			: null;
 
 		$reference = $reconstruction['reference'];
-		$style     = 'MLA' === $source ? 'mla' : ( 'APA' === $source ? 'apa' : 'harvard' );
+		$style     = 'MLA' === $source ? 'mla' : ( 'APA' === $source ? 'apa' : ( 'Chicago' === $source ? 'chicago' : 'harvard' ) );
 		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category, $question['place'] ?? null, $question['publisher'] ?? null, self::expected_designation_for( $question, $category ), self::expected_editor_join_for( $question, $category ), $exercise_design, $style ) );
 
 		$correct_lower = array_map(
@@ -726,13 +776,17 @@ class Citex_Generated_Validator {
 	 * MCQ exactly as before; only the scenario-text block is skipped.
 	 */
 	private static function validate_consistency( $question, $question_parts, $reference, $category, $check_scenario = true ) {
-		$is_mla = 'MLA' === (string) ( $question['source'] ?? '' );
-		$is_apa = 'APA' === (string) ( $question['source'] ?? '' );
+		$is_mla     = 'MLA' === (string) ( $question['source'] ?? '' );
+		$is_apa     = 'APA' === (string) ( $question['source'] ?? '' );
+		$is_chicago = 'Chicago' === (string) ( $question['source'] ?? '' );
 		if ( Citex_Reference_Rules::CATEGORY_BOOK === $category && $is_mla ) {
 			return self::validate_mla_bibliographic_consistency( $question, $reference, $check_scenario );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_BOOK === $category && $is_apa ) {
 			return self::validate_apa_bibliographic_consistency( $question, $reference, $check_scenario );
+		}
+		if ( Citex_Reference_Rules::CATEGORY_BOOK === $category && $is_chicago ) {
+			return self::validate_chicago_bibliographic_consistency( $question, $reference, $check_scenario );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && $is_mla ) {
 			return self::validate_mla_edited_book_consistency( $question, $reference, $check_scenario );
@@ -1507,6 +1561,108 @@ class Citex_Generated_Validator {
 			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
 			if ( $actual_option !== $expected_option ) {
 				$errors[] = self::error( 'APA_BOOK_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * Chicago (Author-Date) counterpart to validate_book_mcq_variant()/
+	 * validate_mla_book_mcq_variant()/validate_apa_book_mcq_variant() —
+	 * same exact-match rationale (every option is Citex-authored,
+	 * deterministically, from the canonical record via
+	 * Citex_Chicago_Book_Mcq_Variants, never Gemini's), reshaped for
+	 * Chicago's own author-name convention: `givenName` (the SAME field
+	 * MLA's own validate_mla_book_mcq_variant() uses, never Harvard/APA's
+	 * `initials`), WITH a `place` field (unlike MLA/APA).
+	 */
+	private static function validate_chicago_book_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$variant = (string) ( $question['chicagoBookMcqVariant'] ?? '' );
+		$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		if ( empty( $authors ) ) {
+			$fallback_surname    = trim( (string) ( $question['authorSurname'] ?? '' ) );
+			$fallback_given_name = trim( (string) ( $question['authorGivenName'] ?? '' ) );
+			if ( '' !== $fallback_surname || '' !== $fallback_given_name ) {
+				$authors = array( array( 'surname' => $fallback_surname, 'givenName' => $fallback_given_name, 'fullName' => (string) ( $question['authorFullName'] ?? '' ) ) );
+			}
+		}
+		$fields = array(
+			'authors'   => $authors,
+			'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+			'title'     => trim( (string) ( $question['bookTitle'] ?? '' ) ),
+			'place'     => trim( (string) ( $question['place'] ?? '' ) ),
+			'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+		);
+		$expected = empty( $authors ) ? null : Citex_Chicago_Book_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'CHICAGO_BOOK_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised Chicago Book MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'CHICAGO_BOOK_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'CHICAGO_BOOK_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'CHICAGO_BOOK_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
 			}
 		}
 
@@ -2770,11 +2926,15 @@ class Citex_Generated_Validator {
 		// already dispatches internally by category itself.
 		$is_mla       = 'mla' === $style;
 		$is_apa       = 'apa' === $style;
+		$is_chicago   = 'chicago' === $style;
 		$format_regex = $is_mla
 			? Citex_MLA_Reference_Rules::format_regex( $category )
-			: ( $is_apa ? Citex_APA_Reference_Rules::format_regex( $category ) : Citex_Reference_Rules::format_regex( $category, $exercise_design ) );
+			: ( $is_apa ? Citex_APA_Reference_Rules::format_regex( $category ) : ( $is_chicago ? Citex_Chicago_Reference_Rules::format_regex( $category ) : Citex_Reference_Rules::format_regex( $category, $exercise_design ) ) );
 		if ( ! preg_match( $format_regex, $reference ) ) {
-			if ( $is_mla && Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			if ( $is_chicago ) {
+				$code    = 'CHICAGO_BOOK_FORMAT_MISMATCH';
+				$message = 'Citation does not match the Chicago (Author-Date) Book format.';
+			} elseif ( $is_mla && Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 				$code    = 'MLA_EDITED_BOOK_FORMAT_MISMATCH';
 				$message = 'Citation does not match the MLA Edited Book format.';
 			} elseif ( $is_mla && Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
@@ -3269,6 +3429,89 @@ class Citex_Generated_Validator {
 				list( $value, $label ) = $pair;
 				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
 					$errors[] = self::error( 'APA_BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+				}
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Chicago (Author-Date) Book counterpart to
+	 * validate_bibliographic_consistency()/validate_apa_bibliographic_consistency() —
+	 * the same academic-integrity safety net, reshaped for Chicago's own
+	 * author-name convention: `givenName` (the SAME field/shape MLA's own
+	 * check uses, never Harvard/APA's `initials`), WITH a `place` field
+	 * (like Harvard, unlike MLA/APA), and — like Harvard/APA, unlike MLA —
+	 * every author is always listed in full in the reference (Chicago never
+	 * uses "et al." at any count this app generates), so every author's
+	 * surname/given name must appear, not just the first.
+	 */
+	private static function validate_chicago_bibliographic_consistency( $question, $reference, $check_scenario = true ) {
+		$errors  = array();
+		$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		if ( empty( $authors ) ) {
+			$fallback_surname    = trim( (string) ( $question['authorSurname'] ?? '' ) );
+			$fallback_given_name = trim( (string) ( $question['authorGivenName'] ?? '' ) );
+			if ( '' !== $fallback_surname || '' !== $fallback_given_name ) {
+				$authors = array( array( 'surname' => $fallback_surname, 'givenName' => $fallback_given_name ) );
+			}
+		}
+		$title = trim( (string) ( $question['bookTitle'] ?? '' ) );
+
+		if ( empty( $authors ) && '' === $title ) {
+			return $errors;
+		}
+		if ( empty( $authors ) ) {
+			$errors[] = self::error( 'CHICAGO_BOOK_AUTHORS_MISSING', 'No authors were provided for this Chicago Book question.' );
+			return $errors;
+		}
+
+		$year      = trim( (string) ( $question['year'] ?? '' ) );
+		$place     = trim( (string) ( $question['place'] ?? '' ) );
+		$publisher = trim( (string) ( $question['publisher'] ?? '' ) );
+
+		foreach ( $authors as $index => $author ) {
+			$author_surname    = trim( (string) ( $author['surname'] ?? '' ) );
+			$author_given_name = trim( (string) ( $author['givenName'] ?? '' ) );
+			if ( '' !== $author_surname && ! self::text_contains( $reference, $author_surname ) ) {
+				$errors[] = self::error( 'CHICAGO_BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
+			}
+			if ( '' !== $author_given_name && ! self::text_contains( $reference, $author_given_name ) ) {
+				$errors[] = self::error( 'CHICAGO_BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', sprintf( 'The reference does not contain author %1$d\'s given name: "%2$s".', $index + 1, $author_given_name ) );
+			}
+			if ( $check_scenario && '' !== $author_surname && ! self::text_contains( (string) ( $question['scenario'] ?? '' ), $author_surname ) ) {
+				$errors[] = self::error( 'CHICAGO_BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
+			}
+		}
+
+		foreach (
+			array(
+				'year'      => array( $year, 'publication year' ),
+				'title'     => array( $title, 'book title' ),
+				'place'     => array( $place, 'place of publication' ),
+				'publisher' => array( $publisher, 'publisher' ),
+			) as $pair
+		) {
+			list( $value, $label ) = $pair;
+			if ( '' !== $value && ! self::text_contains( $reference, $value ) ) {
+				$errors[] = self::error( 'CHICAGO_BIBLIOGRAPHIC_CONSISTENCY_REFERENCE_MISMATCH', sprintf( 'The reconstructed reference does not contain the canonical %1$s: "%2$s".', $label, $value ) );
+			}
+		}
+
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach (
+				array(
+					'title'     => array( $title, 'book title' ),
+					'year'      => array( $year, 'publication year' ),
+					'place'     => array( $place, 'place of publication' ),
+					'publisher' => array( $publisher, 'publisher' ),
+				) as $pair
+			) {
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'CHICAGO_BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
 				}
 			}
 		}

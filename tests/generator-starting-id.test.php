@@ -39,6 +39,7 @@ function update_option( $key, $value, $autoload = null ) {
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-mla-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-apa-reference-rules.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-chicago-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-populator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generator.php';
 
@@ -176,6 +177,36 @@ check( '[10] APA in-text Book prefix is "AIB"', Citex_Generator::intext_id_prefi
 check( '[10] APA in-text Website prefix is "AIW"', Citex_Generator::intext_id_prefix( 'Website', 'apa' ), 'AIW' );
 check( '[10] APA in-text prefix is distinct from Harvard\'s own', Citex_Generator::intext_id_prefix( 'Book', 'apa' ) === Citex_Generator::intext_id_prefix( 'Book', 'harvard' ), false );
 check( '[10] APA in-text prefix is distinct from MLA\'s own', Citex_Generator::intext_id_prefix( 'Book', 'apa' ) === Citex_Generator::intext_id_prefix( 'Book', 'mla' ), false );
+
+// ---------------------------------------------------------------------
+// 11. Chicago (Author-Date) Book gets its own "CB" prefix — Phase 1: Book
+// only (see Citex_Chicago_Reference_Rules's own docblock) —
+// normalise_starting_id()'s $style parameter routes to
+// Citex_Chicago_Reference_Rules::id_prefix() when $style is 'chicago', so
+// all four styles' Book questions can never collide on the same
+// pending-queue ID space.
+// ---------------------------------------------------------------------
+check( '[11] Chicago Book\'s ID prefix is "CB"', Citex_Chicago_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ), 'CB' );
+check(
+	'[11] a Harvard Book default ("BK01") is auto-corrected to "CB01" when Chicago is selected',
+	Citex_Generator::normalise_starting_id( 'BK01', Citex_Reference_Rules::CATEGORY_BOOK, 'chicago' ),
+	'CB01'
+);
+check(
+	'[11] a Chicago-prefixed ID the admin deliberately typed ("CB05") is left untouched',
+	Citex_Generator::normalise_starting_id( 'CB05', Citex_Reference_Rules::CATEGORY_BOOK, 'chicago' ),
+	'CB05'
+);
+check(
+	'[11] Chicago\'s own prefix is distinct from Harvard\'s, MLA\'s and APA\'s',
+	Citex_Chicago_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
+	'CB'
+);
+check(
+	'[11] Chicago\'s prefix never collides with APA\'s own "AB"',
+	Citex_Chicago_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ) === Citex_APA_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
+	false
+);
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

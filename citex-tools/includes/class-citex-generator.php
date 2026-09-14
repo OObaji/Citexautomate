@@ -18,7 +18,7 @@ class Citex_Generator {
 	public function render() {
 		$this->maybe_handle_submit();
 
-		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th' );
+		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)' );
 		$categories         = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 		$id_prefixes        = array(
 			'book'            => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
@@ -47,6 +47,14 @@ class Citex_Generator {
 			'edited_book'     => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_EDITED_BOOK ),
 			'journal_article' => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
 			'website'         => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_WEBSITE ),
+		);
+		// Chicago (Author-Date) reference-list is Phase 1: Book only (see
+		// Citex_Chicago_Reference_Rules's own docblock) — its own "CB" prefix
+		// is the only one populated here; Edited Book/Journal Article/Website
+		// will gain their own CE/CJ/CW prefixes once a later phase extends
+		// Chicago past Book, mirroring how APA/MLA each started.
+		$chicago_id_prefixes = array(
+			'book' => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_BOOK ),
 		);
 		// In-text citation has no reference-list category restriction at
 		// all (see self::intext_id_prefix()'s docblock) — every category
@@ -275,15 +283,27 @@ class Citex_Generator {
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 
 		$quantity   = max( 1, min( 100, $quantity ) );
-		$style_ok   = in_array( $style, array( 'harvard', 'mla', 'apa' ), true );
+		$style_ok   = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago' ), true );
 		// MLA and APA reference-list both now cover all 4 categories (Book,
 		// Edited Book, Journal Article, Website) — the same shared-structure
 		// build-out already used for in-text citation (see
 		// self::intext_id_prefix()'s docblock). No category restriction
-		// remains for any of the 3 styles, under either group.
+		// remains for either of those 2 styles, under either group. Chicago
+		// is Phase 1 (Book / Reference List only — see
+		// Citex_Chicago_Reference_Rules's own docblock) and is checked
+		// separately below, once $category_labels/$group are both resolved.
 		$category_ok = isset( $category_labels[ $category ] );
 		if ( ! $style_ok || ! $category_ok || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA or APA, for Book, Edited Book, Journal Article or Website, as DragDrop or MCQ.', 'citex-tools' ), 'error' );
+			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA, APA or Chicago, for Book, Edited Book, Journal Article or Website, as DragDrop or MCQ.', 'citex-tools' ), 'error' );
+			$this->redirect_back();
+		}
+		// Chicago (Author-Date) Phase 1 supports Book / Reference List
+		// only — Edited Book, Journal Article, Website and In-Text Citation
+		// are a later phase, following the exact same "Book first" pattern
+		// every other style in this app went through.
+		$chicago_scope_ok = 'chicago' !== $style || ( 'book' === $category && 'referencelist' === $group );
+		if ( ! $chicago_scope_ok ) {
+			Citex_Admin::set_notice( __( 'Chicago (Author-Date) currently supports Book / Reference List only — Edited Book, Journal Article, Website and In-Text Citation are coming in a later update.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
@@ -531,6 +551,8 @@ class Citex_Generator {
 			$expected_prefix = self::intext_id_prefix( $category_label, $style );
 		} elseif ( 'apa' === $style ) {
 			$expected_prefix = Citex_APA_Reference_Rules::id_prefix( $category_label );
+		} elseif ( 'chicago' === $style ) {
+			$expected_prefix = Citex_Chicago_Reference_Rules::id_prefix( $category_label );
 		} else {
 			$expected_prefix = 'mla' === $style
 				? Citex_MLA_Reference_Rules::id_prefix( $category_label )
