@@ -18,7 +18,7 @@ class Citex_Generator {
 	public function render() {
 		$this->maybe_handle_submit();
 
-		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA' );
+		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th' );
 		$categories         = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 		$id_prefixes        = array(
 			'book'            => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
@@ -36,6 +36,17 @@ class Citex_Generator {
 			'edited_book'     => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_EDITED_BOOK ),
 			'journal_article' => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
 			'website'         => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_WEBSITE ),
+		);
+		// APA reference-list is currently Book-only (Phase 1) — only the
+		// 'book' key carries a real prefix; the other 3 are empty since
+		// those category/style combinations are not yet generated (the
+		// Category dropdown itself is restricted to Book whenever APA is
+		// selected — see admin/views/generate.php).
+		$apa_id_prefixes    = array(
+			'book'            => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_BOOK ),
+			'edited_book'     => '',
+			'journal_article' => '',
+			'website'         => '',
 		);
 		// In-text citation has no reference-list category restriction at
 		// all (see self::intext_id_prefix()'s docblock) — every category
@@ -256,15 +267,18 @@ class Citex_Generator {
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 
 		$quantity   = max( 1, min( 100, $quantity ) );
-		$style_ok   = in_array( $style, array( 'harvard', 'mla' ), true );
+		$style_ok   = in_array( $style, array( 'harvard', 'mla', 'apa' ), true );
 		// MLA reference-list now covers all 4 categories (Book, Edited
 		// Book, Journal Article, Website) — the same shared-structure
 		// build-out already used for in-text citation (see
 		// self::intext_id_prefix()'s docblock). No category restriction
-		// remains for either style, under either group.
+		// remains for MLA, under either group. APA is currently Book-only,
+		// Reference List only (Phase 1) — mirrors MLA's own original Book
+		// Phase 1 restriction before it was relaxed to all 4 categories.
 		$category_ok = isset( $category_labels[ $category ] );
-		if ( ! $style_ok || ! $category_ok || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard or MLA, for Book, Edited Book, Journal Article or Website, as DragDrop or MCQ.', 'citex-tools' ), 'error' );
+		$apa_scope_ok = 'apa' !== $style || ( 'book' === $category && 'referencelist' === $group );
+		if ( ! $style_ok || ! $category_ok || ! $apa_scope_ok || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
+			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard or MLA, for Book, Edited Book, Journal Article or Website, as DragDrop or MCQ, or APA (Book, Reference List only), as DragDrop or MCQ.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
@@ -510,6 +524,8 @@ class Citex_Generator {
 		$starting_id     = strtoupper( trim( (string) $starting_id ) );
 		if ( 'intext' === $group ) {
 			$expected_prefix = self::intext_id_prefix( $category_label, $style );
+		} elseif ( 'apa' === $style ) {
+			$expected_prefix = Citex_APA_Reference_Rules::id_prefix( $category_label );
 		} else {
 			$expected_prefix = 'mla' === $style
 				? Citex_MLA_Reference_Rules::id_prefix( $category_label )

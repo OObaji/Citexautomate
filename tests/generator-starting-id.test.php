@@ -38,6 +38,7 @@ function update_option( $key, $value, $autoload = null ) {
 
 require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-mla-reference-rules.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-apa-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-populator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generator.php';
 
@@ -126,6 +127,25 @@ check(
 	'[7] omitting $style defaults to Harvard\'s own "BK" prefix (no behaviour change for existing callers)',
 	Citex_Generator::normalise_starting_id( 'MB01', Citex_Reference_Rules::CATEGORY_BOOK ),
 	'BK01'
+);
+
+// ---------------------------------------------------------------------
+// 8. APA Book gets its own "AB" prefix, distinct from both Harvard Book's
+// "BK" and MLA Book's "MB" — normalise_starting_id()'s $style parameter
+// routes to Citex_APA_Reference_Rules::id_prefix() when $style is 'apa',
+// so all three styles' Book questions can never collide on the same
+// pending-queue ID space.
+// ---------------------------------------------------------------------
+check( '[8] APA Book\'s ID prefix is "AB"', Citex_APA_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ), 'AB' );
+check(
+	'[8] a Harvard Book default ("BK01") is auto-corrected to "AB01" when APA is selected',
+	Citex_Generator::normalise_starting_id( 'BK01', Citex_Reference_Rules::CATEGORY_BOOK, 'apa' ),
+	'AB01'
+);
+check(
+	'[8] an APA-prefixed ID the admin deliberately typed ("AB05") is left untouched',
+	Citex_Generator::normalise_starting_id( 'AB05', Citex_Reference_Rules::CATEGORY_BOOK, 'apa' ),
+	'AB05'
 );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
