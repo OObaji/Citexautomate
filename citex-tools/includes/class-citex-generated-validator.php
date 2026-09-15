@@ -125,6 +125,18 @@ class Citex_Generated_Validator {
 			if ( 'mhra_book_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
 				return self::validate_mhra_book_mcq_variant( $question );
 			}
+			// MHRA's own Edited Book/Journal Article/Website MCQ catalogues —
+			// mirror mhra_book_mcq_variant's/chicago's identical move, routed
+			// the same way, on `mcqPattern`.
+			if ( 'mhra_edited_book_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_mhra_edited_book_mcq_variant( $question );
+			}
+			if ( 'mhra_journal_article_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_mhra_journal_article_mcq_variant( $question );
+			}
+			if ( 'mhra_website_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_mhra_website_mcq_variant( $question );
+			}
 			// APA's own Edited Book/Journal Article/Website MCQ catalogues —
 			// mirror apa_book_mcq_variant's identical move, routed the same
 			// way, on `mcqPattern`.
@@ -523,6 +535,37 @@ class Citex_Generated_Validator {
 					}
 				}
 			}
+		} elseif ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && 'MHRA' === $source ) {
+			// MHRA's own Edited Book DragDrop block — mirrors the Chicago
+			// Edited Book block above, via
+			// Citex_MHRA_Edited_Book_Dragdrop_Parts instead (surname/
+			// givenName, "ed."/"eds" designation, WITH `place` included,
+			// place/publisher/year grouped inside one parenthesis).
+			$editors_for_shape = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
+			$eb_title          = trim( (string) ( $question['bookTitle'] ?? '' ) );
+			if ( ! ( empty( $editors_for_shape ) && '' === $eb_title ) ) {
+				$selected_keys = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$eb_fields     = array(
+					'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+					'title'     => $eb_title,
+					'place'     => trim( (string) ( $question['place'] ?? '' ) ),
+					'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+				);
+				$expected_build = ( empty( $selected_keys ) || empty( $editors_for_shape ) ) ? null : Citex_MHRA_Edited_Book_Dragdrop_Parts::build( $selected_keys, $editors_for_shape, $eb_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'MHRA_EDITED_BOOK_DRAGDROP_PARTS_UNKNOWN', 'The MHRA Edited Book DragDrop part selection (dragdropPartKeys) is missing, malformed, or names an editor index out of range.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'MHRA_EDITED_BOOK_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'MHRA_EDITED_BOOK_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'MHRA_EDITED_BOOK_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
+				}
+			}
 		} elseif ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			$editors_for_shape = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
 			$eb_title          = trim( (string) ( $question['bookTitle'] ?? '' ) );
@@ -660,6 +703,46 @@ class Citex_Generated_Validator {
 					}
 					if ( $confusing !== $expected_build['confusingWords'] ) {
 						$errors[] = self::error( 'CHICAGO_JOURNAL_ARTICLE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
+				}
+			}
+		} elseif ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category && 'MHRA' === $source ) {
+			// MHRA's own Journal Article DragDrop block — mirrors the Chicago
+			// Journal Article block above, via
+			// Citex_MHRA_Journal_Article_Dragdrop_Parts instead (surname/
+			// givenName, single-quoted article title, combined
+			// "Volume.Issue" token, year in its own parenthesis after it).
+			$ja_authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+			if ( empty( $ja_authors ) ) {
+				$fallback_surname    = trim( (string) ( $question['authorSurname'] ?? '' ) );
+				$fallback_given_name = trim( (string) ( $question['authorGivenName'] ?? '' ) );
+				if ( '' !== $fallback_surname || '' !== $fallback_given_name ) {
+					$ja_authors = array( array( 'surname' => $fallback_surname, 'givenName' => $fallback_given_name, 'fullName' => (string) ( $question['authorFullName'] ?? '' ) ) );
+				}
+			}
+			$ja_title = trim( (string) ( $question['articleTitle'] ?? '' ) );
+			if ( ! ( empty( $ja_authors ) && '' === $ja_title ) ) {
+				$selected_keys = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$ja_fields     = array(
+					'year'         => trim( (string) ( $question['year'] ?? '' ) ),
+					'articleTitle' => $ja_title,
+					'journalTitle' => trim( (string) ( $question['journalTitle'] ?? '' ) ),
+					'volume'       => trim( (string) ( $question['volume'] ?? '' ) ),
+					'issue'        => trim( (string) ( $question['issue'] ?? '' ) ),
+					'pages'        => trim( (string) ( $question['pages'] ?? '' ) ),
+				);
+				$expected_build = ( empty( $selected_keys ) || empty( $ja_authors ) ) ? null : Citex_MHRA_Journal_Article_Dragdrop_Parts::build( $selected_keys, $ja_authors, $ja_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_DRAGDROP_PARTS_UNKNOWN', 'The MHRA Journal Article DragDrop part selection (dragdropPartKeys) is missing, malformed, or names an author index out of range.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
 					}
 				}
 			}
@@ -830,6 +913,50 @@ class Citex_Generated_Validator {
 					}
 				}
 			}
+		} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category && 'MHRA' === $source ) {
+			// MHRA's own Website DragDrop block — mirrors the Chicago Website
+			// block above, via Citex_MHRA_Website_Dragdrop_Parts instead:
+			// surname/givenName, a single-quoted title, angle brackets around
+			// the URL, square brackets around the accessed date, and NO
+			// `year` field at all — the single biggest structural difference
+			// from every other style's own Website block in this codebase
+			// (see Citex_MHRA_Reference_Rules's own docblock).
+			$web_author_type = (string) ( $question['authorType'] ?? '' );
+			$web_authors_arr = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+			$web_title       = trim( (string) ( $question['pageTitle'] ?? '' ) );
+			$has_web_author  = 'individual' === $web_author_type
+				? '' !== trim( (string) ( $web_authors_arr[0]['surname'] ?? '' ) )
+				: ( 'organisation' === $web_author_type && '' !== trim( (string) ( $question['organisationName'] ?? '' ) ) );
+			if ( ! ( ! $has_web_author && '' === $web_title ) ) {
+				$web_author = array( 'type' => $web_author_type );
+				if ( 'individual' === $web_author_type ) {
+					$web_author['fullName']  = trim( (string) ( $web_authors_arr[0]['fullName'] ?? '' ) );
+					$web_author['surname']   = trim( (string) ( $web_authors_arr[0]['surname'] ?? '' ) );
+					$web_author['givenName'] = trim( (string) ( $web_authors_arr[0]['givenName'] ?? '' ) );
+				} else {
+					$web_author['name'] = trim( (string) ( $question['organisationName'] ?? '' ) );
+				}
+				$web_fields = array(
+					'title'        => $web_title,
+					'url'          => trim( (string) ( $question['url'] ?? '' ) ),
+					'accessedDate' => trim( (string) ( $question['accessedDate'] ?? '' ) ),
+				);
+				$selected_keys  = is_array( $question['dragdropPartKeys'] ?? null ) ? array_values( $question['dragdropPartKeys'] ) : array();
+				$expected_build = ( empty( $selected_keys ) || ! $has_web_author ) ? null : Citex_MHRA_Website_Dragdrop_Parts::build( $selected_keys, $web_author, $web_fields );
+				if ( null === $expected_build ) {
+					$errors[] = self::error( 'MHRA_WEBSITE_DRAGDROP_PARTS_UNKNOWN', 'The MHRA Website DragDrop part selection (dragdropPartKeys) is missing or malformed.' );
+				} else {
+					if ( $fixed_text !== $expected_build['fixedText'] ) {
+						$errors[] = self::error( 'MHRA_WEBSITE_DRAGDROP_FIXED_TEXT_MISMATCH', sprintf( 'Fixed Text must be exactly: "%s".', $expected_build['fixedText'] ) );
+					}
+					if ( $question_parts !== $expected_build['parts'] ) {
+						$errors[] = self::error( 'MHRA_WEBSITE_DRAGDROP_PARTS_MISMATCH', 'Question Parts must be exactly Citex\'s own parts for this selection.' );
+					}
+					if ( $confusing !== $expected_build['confusingWords'] ) {
+						$errors[] = self::error( 'MHRA_WEBSITE_DRAGDROP_CONFUSING_WORDS_MISMATCH', 'Confusing Words must be exactly Citex\'s own wrong chips for this selection.' );
+					}
+				}
+			}
 		} elseif ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			$web_author_type = (string) ( $question['authorType'] ?? '' );
 			$web_authors_arr = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
@@ -976,6 +1103,9 @@ class Citex_Generated_Validator {
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && $is_chicago ) {
 			return self::validate_chicago_edited_book_consistency( $question, $reference, $check_scenario );
 		}
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && $is_mhra ) {
+			return self::validate_mhra_edited_book_consistency( $question, $reference, $check_scenario );
+		}
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
 			return self::validate_edited_book_consistency( $question, $reference, $check_scenario );
 		}
@@ -988,6 +1118,9 @@ class Citex_Generated_Validator {
 		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category && $is_chicago ) {
 			return self::validate_chicago_journal_article_consistency( $question, $reference, $check_scenario );
 		}
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category && $is_mhra ) {
+			return self::validate_mhra_journal_article_consistency( $question, $reference, $check_scenario );
+		}
 		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			return self::validate_journal_article_consistency( $question, $question_parts, $reference, $check_scenario );
 		}
@@ -999,6 +1132,9 @@ class Citex_Generated_Validator {
 		}
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category && $is_chicago ) {
 			return self::validate_chicago_website_consistency( $question, $reference, $check_scenario );
+		}
+		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category && $is_mhra ) {
+			return self::validate_mhra_website_consistency( $question, $reference, $check_scenario );
 		}
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			return self::validate_website_consistency( $question, $question_parts, $reference, $check_scenario );
@@ -2249,6 +2385,289 @@ class Citex_Generated_Validator {
 	}
 
 	/**
+	 * MHRA counterpart to validate_mhra_book_mcq_variant(), for Edited
+	 * Book — same exact-match rationale, via
+	 * Citex_MHRA_Edited_Book_Mcq_Variants instead. Field shape mirrors
+	 * normalise_mhra_edited_book_mcq_item()'s own output: `editors`
+	 * array<{surname, givenName, fullName}>, WITH `place`.
+	 */
+	private static function validate_mhra_edited_book_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$variant = (string) ( $question['mhraEditedBookMcqVariant'] ?? '' );
+		$editors = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
+		$fields  = array(
+			'editors'   => $editors,
+			'year'      => trim( (string) ( $question['year'] ?? '' ) ),
+			'title'     => trim( (string) ( $question['bookTitle'] ?? '' ) ),
+			'place'     => trim( (string) ( $question['place'] ?? '' ) ),
+			'publisher' => trim( (string) ( $question['publisher'] ?? '' ) ),
+		);
+		$expected = empty( $editors ) ? null : Citex_MHRA_Edited_Book_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'MHRA_EDITED_BOOK_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised MHRA Edited Book MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'MHRA_EDITED_BOOK_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'MHRA_EDITED_BOOK_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'MHRA_EDITED_BOOK_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * MHRA counterpart to validate_mhra_book_mcq_variant(), for Journal
+	 * Article — via Citex_MHRA_Journal_Article_Mcq_Variants instead.
+	 */
+	private static function validate_mhra_journal_article_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$variant = (string) ( $question['mhraJournalArticleMcqVariant'] ?? '' );
+		$authors = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		$fields  = array(
+			'authors'      => $authors,
+			'articleTitle' => trim( (string) ( $question['articleTitle'] ?? '' ) ),
+			'journalTitle' => trim( (string) ( $question['journalTitle'] ?? '' ) ),
+			'volume'       => trim( (string) ( $question['volume'] ?? '' ) ),
+			'issue'        => trim( (string) ( $question['issue'] ?? '' ) ),
+			'year'         => trim( (string) ( $question['year'] ?? '' ) ),
+			'pages'        => trim( (string) ( $question['pages'] ?? '' ) ),
+		);
+		$expected = empty( $authors ) ? null : Citex_MHRA_Journal_Article_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised MHRA Journal Article MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * MHRA counterpart to validate_mhra_book_mcq_variant(), for Website — via
+	 * Citex_MHRA_Website_Mcq_Variants instead. Field shape mirrors
+	 * normalise_mhra_website_mcq_variant_item()'s own output: `authorType`
+	 * plus `authors[0]`/`organisationName`, no `year` at all — see
+	 * Citex_MHRA_Reference_Rules's own docblock.
+	 */
+	private static function validate_mhra_website_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$variant     = (string) ( $question['mhraWebsiteMcqVariant'] ?? '' );
+		$author_type = (string) ( $question['authorType'] ?? '' );
+		$authors_arr = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+		$author      = array( 'type' => $author_type );
+		if ( 'individual' === $author_type ) {
+			$author['fullName']  = trim( (string) ( $authors_arr[0]['fullName'] ?? '' ) );
+			$author['surname']   = trim( (string) ( $authors_arr[0]['surname'] ?? '' ) );
+			$author['givenName'] = trim( (string) ( $authors_arr[0]['givenName'] ?? '' ) );
+		} elseif ( 'organisation' === $author_type ) {
+			$author['name'] = trim( (string) ( $question['organisationName'] ?? '' ) );
+		}
+		$fields = array(
+			'author'       => $author,
+			'title'        => trim( (string) ( $question['pageTitle'] ?? '' ) ),
+			'url'          => trim( (string) ( $question['url'] ?? '' ) ),
+			'accessedDate' => trim( (string) ( $question['accessedDate'] ?? '' ) ),
+		);
+		$expected = in_array( $author_type, array( 'individual', 'organisation' ), true ) ? Citex_MHRA_Website_Mcq_Variants::build( $variant, $fields ) : null;
+		if ( null === $expected ) {
+			$errors[] = self::error( 'MHRA_WEBSITE_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised or incompatible MHRA Website MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'MHRA_WEBSITE_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'MHRA_WEBSITE_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'MHRA_WEBSITE_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
 	 * APA counterpart to validate_apa_book_mcq_variant(), for Edited Book —
 	 * same exact-match rationale, via Citex_APA_Edited_Book_Mcq_Variants
 	 * instead. Field shape mirrors normalise_apa_edited_book_mcq_item()'s
@@ -3399,15 +3818,16 @@ class Citex_Generated_Validator {
 	private static function expected_designation_for( $question, $category ) {
 		// MLA has no "(ed.)"/"(eds)" abbreviation at all (see
 		// Citex_MLA_Reference_Rules::join_editors()'s own docblock), and
-		// Chicago's own designation is unparenthesised lowercase "ed"/"eds"
+		// Chicago's/MHRA's own designation is unparenthesised "ed"/"eds"
 		// sitting INSIDE the person segment (see
-		// Citex_Chicago_Reference_Rules::designation_for_editor_count()'s
-		// own docblock) — neither editor shape carries Harvard's `initials`
-		// (both carry `givenName` instead), so this Harvard-only helper must
-		// never run against either (it would otherwise emit a PHP warning
-		// reading the missing `initials` key several calls downstream, even
-		// though the resulting check is a harmless no-op either way).
-		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK !== $category || in_array( (string) ( $question['source'] ?? '' ), array( 'MLA', 'Chicago' ), true ) ) {
+		// Citex_Chicago_Reference_Rules::designation_for_editor_count()'s/
+		// Citex_MHRA_Reference_Rules's own docblock) — none of these 3
+		// editor shapes carries Harvard's `initials` (all 3 carry
+		// `givenName` instead), so this Harvard-only helper must never run
+		// against any of them (it would otherwise emit a PHP warning reading
+		// the missing `initials` key several calls downstream, even though
+		// the resulting check is a harmless no-op either way).
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK !== $category || in_array( (string) ( $question['source'] ?? '' ), array( 'MLA', 'Chicago', 'MHRA' ), true ) ) {
 			return null;
 		}
 		$editors = is_array( $question['editors'] ?? null ) ? $question['editors'] : array();
@@ -3427,15 +3847,16 @@ class Citex_Generated_Validator {
 	 * shape regex structurally cannot see.
 	 */
 	private static function expected_editor_join_for( $question, $category ) {
-		// Same MLA/Chicago guard as expected_designation_for() — both
+		// Same MLA/Chicago/MHRA guard as expected_designation_for() — all 3
 		// styles' editor records carry `givenName`, not Harvard's
 		// `initials`, and each style's own joining rule
 		// (Citex_MLA_Reference_Rules::join_people()/
-		// Citex_Chicago_Reference_Rules::join_people()) is already fully
+		// Citex_Chicago_Reference_Rules::join_people()/
+		// Citex_MHRA_Reference_Rules::join_people()) is already fully
 		// enforced by the exact-match reconstruction checks elsewhere, so
-		// this Harvard-only helper has nothing to add for either and must
-		// never read the missing `initials` key.
-		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK !== $category || in_array( (string) ( $question['source'] ?? '' ), array( 'MLA', 'Chicago' ), true ) ) {
+		// this Harvard-only helper has nothing to add for any of them and
+		// must never read the missing `initials` key.
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK !== $category || in_array( (string) ( $question['source'] ?? '' ), array( 'MLA', 'Chicago', 'MHRA' ), true ) ) {
 			return null;
 		}
 		$editors = is_array( $question['editors'] ?? null ) ? $question['editors'] : array();
@@ -3510,7 +3931,16 @@ class Citex_Generated_Validator {
 			? Citex_MLA_Reference_Rules::format_regex( $category )
 			: ( $is_apa ? Citex_APA_Reference_Rules::format_regex( $category ) : ( $is_chicago ? Citex_Chicago_Reference_Rules::format_regex( $category ) : ( $is_mhra ? Citex_MHRA_Reference_Rules::format_regex( $category ) : Citex_Reference_Rules::format_regex( $category, $exercise_design ) ) ) );
 		if ( ! preg_match( $format_regex, $reference ) ) {
-			if ( $is_mhra ) {
+			if ( $is_mhra && Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				$code    = 'MHRA_EDITED_BOOK_FORMAT_MISMATCH';
+				$message = 'Citation does not match the MHRA Bibliography Edited Book format.';
+			} elseif ( $is_mhra && Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+				$code    = 'MHRA_JOURNAL_ARTICLE_FORMAT_MISMATCH';
+				$message = 'Citation does not match the MHRA Bibliography Journal Article format.';
+			} elseif ( $is_mhra && Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+				$code    = 'MHRA_WEBSITE_FORMAT_MISMATCH';
+				$message = 'Citation does not match the MHRA Bibliography Website format.';
+			} elseif ( $is_mhra ) {
 				$code    = 'MHRA_BOOK_FORMAT_MISMATCH';
 				$message = 'Citation does not match the MHRA Bibliography Book format.';
 			} elseif ( $is_chicago && Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
@@ -4399,6 +4829,218 @@ class Citex_Generated_Validator {
 				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
 					$errors[] = self::error( 'MHRA_BIBLIOGRAPHIC_CONSISTENCY_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
 				}
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * MHRA counterpart to validate_chicago_edited_book_consistency() — same
+	 * "reconstruct + exact match" pattern, via
+	 * Citex_MHRA_Reference_Rules::build_reference() instead (surname/
+	 * givenName, "ed."/"eds" designation, WITH `place` included,
+	 * place/publisher/year grouped inside one parenthesis).
+	 */
+	private static function validate_mhra_edited_book_consistency( $question, $reference, $check_scenario = true ) {
+		$errors  = array();
+		$editors = is_array( $question['editors'] ?? null ) ? array_values( $question['editors'] ) : array();
+		$title   = trim( (string) ( $question['bookTitle'] ?? '' ) );
+
+		if ( empty( $editors ) && '' === $title ) {
+			return $errors;
+		}
+		if ( empty( $editors ) ) {
+			$errors[] = self::error( 'MHRA_EDITED_BOOK_EDITORS_MISSING', 'No editors were provided for this MHRA Edited Book question.' );
+			return $errors;
+		}
+
+		$year      = trim( (string) ( $question['year'] ?? '' ) );
+		$place     = trim( (string) ( $question['place'] ?? '' ) );
+		$publisher = trim( (string) ( $question['publisher'] ?? '' ) );
+
+		$fields             = array( 'editors' => $editors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
+		$expected_reference = trim( Citex_MHRA_Reference_Rules::build_reference( Citex_MHRA_Reference_Rules::CATEGORY_EDITED_BOOK, $fields ) );
+		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
+			$errors[] = self::error(
+				'MHRA_EDITED_BOOK_RECONSTRUCTION_MISMATCH',
+				sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
+			);
+		}
+
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach ( $editors as $index => $editor ) {
+				$editor_surname = trim( (string) ( $editor['surname'] ?? '' ) );
+				if ( '' !== $editor_surname && ! self::text_contains( $scenario, $editor_surname ) ) {
+					$errors[] = self::error( 'MHRA_EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention editor %1$d\'s surname: "%2$s".', $index + 1, $editor_surname ) );
+				}
+			}
+			foreach (
+				array(
+					'title'     => array( $title, 'book title' ),
+					'year'      => array( $year, 'publication year' ),
+					'place'     => array( $place, 'place of publication' ),
+					'publisher' => array( $publisher, 'publisher' ),
+				) as $pair
+			) {
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'MHRA_EDITED_BOOK_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+				}
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * MHRA counterpart to validate_chicago_journal_article_consistency() —
+	 * same "reconstruct + exact match" pattern, via
+	 * Citex_MHRA_Reference_Rules::build_reference() instead (surname/
+	 * givenName, single-quoted article title, combined "Volume.Issue"
+	 * token, year in its own parenthesis after it).
+	 */
+	private static function validate_mhra_journal_article_consistency( $question, $reference, $check_scenario = true ) {
+		$errors        = array();
+		$authors       = is_array( $question['authors'] ?? null ) ? array_values( $question['authors'] ) : array();
+		$article_title = trim( (string) ( $question['articleTitle'] ?? '' ) );
+
+		if ( empty( $authors ) && '' === $article_title ) {
+			return $errors;
+		}
+		if ( empty( $authors ) ) {
+			$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_AUTHORS_MISSING', 'No authors were provided for this MHRA Journal Article question.' );
+			return $errors;
+		}
+
+		$journal_title = trim( (string) ( $question['journalTitle'] ?? '' ) );
+		$volume        = trim( (string) ( $question['volume'] ?? '' ) );
+		$issue         = trim( (string) ( $question['issue'] ?? '' ) );
+		$year          = trim( (string) ( $question['year'] ?? '' ) );
+		$pages         = trim( (string) ( $question['pages'] ?? '' ) );
+
+		$fields             = array( 'authors' => $authors, 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'year' => $year, 'pages' => $pages );
+		$expected_reference = trim( Citex_MHRA_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, $fields ) );
+		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
+			$errors[] = self::error(
+				'MHRA_JOURNAL_ARTICLE_RECONSTRUCTION_MISMATCH',
+				sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
+			);
+		}
+
+		if ( $check_scenario ) {
+			$scenario = (string) ( $question['scenario'] ?? '' );
+			foreach ( $authors as $index => $author ) {
+				$author_surname = trim( (string) ( $author['surname'] ?? '' ) );
+				if ( '' !== $author_surname && ! self::text_contains( $scenario, $author_surname ) ) {
+					$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention author %1$d\'s surname: "%2$s".', $index + 1, $author_surname ) );
+				}
+			}
+			foreach (
+				array(
+					'articleTitle' => array( $article_title, 'article title' ),
+					'journalTitle' => array( $journal_title, 'journal title' ),
+					'year'         => array( $year, 'publication year' ),
+					'volume'       => array( $volume, 'volume' ),
+					'issue'        => array( $issue, 'issue' ),
+				) as $pair
+			) {
+				list( $value, $label ) = $pair;
+				if ( '' !== $value && ! self::text_contains( $scenario, $value ) ) {
+					$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical %1$s: "%2$s".', $label, $value ) );
+				}
+			}
+			if ( '' !== $pages && ! self::scenario_mentions_page_range( $scenario, $pages ) ) {
+				$errors[] = self::error( 'MHRA_JOURNAL_ARTICLE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical page range: "%s".', $pages ) );
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * MHRA counterpart to validate_chicago_website_consistency() — same
+	 * "reconstruct + exact match" pattern, via
+	 * Citex_MHRA_Reference_Rules::build_reference() instead: surname/
+	 * givenName, and — the single biggest structural difference from every
+	 * other style's own Website consistency check in this codebase — NO
+	 * `year` field at all (see Citex_MHRA_Reference_Rules's own docblock);
+	 * `accessedDate` is required instead, mirroring MLA's own Website
+	 * consistency check's accessedDate requirement.
+	 */
+	private static function validate_mhra_website_consistency( $question, $reference, $check_scenario = true ) {
+		$errors      = array();
+		$author_type = trim( (string) ( $question['authorType'] ?? '' ) );
+
+		$author_surname    = '';
+		$author_given_name = '';
+		$organisation_name = '';
+		if ( 'individual' === $author_type ) {
+			$authors = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+			if ( ! empty( $authors ) ) {
+				$author_surname    = trim( (string) ( $authors[0]['surname'] ?? '' ) );
+				$author_given_name = trim( (string) ( $authors[0]['givenName'] ?? '' ) );
+			}
+		} elseif ( 'organisation' === $author_type ) {
+			$organisation_name = trim( (string) ( $question['organisationName'] ?? '' ) );
+		}
+		$title = trim( (string) ( $question['pageTitle'] ?? '' ) );
+
+		if ( '' === $author_type && '' === $title ) {
+			return $errors;
+		}
+		if ( 'individual' !== $author_type && 'organisation' !== $author_type ) {
+			$errors[] = self::error( 'MHRA_WEBSITE_AUTHOR_TYPE_INVALID', 'authorType must be exactly "individual" or "organisation".' );
+			return $errors;
+		}
+		if ( 'individual' === $author_type && ( '' === $author_surname || '' === $author_given_name ) ) {
+			$errors[] = self::error( 'MHRA_WEBSITE_AUTHOR_MISSING', 'No individual author surname/given name were provided for this MHRA Website question.' );
+			return $errors;
+		}
+		if ( 'organisation' === $author_type && '' === $organisation_name ) {
+			$errors[] = self::error( 'MHRA_WEBSITE_AUTHOR_MISSING', 'No organisation name was provided for this MHRA Website question.' );
+			return $errors;
+		}
+
+		$url           = trim( (string) ( $question['url'] ?? '' ) );
+		$accessed_date = trim( (string) ( $question['accessedDate'] ?? '' ) );
+
+		if ( '' === $url || ! preg_match( '#^https?://\S+$#', $url ) ) {
+			$errors[] = self::error( 'MHRA_WEBSITE_URL_MALFORMED', 'The URL must be a well-formed http(s) address with no spaces.' );
+		}
+		if ( '' === $accessed_date ) {
+			$errors[] = self::error( 'MHRA_WEBSITE_ACCESSED_DATE_MISSING', 'The accessed date is missing.' );
+		}
+
+		$author = array( 'type' => $author_type );
+		if ( 'individual' === $author_type ) {
+			$author['surname']   = $author_surname;
+			$author['givenName'] = $author_given_name;
+		} else {
+			$author['name'] = $organisation_name;
+		}
+		$fields = array( 'author' => $author, 'title' => $title, 'url' => $url, 'accessedDate' => $accessed_date );
+
+		$expected_reference = trim( Citex_MHRA_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields ) );
+		if ( '' !== $expected_reference && trim( (string) $reference ) !== $expected_reference ) {
+			$errors[] = self::error(
+				'MHRA_WEBSITE_RECONSTRUCTION_MISMATCH',
+				sprintf( 'The reference does not match the one independently reconstructed from canonical data: "%s".', $expected_reference )
+			);
+		}
+
+		if ( $check_scenario ) {
+			$scenario      = (string) ( $question['scenario'] ?? '' );
+			$name_to_check = 'individual' === $author_type ? $author_surname : $organisation_name;
+			if ( '' !== $name_to_check && ! self::text_contains( $scenario, $name_to_check ) ) {
+				$errors[] = self::error( 'MHRA_WEBSITE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical author/organisation name: "%s".', $name_to_check ) );
+			}
+			if ( '' !== $title && ! self::text_contains( $scenario, $title ) ) {
+				$errors[] = self::error( 'MHRA_WEBSITE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical page title: "%s".', $title ) );
+			}
+			if ( '' !== $url && ! self::text_contains( $scenario, $url ) ) {
+				$errors[] = self::error( 'MHRA_WEBSITE_SCENARIO_MISMATCH', sprintf( 'The scenario does not mention the canonical url: "%s".', $url ) );
 			}
 		}
 

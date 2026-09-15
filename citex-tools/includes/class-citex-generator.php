@@ -58,11 +58,15 @@ class Citex_Generator {
 			'journal_article' => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
 			'website'         => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_WEBSITE ),
 		);
-		// MHRA (Bibliography) reference-list is likewise Phase 1: Book only
-		// (see Citex_MHRA_Reference_Rules's own docblock) — its own "HB"
-		// prefix is the only one populated here.
+		// MHRA (Bibliography) reference-list now covers all 4 categories,
+		// each with its own prefix ("H" prefixed onto Harvard's own letter —
+		// HB/HE/HJ/HW) — the same Phase 2 build-out APA/MLA/Chicago already
+		// went through.
 		$mhra_id_prefixes = array(
-			'book' => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_BOOK ),
+			'book'            => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_BOOK ),
+			'edited_book'     => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_EDITED_BOOK ),
+			'journal_article' => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
+			'website'         => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_WEBSITE ),
 		);
 		// In-text citation has no reference-list category restriction at
 		// all (see self::intext_id_prefix()'s docblock) — every category
@@ -317,10 +321,14 @@ class Citex_Generator {
 			Citex_Admin::set_notice( __( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
-		// MHRA Phase 1 likewise supports Book / Reference List only.
-		$mhra_scope_ok = 'mhra' !== $style || ( 'book' === $category && 'referencelist' === $group );
+		// MHRA (11th edition) Reference List now covers all 4 categories
+		// (Book, Edited Book, Journal Article, Website) — the same Phase 2
+		// build-out APA/MLA/Chicago already went through. In-Text Citation
+		// is still a later phase, so $category is left to $category_ok's own
+		// generic check above and only $group is restricted here.
+		$mhra_scope_ok = 'mhra' !== $style || 'referencelist' === $group;
 		if ( ! $mhra_scope_ok ) {
-			Citex_Admin::set_notice( __( 'MHRA currently supports Book / Reference List only — Edited Book, Journal Article, Website and In-Text Citation are coming in a later update.', 'citex-tools' ), 'error' );
+			Citex_Admin::set_notice( __( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
