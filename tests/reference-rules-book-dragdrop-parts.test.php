@@ -1,0 +1,283 @@
+<?php
+/**
+ * Regression tests for Citex_Book_Dragdrop_Parts — the dynamic 3-4-part
+ * Book DragDrop question builder that replaced the fixed 8-design catalogue
+ * (Citex_Reference_Rules::book_dragdrop_designs() and friends, now removed).
+ * Pure, no WordPress/ACF dependency — mirrors
+ * tests/reference-rules-book-authors.test.php's own no-stub-needed setup.
+ *
+ * Repo-level only, run with plain
+ * `php tests/reference-rules-book-dragdrop-parts.test.php` — not shipped in
+ * citex-tools.zip.
+ */
+
+define( 'ABSPATH', '/tmp/fake-wp/' );
+
+require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-book-dragdrop-parts.php';
+
+$failures = 0;
+function check( $description, $actual, $expected ) {
+	global $failures;
+	$pass = $actual === $expected;
+	echo ( $pass ? 'PASS' : 'FAIL' ) . ': ' . $description
+		. ( $pass ? '' : ' (expected ' . var_export( $expected, true ) . ', got ' . var_export( $actual, true ) . ')' )
+		. "\n";
+	if ( ! $pass ) {
+		$failures++;
+	}
+}
+
+function author( $surname, $initials, $full ) {
+	return array( 'surname' => $surname, 'initials' => $initials, 'fullName' => $full );
+}
+
+// Reconstructs the full reference from {parts, fixedText} by substituting
+// each "||" placeholder in order — the same mechanism
+// Citex_Generated_Validator::reconstruct() uses in production.
+function reconstruct( $built ) {
+	$fixed = $built['fixedText'];
+	$parts = $built['parts'];
+	$out   = '';
+	$index = 0;
+	$len   = strlen( $fixed );
+	for ( $i = 0; $i < $len; $i++ ) {
+		if ( '|' !== $fixed[ $i ] ) {
+			$out .= $fixed[ $i ];
+			continue;
+		}
+		if ( $i + 1 < $len && '|' === $fixed[ $i + 1 ] ) {
+			$out .= (string) $parts[ $index++ ];
+			$i++;
+			continue;
+		}
+		// A lone "|" — valid only at the very start or end of Fixed Text
+		// (Citex_Generated_Validator::reconstruct()'s own rule) — still a
+		// single placeholder either way.
+		$out .= (string) $parts[ $index++ ];
+	}
+	return $out;
+}
+
+$fields = array( 'year' => '2019', 'title' => 'Digital Media', 'place' => 'London', 'publisher' => 'Routledge' );
+
+// ---------------------------------------------------------------------
+// 1. build_tokens(): the full token stream for 1/2/3-author records
+// reconstructs (when every candidate is treated as literal) to exactly
+// build_reference()'s own output.
+// ---------------------------------------------------------------------
+function all_literal_reconstruction( array $tokens ) {
+	$out = '';
+	foreach ( $tokens as $token ) {
+		$out .= $token['value'];
+	}
+	return $out;
+}
+foreach ( array( 1, 2, 3, 4, 6 ) as $count ) {
+	$pool = array(
+		author( 'Clark', 'S.', 'Simon Clark' ),
+		author( 'Davies', 'H.', 'Helen Davies' ),
+		author( 'Wilson', 'M.', 'Mark Wilson' ),
+		author( 'Brown', 'A.', 'Andrew Brown' ),
+		author( 'Smith', 'J.', 'James Smith' ),
+		author( 'Jones', 'A.', 'Amy Jones' ),
+	);
+	$authors = array_slice( $pool, 0, $count );
+	$tokens  = Citex_Book_Dragdrop_Parts::build_tokens( $authors, $fields, 0 );
+	$expected = Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_BOOK, array_merge( $fields, array( 'authors' => $authors ) ) );
+	check( "[1] build_tokens() for $count author(s), all-literal, reconstructs to build_reference()'s output", all_literal_reconstruction( $tokens ), $expected );
+}
+
+// ---------------------------------------------------------------------
+// 2. select_parts(): reproducible for the same seed, and the drawn author
+// index (if any) is always within range.
+// ---------------------------------------------------------------------
+$three_authors = array( author( 'Carter', 'J.', 'John Carter' ), author( 'Green', 'E.', 'Emma Green' ), author( 'Smith', 'D.', 'David Smith' ) );
+check(
+	'[2] select_parts() is reproducible for the same seed',
+	Citex_Book_Dragdrop_Parts::select_parts( 'BK07', $three_authors ),
+	Citex_Book_Dragdrop_Parts::select_parts( 'BK07', $three_authors )
+);
+for ( $i = 1; $i <= 40; $i++ ) {
+	$seed = 'BK' . str_pad( $i, 2, '0', STR_PAD_LEFT );
+	$keys = Citex_Book_Dragdrop_Parts::select_parts( $seed, $three_authors );
+	foreach ( $keys as $key ) {
+		if ( 1 === preg_match( '/^author_(\d+)_(?:surname|initials)$/', $key, $m ) ) {
+			if ( (int) $m[1] >= count( $three_authors ) ) {
+				check( "[2] $seed: drawn author index is within range", (int) $m[1] < count( $three_authors ), true );
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// 3. select_parts(): across a wide seed sweep — part count always 3-4,
+// content floor always satisfied (at least one of author/year/title/
+// place/publisher is drawn), and "and" is never eligible/selected for a
+// single author.
+// ---------------------------------------------------------------------
+function has_content( array $keys ) {
+	foreach ( $keys as $key ) {
+		if ( in_array( $key, array( 'year', 'title', 'place', 'publisher' ), true ) ) {
+			return true;
+		}
+		if ( 1 === preg_match( '/^author_\d+_(?:surname|initials)$/', $key ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+$single_author = array( author( 'Brown', 'A.', 'Andrew Brown' ) );
+$and_ever_seen_single = false;
+$count_within_bounds  = true;
+$content_floor_ok     = true;
+for ( $i = 1; $i <= 60; $i++ ) {
+	$seed  = 'S' . $i;
+	$keys  = Citex_Book_Dragdrop_Parts::select_parts( $seed, $single_author );
+	$built = Citex_Book_Dragdrop_Parts::build( $keys, $single_author, $fields );
+	$part_count = count( $built['parts'] );
+	if ( $part_count < 3 || $part_count > 4 ) {
+		$count_within_bounds = false;
+	}
+	if ( ! has_content( $keys ) ) {
+		$content_floor_ok = false;
+	}
+	if ( in_array( 'and', $keys, true ) ) {
+		$and_ever_seen_single = true;
+	}
+}
+check( '[3] single-author: part count always within 3-4 across 60 seeds', $count_within_bounds, true );
+check( '[3] single-author: content floor always satisfied across 60 seeds', $content_floor_ok, true );
+check( '[3] single-author: "and" is never selected (not eligible with only 1 author)', $and_ever_seen_single, false );
+
+$and_ever_seen_multi = false;
+for ( $i = 1; $i <= 60; $i++ ) {
+	$seed = 'M' . $i;
+	$keys = Citex_Book_Dragdrop_Parts::select_parts( $seed, $three_authors );
+	if ( in_array( 'and', $keys, true ) ) {
+		$and_ever_seen_multi = true;
+	}
+}
+check( '[3] multi-author (3): "and" is selected at least once across 60 seeds', $and_ever_seen_multi, true );
+
+// ---------------------------------------------------------------------
+// 4. build(): exact output for hand-picked key sets, verified against the
+// user's own literal example (Clark, S., Davies, H. and Wilson, M. (2019)
+// Digital Media. London: Routledge.) — testing every author drawable in
+// turn, and the structural "and" candidate.
+// ---------------------------------------------------------------------
+$three_named = array( author( 'Clark', 'S.', 'Simon Clark' ), author( 'Davies', 'H.', 'Helen Davies' ), author( 'Wilson', 'M.', 'Mark Wilson' ) );
+$digital_media_fields = array( 'year' => '2019', 'title' => 'Digital Media', 'place' => 'London', 'publisher' => 'Routledge' );
+
+$built_author0 = Citex_Book_Dragdrop_Parts::build( array( 'author_0_surname', 'author_0_initials', 'year', 'place' ), $three_named, $digital_media_fields );
+check( '[4] drawing author 0 (Clark): parts', $built_author0['parts'], array( 'Clark', 'S.', '2019', 'London' ) );
+check( '[4] drawing author 0 (Clark): fixedText', $built_author0['fixedText'], '|, ||, Davies, H. and Wilson, M. (||) Digital Media. ||: Routledge.' );
+check( '[4] drawing author 0 (Clark): confusingWords are genuine knowledge tests, not spelling', $built_author0['confusingWords'], array( 'Simon', 'H.', '2019)', 'Paris' ) );
+check( '[4] drawing author 0 (Clark): reconstructs to the full reference', reconstruct( $built_author0 ), 'Clark, S., Davies, H. and Wilson, M. (2019) Digital Media. London: Routledge.' );
+
+$built_author1 = Citex_Book_Dragdrop_Parts::build( array( 'author_1_surname', 'author_1_initials' ), $three_named, $digital_media_fields );
+check( '[4] drawing author 1 (Davies): parts', $built_author1['parts'], array( 'Davies', 'H.' ) );
+check( '[4] drawing author 1 (Davies): fixedText', $built_author1['fixedText'], 'Clark, S., ||, || and Wilson, M. (2019) Digital Media. London: Routledge.' );
+check( '[4] drawing author 1 (Davies): reconstructs to the full reference', reconstruct( $built_author1 ), 'Clark, S., Davies, H. and Wilson, M. (2019) Digital Media. London: Routledge.' );
+
+$built_author2 = Citex_Book_Dragdrop_Parts::build( array( 'author_2_surname', 'author_2_initials' ), $three_named, $digital_media_fields );
+check( '[4] drawing author 2 (Wilson): parts', $built_author2['parts'], array( 'Wilson', 'M.' ) );
+check( '[4] drawing author 2 (Wilson): fixedText', $built_author2['fixedText'], 'Clark, S., Davies, H. and ||, || (2019) Digital Media. London: Routledge.' );
+
+$built_and = Citex_Book_Dragdrop_Parts::build( array( 'and' ), $three_named, $digital_media_fields );
+check( '[4] drawing "and": parts', $built_and['parts'], array( 'and' ) );
+check( '[4] drawing "and": confusingWords is "&"', $built_and['confusingWords'], array( '&' ) );
+check( '[4] drawing "and": fixedText', $built_and['fixedText'], 'Clark, S., Davies, H. || Wilson, M. (2019) Digital Media. London: Routledge.' );
+check( '[4] drawing "and": reconstructs to the full reference', reconstruct( $built_and ), 'Clark, S., Davies, H. and Wilson, M. (2019) Digital Media. London: Routledge.' );
+
+// ---------------------------------------------------------------------
+// 4b. Pipe grammar: a lone "|" only when NOTHING at all precedes it (the
+// very first character of Fixed Text) — every other placeholder, INCLUDING
+// the very last one (which is always followed by a literal final full
+// stop, never truly "nothing"), is "||". This is the exact case the user
+// confirmed by hand: three authors, drawing the first author's surname,
+// "and", and publisher.
+// ---------------------------------------------------------------------
+$smith_authors = array( author( 'Smith', 'J.', 'John Smith' ), author( 'Green', 'L.', 'Laura Green' ), author( 'Adams', 'P.', 'Peter Adams' ) );
+$urban_fields  = array( 'year' => '2018', 'title' => 'Urban Design', 'place' => 'London', 'publisher' => 'Routledge' );
+$built_pipe_grammar = Citex_Book_Dragdrop_Parts::build( array( 'author_0_surname', 'author_0_initials', 'and', 'publisher' ), $smith_authors, $urban_fields );
+check(
+	'[4b] lone "|" only at the true start; the last placeholder (publisher, followed only by the final full stop) still gets "||"',
+	$built_pipe_grammar['fixedText'],
+	'|, ||, Green, L. || Adams, P. (2018) Urban Design. London: ||.'
+);
+check( '[4b] reconstructs to the full reference', reconstruct( $built_pipe_grammar ), 'Smith, J., Green, L. and Adams, P. (2018) Urban Design. London: Routledge.' );
+
+// ---------------------------------------------------------------------
+// 5. Distractor rules: never equal to the correct value, for every kind.
+// ---------------------------------------------------------------------
+$all_keys_single = array( 'author_0_surname', 'author_0_initials', 'year', 'place', 'publisher' );
+$built_all = Citex_Book_Dragdrop_Parts::build( $all_keys_single, $single_author, $fields );
+foreach ( $built_all['parts'] as $index => $part ) {
+	check( "[5] distractor for part $index (\"$part\") is never equal to the correct value", $built_all['confusingWords'][ $index ] === $part, false );
+}
+
+// ---------------------------------------------------------------------
+// 7. Title distractors: never a plain character-level misspelling — every
+// flavour is either a boundary mistake (stray punctuation/year attached to
+// the title) or a whole-word plural/singular flip, and always differs from
+// the correct title. Swept across many (year, title, place, publisher)
+// combinations to exercise every rotation flavour at least once.
+// ---------------------------------------------------------------------
+$title_flavours_seen  = array();
+$year_flavours_seen   = array();
+$non_uk_place_seen    = false;
+$uk_places            = array( 'london', 'oxford', 'cambridge', 'manchester', 'edinburgh', 'dublin' );
+foreach ( array( '2019', '2020', '2021', '2022', '2023' ) as $year ) {
+	foreach ( array( 'Digital Media', 'Urban Politics', 'Modern Economics', 'Global Cultures', 'Systems Thinking' ) as $title ) {
+		foreach ( array( 'London', 'Manchester', 'Boston' ) as $place ) {
+			foreach ( array( 'Routledge', 'Pearson', 'SAGE' ) as $publisher ) {
+				$sweep_fields = array( 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
+				$sweep_built  = Citex_Book_Dragdrop_Parts::build( array( 'year', 'title', 'place', 'publisher' ), $single_author, $sweep_fields );
+				$title_flavours_seen[ $sweep_built['confusingWords'][1] ] = true;
+				$year_flavours_seen[ $sweep_built['confusingWords'][0] ]  = true;
+				if ( $sweep_built['confusingWords'][1] === $title ) {
+					check( "[7] title distractor for \"$title\" is never identical to the correct title", true, false );
+				}
+				if ( ! in_array( strtolower( $sweep_built['confusingWords'][2] ), $uk_places, true ) ) {
+					$non_uk_place_seen = true;
+				}
+			}
+		}
+	}
+}
+check( '[7] title distractors show more than one rotation flavour across the sweep', count( $title_flavours_seen ) > 5, true );
+check( '[7] year distractors show more than one rotation flavour across the sweep', count( $year_flavours_seen ) > 3, true );
+check( '[7] place distractors include at least one non-UK city across the sweep (global pool)', $non_uk_place_seen, true );
+
+// ---------------------------------------------------------------------
+// 8. Author-mix-up distractors: with 2+ authors, the surname/initials
+// distractor sometimes attributes the OTHER author's real surname/initials
+// to the drawn author's position (not just the given-name/no-stop
+// fallback) — a genuine "which author does this belong to" test.
+// ---------------------------------------------------------------------
+$other_author_surname_seen  = false;
+$other_author_initials_seen = false;
+for ( $i = 1; $i <= 30; $i++ ) {
+	$mix_fields = array( 'year' => (string) ( 2000 + $i ), 'title' => 'Book Title ' . $i, 'place' => 'London', 'publisher' => 'Routledge' );
+	$mix_built  = Citex_Book_Dragdrop_Parts::build( array( 'author_0_surname', 'author_0_initials' ), $three_named, $mix_fields );
+	if ( 'Davies' === $mix_built['confusingWords'][0] ) {
+		$other_author_surname_seen = true;
+	}
+	if ( 'H.' === $mix_built['confusingWords'][1] ) {
+		$other_author_initials_seen = true;
+	}
+}
+check( '[8] author surname distractor sometimes attributes the OTHER author\'s real surname', $other_author_surname_seen, true );
+check( '[8] author initials distractor sometimes attributes the OTHER author\'s real initials', $other_author_initials_seen, true );
+
+// ---------------------------------------------------------------------
+// 9. build() returns null for an out-of-range author index, or an empty
+// selection — the exact signal Citex_Generated_Validator's Book-only
+// block treats as BOOK_DRAGDROP_PARTS_UNKNOWN.
+// ---------------------------------------------------------------------
+check( '[9] an out-of-range author index returns null', Citex_Book_Dragdrop_Parts::build( array( 'author_5_surname' ), $single_author, $fields ), null );
+check( '[9] an empty selection returns null', Citex_Book_Dragdrop_Parts::build( array(), $single_author, $fields ), null );
+
+echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
+exit( 0 === $failures ? 0 : 1 );
