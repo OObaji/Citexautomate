@@ -76,7 +76,7 @@ class Citex_Dashboard {
 		// compute_breakdowns() used above so the numbers are directly
 		// comparable.
 		$style_breakdowns = array();
-		foreach ( array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA', 'chicago' => 'Chicago' ) as $style_key => $style_label ) {
+		foreach ( array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA', 'chicago' => 'Chicago', 'mhra' => 'MHRA' ) as $style_key => $style_label ) {
 			$style_questions = array_values(
 				array_filter(
 					$scan['questions'] ?? array(),

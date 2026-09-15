@@ -40,6 +40,7 @@ require __DIR__ . '/../citex-tools/includes/class-citex-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-mla-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-apa-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-chicago-reference-rules.php';
+require __DIR__ . '/../citex-tools/includes/class-citex-mhra-reference-rules.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-populator.php';
 require __DIR__ . '/../citex-tools/includes/class-citex-generator.php';
 
@@ -205,6 +206,30 @@ check(
 check(
 	'[11] Chicago\'s prefix never collides with APA\'s own "AB"',
 	Citex_Chicago_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ) === Citex_APA_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
+	false
+);
+
+// ---------------------------------------------------------------------
+// 12. MHRA Book gets its own "HB" prefix — Phase 1: Book only (see
+// Citex_MHRA_Reference_Rules's own docblock) — normalise_starting_id()'s
+// $style parameter routes to Citex_MHRA_Reference_Rules::id_prefix() when
+// $style is 'mhra', so all five styles' Book questions can never collide
+// on the same pending-queue ID space.
+// ---------------------------------------------------------------------
+check( '[12] MHRA Book\'s ID prefix is "HB"', Citex_MHRA_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ), 'HB' );
+check(
+	'[12] a Harvard Book default ("BK01") is auto-corrected to "HB01" when MHRA is selected',
+	Citex_Generator::normalise_starting_id( 'BK01', Citex_Reference_Rules::CATEGORY_BOOK, 'mhra' ),
+	'HB01'
+);
+check(
+	'[12] an MHRA-prefixed ID the admin deliberately typed ("HB05") is left untouched',
+	Citex_Generator::normalise_starting_id( 'HB05', Citex_Reference_Rules::CATEGORY_BOOK, 'mhra' ),
+	'HB05'
+);
+check(
+	'[12] MHRA\'s prefix never collides with Chicago\'s own "CB"',
+	Citex_MHRA_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ) === Citex_Chicago_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
 	false
 );
 

@@ -18,7 +18,7 @@ class Citex_Generator {
 	public function render() {
 		$this->maybe_handle_submit();
 
-		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)' );
+		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)', 'mhra' => 'MHRA' );
 		$categories         = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 		$id_prefixes        = array(
 			'book'            => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
@@ -55,6 +55,12 @@ class Citex_Generator {
 		// Chicago past Book, mirroring how APA/MLA each started.
 		$chicago_id_prefixes = array(
 			'book' => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_BOOK ),
+		);
+		// MHRA (Bibliography) reference-list is likewise Phase 1: Book only
+		// (see Citex_MHRA_Reference_Rules's own docblock) — its own "HB"
+		// prefix is the only one populated here.
+		$mhra_id_prefixes = array(
+			'book' => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_BOOK ),
 		);
 		// In-text citation has no reference-list category restriction at
 		// all (see self::intext_id_prefix()'s docblock) — every category
@@ -283,18 +289,19 @@ class Citex_Generator {
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 
 		$quantity   = max( 1, min( 100, $quantity ) );
-		$style_ok   = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago' ), true );
+		$style_ok   = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
 		// MLA and APA reference-list both now cover all 4 categories (Book,
 		// Edited Book, Journal Article, Website) — the same shared-structure
 		// build-out already used for in-text citation (see
 		// self::intext_id_prefix()'s docblock). No category restriction
 		// remains for either of those 2 styles, under either group. Chicago
-		// is Phase 1 (Book / Reference List only — see
-		// Citex_Chicago_Reference_Rules's own docblock) and is checked
-		// separately below, once $category_labels/$group are both resolved.
+		// and MHRA are each Phase 1 (Book / Reference List only — see
+		// Citex_Chicago_Reference_Rules's/Citex_MHRA_Reference_Rules's own
+		// docblocks) and are checked separately below, once
+		// $category_labels/$group are both resolved.
 		$category_ok = isset( $category_labels[ $category ] );
 		if ( ! $style_ok || ! $category_ok || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA, APA or Chicago, for Book, Edited Book, Journal Article or Website, as DragDrop or MCQ.', 'citex-tools' ), 'error' );
+			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA, APA, Chicago or MHRA, for Book, Edited Book, Journal Article or Website, as DragDrop or MCQ.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		// Chicago (Author-Date) Phase 1 supports Book / Reference List
@@ -304,6 +311,12 @@ class Citex_Generator {
 		$chicago_scope_ok = 'chicago' !== $style || ( 'book' === $category && 'referencelist' === $group );
 		if ( ! $chicago_scope_ok ) {
 			Citex_Admin::set_notice( __( 'Chicago (Author-Date) currently supports Book / Reference List only — Edited Book, Journal Article, Website and In-Text Citation are coming in a later update.', 'citex-tools' ), 'error' );
+			$this->redirect_back();
+		}
+		// MHRA Phase 1 likewise supports Book / Reference List only.
+		$mhra_scope_ok = 'mhra' !== $style || ( 'book' === $category && 'referencelist' === $group );
+		if ( ! $mhra_scope_ok ) {
+			Citex_Admin::set_notice( __( 'MHRA currently supports Book / Reference List only — Edited Book, Journal Article, Website and In-Text Citation are coming in a later update.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
@@ -553,6 +566,8 @@ class Citex_Generator {
 			$expected_prefix = Citex_APA_Reference_Rules::id_prefix( $category_label );
 		} elseif ( 'chicago' === $style ) {
 			$expected_prefix = Citex_Chicago_Reference_Rules::id_prefix( $category_label );
+		} elseif ( 'mhra' === $style ) {
+			$expected_prefix = Citex_MHRA_Reference_Rules::id_prefix( $category_label );
 		} else {
 			$expected_prefix = 'mla' === $style
 				? Citex_MLA_Reference_Rules::id_prefix( $category_label )

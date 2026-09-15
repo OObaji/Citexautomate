@@ -122,8 +122,8 @@ check(
 	true
 );
 check(
-	'[3] the style filter matches Harvard, MLA, APA and Chicago specifically',
-	false !== strpos( $dashboard_class_source, "array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA', 'chicago' => 'Chicago' )" ),
+	'[3] the style filter matches Harvard, MLA, APA, Chicago and MHRA specifically',
+	false !== strpos( $dashboard_class_source, "array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA', 'chicago' => 'Chicago', 'mhra' => 'MHRA' )" ),
 	true
 );
 
