@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<tr><th scope="row"><label for="citex_question_group"><?php esc_html_e( 'Question Focus', 'citex-tools' ); ?></label></th><td><select id="citex_question_group" name="citex_question_group"><?php foreach ( $question_groups as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p class="description"><?php esc_html_e( 'Reference List builds a full bibliography entry. In-Text Citation builds the short in-sentence/parenthetical citation instead — available for every category under both styles.', 'citex-tools' ); ?></p></td></tr>
 			<tr id="citex_citation_form_row" style="display:none;"><th scope="row"><label for="citex_citation_form"><?php esc_html_e( 'Citation Form', 'citex-tools' ); ?></label></th><td><select id="citex_citation_form" name="citex_citation_form"><?php foreach ( $citation_forms as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_referencing_style"><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></label></th><td><select id="citex_referencing_style" name="citex_referencing_style"><?php foreach ( $referencing_styles as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>" data-mla-id-prefix="<?php echo esc_attr( $mla_id_prefixes[ $value ] ?? '' ); ?>" data-apa-id-prefix="<?php echo esc_attr( $apa_id_prefixes[ $value ] ?? '' ); ?>" data-chicago-id-prefix="<?php echo esc_attr( $chicago_id_prefixes[ $value ] ?? '' ); ?>" data-mhra-id-prefix="<?php echo esc_attr( $mhra_id_prefixes[ $value ] ?? '' ); ?>" data-intext-id-prefix="<?php echo esc_attr( $intext_id_prefixes[ $value ] ?? '' ); ?>" data-mla-intext-id-prefix="<?php echo esc_attr( $mla_intext_id_prefixes[ $value ] ?? '' ); ?>" data-apa-intext-id-prefix="<?php echo esc_attr( $apa_intext_id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p id="citex_chicago_scope_note" class="description citex-chicago-scope-note" style="display:none;"><?php esc_html_e( 'Chicago (Author-Date) currently supports Book / Reference List only — Edited Book, Journal Article, Website and In-Text Citation are coming in a later update.', 'citex-tools' ); ?></p><p id="citex_mhra_scope_note" class="description citex-mhra-scope-note" style="display:none;"><?php esc_html_e( 'MHRA currently supports Book / Reference List only — Edited Book, Journal Article, Website and In-Text Citation are coming in a later update.', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>" data-mla-id-prefix="<?php echo esc_attr( $mla_id_prefixes[ $value ] ?? '' ); ?>" data-apa-id-prefix="<?php echo esc_attr( $apa_id_prefixes[ $value ] ?? '' ); ?>" data-chicago-id-prefix="<?php echo esc_attr( $chicago_id_prefixes[ $value ] ?? '' ); ?>" data-mhra-id-prefix="<?php echo esc_attr( $mhra_id_prefixes[ $value ] ?? '' ); ?>" data-intext-id-prefix="<?php echo esc_attr( $intext_id_prefixes[ $value ] ?? '' ); ?>" data-mla-intext-id-prefix="<?php echo esc_attr( $mla_intext_id_prefixes[ $value ] ?? '' ); ?>" data-apa-intext-id-prefix="<?php echo esc_attr( $apa_intext_id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p id="citex_chicago_scope_note" class="description citex-chicago-scope-note" style="display:none;"><?php esc_html_e( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p><p id="citex_mhra_scope_note" class="description citex-mhra-scope-note" style="display:none;"><?php esc_html_e( 'MHRA currently supports Book / Reference List only — Edited Book, Journal Article, Website and In-Text Citation are coming in a later update.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_question_type"><?php esc_html_e( 'Question Type', 'citex-tools' ); ?></label></th><td><select id="citex_question_type" name="citex_question_type"><?php foreach ( $question_types as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_author_count_scenario"><?php esc_html_e( 'Author Count', 'citex-tools' ); ?></label></th><td><select id="citex_author_count_scenario" name="citex_author_count_scenario"><option value="auto"><?php esc_html_e( 'Mixed / Auto (recommended)', 'citex-tools' ); ?></option></select><p class="description"><?php esc_html_e( 'Leave on Auto to spread the batch across every author-count scenario for this category. Pick one to force the whole batch onto it instead — e.g. generate a batch of single-author questions only.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'medium', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
@@ -63,9 +63,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 			var isIntext = groupSelect && 'intext' === groupSelect.value;
 			var attr;
 			if ( isIntext ) {
-				// Chicago has no In-Text Citation prefix yet (Phase 1 is
-				// Book / Reference List only — see syncChicagoScope()), so
-				// it is deliberately absent from this lookup.
+				// Chicago has no In-Text Citation prefix at all yet (still a
+				// later phase — see syncChicagoScope()'s own "referencelist
+				// only" lock, which prevents this branch from ever running
+				// while Chicago is selected), so it is deliberately absent
+				// from this lookup.
 				attr = 'mla' === style ? 'data-mla-intext-id-prefix' : ( 'apa' === style ? 'data-apa-intext-id-prefix' : 'data-intext-id-prefix' );
 			} else if ( 'chicago' === style ) {
 				attr = 'data-chicago-id-prefix';
@@ -87,12 +89,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 			}
 		}
 
-		// Chicago (Author-Date) is Phase 1: Book / Reference List only (see
-		// Citex_Chicago_Reference_Rules's own docblock) — mirrors the exact
-		// scope-lock every other style went through in its own first phase
-		// (this codebase's established pattern). Locks Category to "Book"
-		// and Question Focus to "Reference List" whenever Chicago is
-		// selected, disabling every other option in both dropdowns so an
+		// Chicago (Author-Date) Reference List now covers all 4 categories
+		// (the same Phase 2 build-out APA/MLA already went through) — only
+		// Question Focus is still locked to "Reference List" whenever
+		// Chicago is selected (In-Text Citation is still a later phase),
+		// disabling every other option in that one dropdown so an
 		// unsupported combination can never be submitted, and shows a note
 		// explaining why. handle_generation() enforces the same restriction
 		// server-side regardless (see $chicago_scope_ok), so this is a UX
@@ -102,14 +103,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 				return;
 			}
 			var isChicago = 'chicago' === styleSelect.value;
-			if ( categorySelect ) {
-				Array.prototype.forEach.call( categorySelect.options, function ( opt ) {
-					opt.disabled = isChicago && 'book' !== opt.value;
-				} );
-				if ( isChicago && 'book' !== categorySelect.value ) {
-					categorySelect.value = 'book';
-				}
-			}
 			if ( groupSelect ) {
 				Array.prototype.forEach.call( groupSelect.options, function ( opt ) {
 					opt.disabled = isChicago && 'referencelist' !== opt.value;

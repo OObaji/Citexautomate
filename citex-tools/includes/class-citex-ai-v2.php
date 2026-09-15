@@ -334,6 +334,15 @@ class Citex_AI_V2 {
 			if ( 'chicago_book_mcq_variant' === $mcq_pattern && in_array( $candidate['chicagoBookMcqVariant'] ?? '', Citex_Chicago_Book_Mcq_Variants::chicago_book_independent_answer_variants(), true ) ) {
 				continue;
 			}
+			if ( 'chicago_edited_book_mcq_variant' === $mcq_pattern && in_array( $candidate['chicagoEditedBookMcqVariant'] ?? '', Citex_Chicago_Edited_Book_Mcq_Variants::chicago_edited_book_independent_answer_variants(), true ) ) {
+				continue;
+			}
+			if ( 'chicago_journal_article_mcq_variant' === $mcq_pattern && in_array( $candidate['chicagoJournalArticleMcqVariant'] ?? '', Citex_Chicago_Journal_Article_Mcq_Variants::chicago_journal_article_independent_answer_variants(), true ) ) {
+				continue;
+			}
+			if ( 'chicago_website_mcq_variant' === $mcq_pattern && in_array( $candidate['chicagoWebsiteMcqVariant'] ?? '', Citex_Chicago_Website_Mcq_Variants::chicago_website_independent_answer_variants(), true ) ) {
+				continue;
+			}
 			if ( 'mhra_book_mcq_variant' === $mcq_pattern && in_array( $candidate['mhraBookMcqVariant'] ?? '', Citex_MHRA_Book_Mcq_Variants::mhra_book_independent_answer_variants(), true ) ) {
 				continue;
 			}
@@ -398,10 +407,21 @@ class Citex_AI_V2 {
 				: self::build_prompt_apa_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
 		}
 		if ( 'chicago' === $style ) {
-			// Phase 1: Book only — see Citex_Chicago_Reference_Rules's own
-			// docblock. Category is always Book for this style at this
-			// phase (enforced by Citex_Generator's own $chicago_scope_ok),
-			// so no further category dispatch is needed here yet.
+			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				return 'MCQ' === $type
+					? self::build_prompt_chicago_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+					: self::build_prompt_chicago_edited_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+			}
+			if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+				return 'MCQ' === $type
+					? self::build_prompt_chicago_journal_article_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+					: self::build_prompt_chicago_journal_article_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+			}
+			if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+				return 'MCQ' === $type
+					? self::build_prompt_chicago_website_mcq( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
+					: self::build_prompt_chicago_website_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
+			}
 			return 'MCQ' === $type
 				? self::build_prompt_chicago_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction )
 				: self::build_prompt_chicago_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback, $scenario_instruction );
@@ -536,8 +556,15 @@ class Citex_AI_V2 {
 			return 'MCQ' === $type ? self::schema_apa_book_mcq_variant() : self::schema_apa_book_dragdrop();
 		}
 		if ( 'chicago' === $style ) {
-			// Phase 1: Book only — see build_prompt_for()'s own Chicago
-			// branch.
+			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				return 'MCQ' === $type ? self::schema_chicago_edited_book_mcq() : self::schema_chicago_edited_book_dragdrop();
+			}
+			if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+				return 'MCQ' === $type ? self::schema_chicago_journal_article_mcq() : self::schema_chicago_journal_article_dragdrop();
+			}
+			if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+				return 'MCQ' === $type ? self::schema_chicago_website_mcq() : self::schema_chicago_website_dragdrop();
+			}
 			return 'MCQ' === $type ? self::schema_chicago_book_mcq_variant() : self::schema_chicago_book_dragdrop();
 		}
 		if ( 'mhra' === $style ) {
@@ -592,8 +619,15 @@ class Citex_AI_V2 {
 			return self::system_instruction_apa_book( $type );
 		}
 		if ( 'chicago' === $style ) {
-			// Phase 1: Book only — see build_prompt_for()'s own Chicago
-			// branch.
+			if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+				return self::system_instruction_chicago_edited_book( $type );
+			}
+			if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+				return self::system_instruction_chicago_journal_article( $type );
+			}
+			if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+				return self::system_instruction_chicago_website( $type );
+			}
 			return self::system_instruction_chicago_book( $type );
 		}
 		if ( 'mhra' === $style ) {
@@ -683,6 +717,48 @@ class Citex_AI_V2 {
 		return 'MCQ' === $type
 			? 'You are Citex, an academic question-generation engine. Generate usable Chicago (Author-Date, 17th edition) Reference List Book bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book — never a different edition or a different book, and never a different number of authors than the real book actually has. There is nothing for you to write beyond the record itself; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, drawing on a fixed catalogue of Chicago (Author-Date) book-formatting rules (the full given-name requirement, author joining with a comma before "and" even at exactly two, the bare unparenthesised year, place/publisher ordering, overall reference structure, and more) that varies from question to question, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: authorFullNames, year, bookTitle, place and publisher all describe the same book with no contradictions, and the real author count. Return only the requested JSON.'
 			: 'You are Citex, an academic question-generation engine. Generate usable Chicago (Author-Date, 17th edition) Reference List Book DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — authors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record: authorFullNames (an array of ONE OR MORE author full names, in the given author order), year, bookTitle, place and publisher must all describe ONE single, internally consistent book, and the scenario text must explicitly name that same title, EVERY author\'s full name, the same year, place and publisher — never a different edition, a different book, or a different number of authors than the real book actually has. You are NOT asked for questionParts, fixedText, or any distractor/confusingWords list at all; Citex builds the ENTIRE draggable question itself — deterministically, from this canonical record alone — deciding which 3 parts a student must drag into place (possibly including the joining word "and", not just whole bibliographic fields) and every wrong chip, covering a range of different Chicago (Author-Date) book-formatting rules across the batch. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through. CRITICAL — the scenario must state every author\'s full real name naturally (for example "Alan Cole" or "Alan Cole and Jo Kaur") and must NEVER state, label, or abbreviate any author\'s given name separately, must NEVER show a completed or abbreviated Chicago reference (never write anything like "Cole, Alan. 2012." or "Cole and Kaur, Jo."), and must NEVER use the word "surname" — the student must derive the Chicago format themselves from the full name(s) you provide. Before returning each question, perform a strict self-check: scenario, authorFullNames, year, bookTitle, place and publisher must all describe the same book with no contradictions; and the scenario must not reveal any answer value. Return only the requested JSON.';
+	}
+
+	/**
+	 * Chicago counterpart to system_instruction_apa_edited_book()/
+	 * system_instruction_mla_edited_book(), for Edited Book: editorFullNames
+	 * replaces authorFullNames, Citex derives each editor's surname/full
+	 * given name itself plus the "ed"/"eds" designation (lowercase, never
+	 * parenthesised — unlike Harvard's "(ed.)"/"(eds)" and APA's
+	 * "(Ed.)"/"(Eds.)"), and place of publication IS kept (unlike MLA/APA's
+	 * own Edited Book, both of which dropped it).
+	 */
+	private static function system_instruction_chicago_edited_book( $type ) {
+		return 'MCQ' === $type
+			? 'You are Citex, an academic question-generation engine. Generate usable Chicago (Author-Date, 17th edition) Reference List Edited Book bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — editors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record with ONE OR MORE editors: editorFullNames (an array of editor full names, in the given editor order), year, bookTitle, place and publisher must all describe ONE single, internally consistent edited book — never a different edition or a different book. Do NOT provide a surname separately for any editor — Citex derives it itself from each full name, keeping the given name in full. There is nothing for you to write beyond the record itself; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, deciding the "ed"/"eds" designation itself (lowercase, comma-separated inside the person segment, never parenthesised). Before returning each record, perform a strict self-check: editorFullNames, year, bookTitle, place and publisher all describe the same book with no contradictions, and the real editor count. Return only the requested JSON.'
+			: 'You are Citex, an academic question-generation engine. Generate usable Chicago (Author-Date, 17th edition) Reference List Edited Book DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — editors, titles, years and places may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical bibliographic record with ONE OR MORE editors: editorFullNames (an array of editor full names, in the given editor order), year, bookTitle, place and publisher must all describe ONE single, internally consistent edited book, and the scenario text must explicitly name that same title, EVERY editor\'s full name, the same year, place and publisher. Do NOT provide a surname separately for any editor — Citex derives it itself, keeping the given name in full. You are NOT asked for questionParts, fixedText, or any distractor/confusingWords list at all; Citex builds the ENTIRE draggable question itself, deciding which parts a student must drag into place (including the "ed"/"eds" designation and the "and" joining word) and every wrong chip. CRITICAL — the scenario must state every editor\'s full real name naturally and must NEVER state, label, or abbreviate any editor\'s given name separately, must NEVER show "ed"/"eds"/"(ed.)"/"(eds)"/"editor"/"editors", and must NEVER show a completed or abbreviated Chicago reference. Before returning each question, perform a strict self-check: scenario, editorFullNames, year, bookTitle, place and publisher must all describe the same book with no contradictions; and the scenario must not reveal any answer value. Return only the requested JSON.';
+	}
+
+	/**
+	 * Chicago counterpart to system_instruction_apa_journal_article(), for
+	 * Journal Article: articleTitle/journalTitle/volume/issue/pages replace
+	 * bookTitle/place/publisher, articleTitle MUST be double-quoted (like
+	 * MLA, unlike Harvard's single quotes and APA's no quotes at all), and
+	 * the page range must have NO "pp." prefix (like APA, unlike Harvard).
+	 */
+	private static function system_instruction_chicago_journal_article( $type ) {
+		return 'MCQ' === $type
+			? 'You are Citex, an academic question-generation engine. Generate usable Chicago (Author-Date, 17th edition) Reference List Journal Article multiple-choice questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — articles, authors, years, volumes, issues and page ranges may be invented, but the journal name must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical, real, published journal article: authorFullNames (an array of ONE OR MORE author full names, in the article\'s actual author order), year, articleTitle, journalTitle, volume, issue and pages must all describe ONE single, internally consistent article. Do NOT provide a surname separately for any author — Citex derives it itself, keeping the given name in full. articleTitle should be provided WITHOUT surrounding quotation marks of your own — Citex adds the double quotation marks itself. There is nothing for you to write beyond the record itself; Citex builds the ENTIRE multiple-choice question itself — a stem, all 4 options, and the answer — deterministically from this canonical record alone, applying Chicago\'s own rules (full given names, a comma before "and" even at exactly two authors, double-quoted article title, a bare "Volume (Issue)" with a space before the parenthesis, a colon before the page range, and NO "pp." prefix). Before returning each record, perform a strict self-check: authorFullNames, year, articleTitle, journalTitle, volume, issue and pages all describe the same article with no contradictions, and the real author count. Return only the requested JSON.'
+			: 'You are Citex, an academic question-generation engine. Generate usable Chicago (Author-Date, 17th edition) Reference List Journal Article DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — articles, authors, years, volumes, issues and page ranges may be invented, but the journal name must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical, real, published journal article: authorFullNames (an array of ONE OR MORE author full names, in the article\'s actual author order), year, articleTitle, journalTitle, volume, issue and pages must all describe ONE single, internally consistent article, and the scenario text must explicitly name that same article title, journal title, EVERY author\'s full name, the same year, volume, issue and page range. Do NOT provide a surname separately for any author — Citex derives it itself, keeping the given name in full. articleTitle should be provided WITHOUT your own surrounding quotation marks — Citex adds them itself. You are NOT asked for questionParts, fixedText, or any distractor/confusingWords list at all; Citex builds the ENTIRE draggable question itself, deterministically, applying Chicago\'s own quoting and colon-before-pages rules. CRITICAL — the scenario must state every author\'s full real name naturally and must NEVER show a completed or abbreviated Chicago reference, and must NEVER say "et al.". Before returning each question, perform a strict self-check: scenario, authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe the same article with no contradictions; and the scenario must not reveal any answer value. Return only the requested JSON.';
+	}
+
+	/**
+	 * Chicago counterpart to system_instruction_apa_website(), for Website:
+	 * a single author-or-organisation, "n.d." for a genuinely undated
+	 * source (same convention as Harvard/APA, unlike MLA), NO accessed date
+	 * requested at all (like APA — this app's invented stable sources never
+	 * need one), and the page title must be double-quoted (unlike APA's
+	 * unquoted title — matching Journal Article's own quoting rule).
+	 */
+	private static function system_instruction_chicago_website( $type ) {
+		return 'MCQ' === $type
+			? 'You are Citex, an academic question-generation engine. Generate usable Chicago (Author-Date, 17th edition) Reference List Website bibliographic records for multiple-choice questions — invented-but-plausible sources are fine, as long as each question is internally consistent — the webpage, document, author/organisation name, year and URL may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical, real, currently-accessible webpage or downloadable document: authorType ("individual" or "organisation") plus either authorFullName or organisationName, year (a real 4-digit year, or exactly "n.d." if — and only if — no publication/creation date can be identified; never guess a year), title, publisher and url must all describe the same internally-consistent source. Do NOT provide a surname separately for an individual author — Citex derives it itself, keeping the given name in full. title should be provided WITHOUT your own surrounding quotation marks — Citex adds them itself. You are NOT asked for a scenario, question text, options, a correct answer, or an accessed date at all — Citex builds the ENTIRE multiple-choice question itself and NEVER asks for or computes an accessed date, since Chicago\'s own Website format has no such element for a stable source in this app. Note the reference itself never shows the publisher at all — it is used only to verify the source is real. Before returning each record, perform a strict self-check: authorType/authorFullName-or-organisationName, year, title, publisher and url all describe the same real, currently-accessible source with no contradictions. Return only the requested JSON.'
+			: 'You are Citex, an academic question-generation engine. Generate usable Chicago (Author-Date, 17th edition) Reference List Website DragDrop questions for practice — invented-but-plausible sources are fine, as long as each question is internally consistent — the webpage, document, author/organisation name, year and URL may be invented, but the publisher must always be real (verify it when web verification is enabled). Every question must describe exactly ONE canonical, real, currently-accessible webpage or downloadable document: authorType ("individual" or "organisation") plus either authorFullName or organisationName, year (a real 4-digit year, or exactly "n.d." if — and only if — no publication/creation date can be identified), title, publisher and url must all describe the same internally-consistent source, and the scenario text must explicitly name that same title, the author\'s full name or the organisation\'s name, the year (or state plainly that no date is available, without using the words "n.d.", "no date", or "undated"), the publisher and the url. Citex derives an individual author\'s surname itself from authorFullName (keeping the given name in full), NEVER asks for or computes an accessed date at all, and constructs Question Parts and Fixed Text itself. The url is NEVER draggable. CRITICAL — the scenario must state the author\'s full real name OR the organisation\'s real name naturally, must NEVER state, label, or abbreviate the author\'s given name separately, must NEVER show a completed or abbreviated Chicago reference, and must NEVER use the words "n.d.", "no date", or "undated" even when the source genuinely has no identifiable date. Before returning each question, perform a strict self-check: scenario, authorType/author-or-organisation-name, year, title, publisher and url all describe the same internally-consistent source with no contradictions; and the scenario must not reveal any answer value or state "n.d."/"no date"/"undated" directly. Return only the requested JSON.';
 	}
 
 	/**
@@ -1017,6 +1093,87 @@ class Citex_AI_V2 {
 	private static function build_prompt_chicago_book_mcq_variant( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
 		$prompt = "Generate exactly " . count( $ids ) . " distinct Chicago (Author-Date) / ReferenceList / Book bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- authorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent book. Do not mix facts from a different edition, a different book by the same author(s), or a similarly-named book.\n- authorFullNames is an array of ONE OR MORE author full names (given name(s) + surname each), e.g. [\"Alan Cole\"] or [\"John Smith\", \"Amy Jones\"], in the book's real, actual author order. Use the book's true author count. Do NOT provide a surname separately for any author — Citex derives it itself from each full name, keeping the given name in full.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself (the stem and all 4 options) from this canonical record alone, covering a range of different Chicago book-formatting rules across the batch. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real author count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
 		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::place_publisher_diversity_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * Chicago Edited Book DragDrop prompt — mirrors
+	 * build_prompt_chicago_book_dragdrop()'s "place of publication IS kept"
+	 * shape, via editorFullNames instead and Citex deciding the "ed"/"eds"
+	 * designation itself.
+	 */
+	private static function build_prompt_chicago_edited_book_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Chicago (Author-Date) / ReferenceList / Edited Book / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- editorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent edited book.\n- editorFullNames is an array of ONE OR MORE editor full names (given name(s) + surname each), in the book's real, actual editor order. Do NOT provide a surname separately for any editor — Citex derives it itself, keeping the given name in full (Chicago never abbreviates a first name to an initial).\n- The scenario MUST explicitly state that same bookTitle, EVERY editor's full name, the same year, place and publisher.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, under 220 characters, naming the book title, every editor's full name, year, place and publisher.\n- The scenario MUST NOT abbreviate any editor's name to an initial, MUST NOT show \"ed\"/\"eds\"/\"(ed.)\"/\"(eds)\"/\"editor\"/\"editors\", and MUST NOT show a completed or abbreviated Chicago reference.\n\nYou are NOT asked for questionParts, fixedText, or any distractor/confusingWords list — Citex builds the whole draggable question itself, including the \"ed\"/\"eds\" designation. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, editorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real editor count.\n2. place and publisher are each a genuinely varied real choice for this batch, not a repeat of a prior question's place or publisher.\n3. Only return questions that pass both checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::place_publisher_diversity_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * Chicago Edited Book MCQ prompt — mirrors
+	 * build_prompt_chicago_book_mcq_variant() exactly, via editorFullNames
+	 * instead.
+	 */
+	private static function build_prompt_chicago_edited_book_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Chicago (Author-Date) / ReferenceList / Edited Book bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the publisher is real.' : 'Invent a plausible, internally consistent record if needed — the publisher must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL BIBLIOGRAPHIC RECORD — CRITICAL:\n- editorFullNames, year, bookTitle, place and publisher must all describe ONE single, internally consistent edited book.\n- editorFullNames is an array of ONE OR MORE editor full names, in the book's real, actual editor order. Do NOT provide a surname separately for any editor — Citex derives it itself, keeping the given name in full.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself from this canonical record alone. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. editorFullNames, year, bookTitle, place and publisher all describe the exact same book — no contradictions, and the real editor count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance() . "\n\n" . self::place_publisher_diversity_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * Chicago Journal Article DragDrop prompt — mirrors
+	 * build_prompt_apa_journal_article_dragdrop()'s shape, but articleTitle
+	 * is requested WITHOUT quotation marks (Citex adds Chicago's own double
+	 * quotes itself), and there is no "no pp." caveat needed since Chicago
+	 * never asked for one either way.
+	 */
+	private static function build_prompt_chicago_journal_article_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Chicago (Author-Date) / ReferenceList / Journal Article / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the journal name is real.' : 'Invent a plausible, internally consistent record if needed — the journal name must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL, REAL, PUBLISHED JOURNAL ARTICLE — CRITICAL:\n- authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe ONE single, internally consistent article.\n- authorFullNames is an array of ONE OR MORE author full names, in the article's real, actual author order. Do NOT provide a surname separately for any author — Citex derives it itself, keeping the given name in full.\n- articleTitle should be provided WITHOUT your own surrounding quotation marks — Citex adds double quotation marks itself.\n- pages must be the real page range (e.g. \"27-35\") with no \"p.\"/\"pp.\" prefix.\n- The scenario MUST explicitly state that same article title, journal title, EVERY author's full name, the same year, volume, issue and page range.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, under 220 characters.\n- The scenario MUST NOT abbreviate any author's name to an initial, MUST NOT show the article title in quotation marks, and MUST NOT show a completed or abbreviated Chicago reference.\n\nYou are NOT asked for questionParts, fixedText, or any distractor/confusingWords list — Citex builds the whole draggable question itself. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorFullNames, year, articleTitle, journalTitle, volume, issue and pages all describe the exact same article — no contradictions, and the real author count.\n2. Only return questions that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * Chicago Journal Article MCQ prompt — mirrors
+	 * build_prompt_chicago_journal_article_dragdrop() minus the scenario.
+	 */
+	private static function build_prompt_chicago_journal_article_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Chicago (Author-Date) / ReferenceList / Journal Article bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the journal name is real.' : 'Invent a plausible, internally consistent record if needed — the journal name must still be real.' ) . "\n\nONE QUESTION = ONE CANONICAL, REAL, PUBLISHED JOURNAL ARTICLE — CRITICAL:\n- authorFullNames, year, articleTitle, journalTitle, volume, issue and pages must all describe ONE single, internally consistent article.\n- authorFullNames is an array of ONE OR MORE author full names, in the article's real, actual author order. Do NOT provide a surname separately for any author — Citex derives it itself, keeping the given name in full.\n- articleTitle should be provided WITHOUT your own surrounding quotation marks.\n- pages must be the real page range with no \"p.\"/\"pp.\" prefix.\n- You are NOT asked for a scenario, question text, options, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself from this canonical record alone. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorFullNames, year, articleTitle, journalTitle, volume, issue and pages all describe the exact same article — no contradictions, and the real author count.\n2. Only return records that pass this check.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::conciseness_guidance() . "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * Chicago Website DragDrop prompt — mirrors
+	 * build_prompt_apa_website_dragdrop()'s shape (a single
+	 * author-or-organisation, "n.d." for a genuinely undated source, NO
+	 * accessed date requested at all), but title is requested WITHOUT
+	 * quotation marks — Citex adds Chicago's own double quotes itself.
+	 */
+	private static function build_prompt_chicago_website_dragdrop( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Chicago (Author-Date) / ReferenceList / Website / DragDrop questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the source is real where practical.' : 'Invent a plausible, internally consistent source.' ) . "\n\nONE QUESTION = ONE CANONICAL, REAL, CURRENTLY-ACCESSIBLE WEBPAGE — CRITICAL:\n- authorType must be exactly \"individual\" or \"organisation\". For \"individual\", provide authorFullName (given name(s) + surname) and leave organisationName empty; for \"organisation\", provide organisationName and leave authorFullName empty. Do NOT provide a surname separately for an individual — Citex derives it itself, keeping the given name in full.\n- title should be provided WITHOUT your own surrounding quotation marks — Citex adds double quotation marks itself.\n- title must describe ONE single, internally consistent webpage, and url must be its real (or plausible) address.\n- year must be a real 4-digit publication/creation year, or exactly \"n.d.\" when no such date can be identified — never a guessed year.\n- The scenario MUST explicitly state the same title, the author's full name or the organisation's name, and the url — and, when a year is known, that same year too.\n\nSCENARIOS — ANSWER LEAKAGE IS A CRITICAL FAILURE:\n- Keep each scenario short and mobile-friendly, under 220 characters.\n- The scenario MUST NOT abbreviate the author's name to an initial, MUST NOT show a completed or abbreviated Chicago reference, and MUST NOT use the words \"n.d.\", \"no date\", or \"undated\" even when no year is provided.\n\nYou are NOT asked for questionParts, fixedText, confusingWords, or an accessed date — Chicago's own Website format has no accessed-date element at all for a stable source in this app, so Citex never asks for or computes one. There is nothing for you to write beyond the record and scenario, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. scenario, authorType/author-or-organisation-name, title and url all describe the same real, currently-accessible source with no contradictions.\n2. year is either a real 4-digit year or exactly \"n.d.\".\n3. Only return questions that pass both checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
+		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
+		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
+		return $prompt;
+	}
+
+	/**
+	 * Chicago Website MCQ prompt — mirrors
+	 * build_prompt_chicago_website_dragdrop() minus the scenario.
+	 */
+	private static function build_prompt_chicago_website_mcq( $ids, $difficulty, $verify, $quality_feedback = '', $scenario_instruction = '' ) {
+		$prompt = "Generate exactly " . count( $ids ) . " distinct Chicago (Author-Date) / ReferenceList / Website bibliographic records for multiple-choice questions.\nDifficulty: " . ucfirst( $difficulty ) . ".\n" . ( $verify ? 'Use Google Search to verify the source is real where practical.' : 'Invent a plausible, internally consistent source.' ) . "\n\nONE QUESTION = ONE CANONICAL, REAL, CURRENTLY-ACCESSIBLE WEBPAGE — CRITICAL:\n- authorType must be exactly \"individual\" or \"organisation\". For \"individual\", provide authorFullName and leave organisationName empty; for \"organisation\", provide organisationName and leave authorFullName empty. Do NOT provide a surname separately — Citex derives it itself, keeping the given name in full.\n- title should be provided WITHOUT your own surrounding quotation marks.\n- title must describe ONE single, internally consistent webpage, and url must be its real (or plausible) address.\n- year must be a real 4-digit year, or exactly \"n.d.\" when none can be identified.\n- You are NOT asked for a scenario, question text, options, an accessed date, or a correct answer of any kind — Citex builds the ENTIRE multiple-choice question itself and never asks for an accessed date at all. There is nothing for you to write beyond the record itself, and nothing for you to leak an answer through.\n\nFINAL SELF-CHECK — DO NOT SKIP:\n1. authorType/author-or-organisation-name, title, url and year all describe the same real, currently-accessible source with no contradictions.\n2. year is either a real 4-digit year or exactly \"n.d.\".\n3. Only return records that pass both checks.\n\nIDs in exact order:\n" . implode( ', ', $ids );
+		$prompt .= "\n\n" . self::content_realism_guidance() . "\n\n" . self::plain_style_guidance();
 		if ( '' !== trim( $scenario_instruction ) ) { $prompt .= "\n\n" . $scenario_instruction; }
 		if ( '' !== trim( $quality_feedback ) ) { $prompt .= "\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED QUALITY CONTROL:\n" . $quality_feedback . "\nRegenerate the affected data and apply the final self-check before returning anything."; }
 		return $prompt;
@@ -1775,6 +1932,56 @@ class Citex_AI_V2 {
 		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
 			'questionId' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'place' => $s, 'publisher' => $s,
 		), 'required' => array( 'questionId','authorFullNames','year','bookTitle','place','publisher' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/** Chicago Edited Book DragDrop schema — mirrors schema_chicago_book_dragdrop() exactly, via editorFullNames instead (`place` still included, unlike APA/MLA's own Edited Book schemas). */
+	private static function schema_chicago_edited_book_dragdrop() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'scenario' => $s, 'editorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'place' => $s, 'publisher' => $s,
+		), 'required' => array( 'questionId','scenario','editorFullNames','year','bookTitle','place','publisher' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/** Chicago Edited Book MCQ schema — mirrors schema_chicago_book_mcq_variant() exactly, via editorFullNames instead. */
+	private static function schema_chicago_edited_book_mcq() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'editorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'bookTitle' => $s, 'place' => $s, 'publisher' => $s,
+		), 'required' => array( 'questionId','editorFullNames','year','bookTitle','place','publisher' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/** Chicago Journal Article DragDrop schema — articleTitle/journalTitle/volume/issue/pages, no place/publisher. */
+	private static function schema_chicago_journal_article_dragdrop() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'scenario' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'articleTitle' => $s, 'journalTitle' => $s, 'volume' => $s, 'issue' => $s, 'pages' => $s,
+		), 'required' => array( 'questionId','scenario','authorFullNames','year','articleTitle','journalTitle','volume','issue','pages' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/** Chicago Journal Article MCQ schema — no `scenario`, same "Citex authors the fixed stem" principle. */
+	private static function schema_chicago_journal_article_mcq() {
+		$s = array( 'type' => 'string' );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'authorFullNames' => array( 'type' => 'array', 'items' => $s ), 'year' => $s, 'articleTitle' => $s, 'journalTitle' => $s, 'volume' => $s, 'issue' => $s, 'pages' => $s,
+		), 'required' => array( 'questionId','authorFullNames','year','articleTitle','journalTitle','volume','issue','pages' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/** Chicago Website DragDrop schema — authorType plus EITHER authorFullName OR organisationName; no accessedDate property at all. */
+	private static function schema_chicago_website_dragdrop() {
+		$s   = array( 'type' => 'string' );
+		$url = array( 'type' => 'string', 'maxLength' => 32 );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'scenario' => $s, 'authorType' => $s, 'authorFullName' => $s, 'organisationName' => $s, 'year' => $s, 'title' => $s, 'publisher' => $s, 'url' => $url,
+		), 'required' => array( 'questionId','scenario','authorType','year','title','publisher','url' ) ) ) ), 'required' => array( 'questions' ) );
+	}
+
+	/** Chicago Website MCQ schema — mirrors schema_chicago_book_mcq_variant() exactly: Gemini supplies only the canonical record. */
+	private static function schema_chicago_website_mcq() {
+		$s   = array( 'type' => 'string' );
+		$url = array( 'type' => 'string', 'maxLength' => 32 );
+		return array( 'type' => 'object', 'properties' => array( 'questions' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array(
+			'questionId' => $s, 'authorType' => $s, 'authorFullName' => $s, 'organisationName' => $s, 'year' => $s, 'title' => $s, 'publisher' => $s, 'url' => $url,
+		), 'required' => array( 'questionId','authorType','year','title','publisher','url' ) ) ) ), 'required' => array( 'questions' ) );
 	}
 
 	/**
@@ -3499,11 +3706,8 @@ class Citex_AI_V2 {
 	}
 
 	/**
-	 * Chicago (Author-Date) dispatcher — Phase 1: Book only (see
-	 * Citex_Chicago_Reference_Rules's own docblock; Citex_Generator's own
-	 * $chicago_scope_ok keeps $category at Book for this style at this
-	 * phase, so there is no further category dispatch here yet, unlike
-	 * normalise_mla_item()/normalise_apa_item()). Reuses MLA's own
+	 * Chicago (Author-Date) dispatcher — covers all 4 categories (see
+	 * Citex_Chicago_Reference_Rules's own docblock). Reuses MLA's own
 	 * derive_mla_author_parts() as-is — Chicago uses the full given name,
 	 * the same shape MLA already derives — never a new
 	 * derive_chicago_author_parts().
@@ -3513,7 +3717,17 @@ class Citex_AI_V2 {
 			? Citex_Chicago_Reference_Rules::mcq_question_stem( $category )
 			: trim( (string) ( $item['scenario'] ?? '' ) );
 
-		// Book (Phase 1's only category).
+		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category ) {
+			return self::normalise_chicago_edited_book_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty, $target_count );
+		}
+		if ( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category ) {
+			return self::normalise_chicago_journal_article_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty, $target_count );
+		}
+		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
+			return self::normalise_chicago_website_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty );
+		}
+
+		// Book (the default category).
 		$year      = trim( (string) ( $item['year'] ?? '' ) );
 		$title     = trim( (string) ( $item['bookTitle'] ?? '' ) );
 		$place     = trim( (string) ( $item['place'] ?? '' ) );
@@ -3581,6 +3795,256 @@ class Citex_AI_V2 {
 
 		$author_full_names = array_column( $authors, 'fullName' );
 		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Chicago | ReferenceList | Book | MCQ | %s', $id ), 'source' => 'Chicago', 'group' => 'ReferenceList', 'category' => 'Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Chicago', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'chicago_book_mcq_variant', 'chicagoBookMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorGivenName' => sanitize_text_field( $authors[0]['givenName'] ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * Extracts and validates one Chicago Edited Book record's fields
+	 * (editorFullNames/year/bookTitle/place/publisher — `place` IS present,
+	 * unlike APA/MLA's own Edited Book) and dispatches to the DragDrop/MCQ
+	 * leaf normaliser. Mirrors normalise_apa_edited_book_dispatch()'s own
+	 * shape, deriving each editor's surname/full given name via MLA's own
+	 * derive_mla_author_parts() (Chicago's own author shape, never
+	 * initials).
+	 */
+	private static function normalise_chicago_edited_book_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty, $target_count ) {
+		$year      = trim( (string) ( $item['year'] ?? '' ) );
+		$title     = trim( (string) ( $item['bookTitle'] ?? '' ) );
+		$place     = trim( (string) ( $item['place'] ?? '' ) );
+		$publisher = trim( (string) ( $item['publisher'] ?? '' ) );
+		if ( '' === $scenario || '' === $year || '' === $title || '' === $place || '' === $publisher ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
+		$editor_names = array_values( array_filter( array_map( 'trim', (array) ( $item['editorFullNames'] ?? array() ) ), 'strlen' ) );
+		if ( empty( $editor_names ) || count( $editor_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_editor_count', sprintf( __( 'Question %s must have 1 or more editors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $editor_names ) ) ); }
+		if ( null !== $target_count && count( $editor_names ) !== $target_count ) { return new WP_Error( 'citex_ai_editor_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d editors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $editor_names ) ) ); }
+		$editors = array();
+		foreach ( $editor_names as $editor_full_name ) {
+			$editor_parts = self::derive_mla_author_parts( $editor_full_name );
+			if ( is_wp_error( $editor_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $editor_parts->get_error_message() ) ); }
+			$editors[] = array( 'fullName' => $editor_full_name, 'surname' => $editor_parts['surname'], 'givenName' => $editor_parts['givenName'] );
+		}
+		return 'MCQ' === $type
+			? self::normalise_chicago_edited_book_mcq_item( $item, $id, $editors, $year, $title, $place, $publisher, $exercise, $difficulty )
+			: self::normalise_chicago_edited_book_dragdrop_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty );
+	}
+
+	/**
+	 * Extracts and validates one Chicago Journal Article record's fields
+	 * (authorFullNames/year/articleTitle/journalTitle/volume/issue/pages —
+	 * no place/publisher at all, same as Harvard's own Journal Article).
+	 */
+	private static function normalise_chicago_journal_article_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty, $target_count ) {
+		$year          = trim( (string) ( $item['year'] ?? '' ) );
+		$article_title = trim( (string) ( $item['articleTitle'] ?? '' ) );
+		$journal_title = trim( (string) ( $item['journalTitle'] ?? '' ) );
+		$volume        = trim( (string) ( $item['volume'] ?? '' ) );
+		$issue         = trim( (string) ( $item['issue'] ?? '' ) );
+		$pages         = trim( (string) ( $item['pages'] ?? '' ) );
+		if ( '' === $scenario || '' === $year || '' === $article_title || '' === $journal_title || '' === $volume || '' === $issue || '' === $pages ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) ); }
+		$author_names = array_values( array_filter( array_map( 'trim', (array) ( $item['authorFullNames'] ?? array() ) ), 'strlen' ) );
+		if ( empty( $author_names ) || count( $author_names ) > 12 ) { return new WP_Error( 'citex_ai_bad_author_count', sprintf( __( 'Question %s must have 1 or more authors (12 at most); %d were provided.', 'citex-tools' ), $id, count( $author_names ) ) ); }
+		if ( null !== $target_count && count( $author_names ) !== $target_count ) { return new WP_Error( 'citex_ai_author_count_mismatch', sprintf( __( 'Question %1$s must have exactly %2$d authors for this scenario; %3$d were provided.', 'citex-tools' ), $id, $target_count, count( $author_names ) ) ); }
+		$authors = array();
+		foreach ( $author_names as $author_full_name ) {
+			$author_parts = self::derive_mla_author_parts( $author_full_name );
+			if ( is_wp_error( $author_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $author_parts->get_error_message() ) ); }
+			$authors[] = array( 'fullName' => $author_full_name, 'surname' => $author_parts['surname'], 'givenName' => $author_parts['givenName'] );
+		}
+		return 'MCQ' === $type
+			? self::normalise_chicago_journal_article_mcq_item( $item, $id, $authors, $article_title, $journal_title, $volume, $issue, $year, $pages, $exercise, $difficulty )
+			: self::normalise_chicago_journal_article_dragdrop_item( $item, $id, $authors, $article_title, $journal_title, $volume, $issue, $year, $pages, $scenario, $exercise, $difficulty );
+	}
+
+	/**
+	 * Extracts and validates one Chicago Website record's fields —
+	 * authorType plus authorFullName/organisationName, title, url, and year
+	 * (a real 4-digit year, or exactly "n.d."). There is deliberately no
+	 * `accessedDate` field at all — Chicago's own Website format in this app
+	 * has none (see Citex_Chicago_Reference_Rules's own docblock) —
+	 * publisher is still requested (for source-realism verification only,
+	 * never shown in the built reference).
+	 */
+	private static function normalise_chicago_website_dispatch( $item, $id, $type, $scenario, $exercise, $difficulty ) {
+		$author_type = sanitize_key( trim( (string) ( $item['authorType'] ?? '' ) ) );
+		if ( ! in_array( $author_type, array( 'individual', 'organisation' ), true ) ) {
+			return new WP_Error( 'citex_ai_website_author_type_invalid', sprintf( __( 'Question %s: authorType must be exactly "individual" or "organisation".', 'citex-tools' ), $id ) );
+		}
+		$page_title = trim( (string) ( $item['title'] ?? '' ) );
+		$url        = trim( (string) ( $item['url'] ?? '' ) );
+		$year_field = trim( (string) ( $item['year'] ?? '' ) );
+		if ( '' === $scenario || '' === $page_title || '' === $url ) {
+			return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing required bibliographic data.', 'citex-tools' ), $id ) );
+		}
+		if ( ! preg_match( '/^(?:\d{4}|n\.d\.)$/', $year_field ) ) {
+			return new WP_Error( 'citex_ai_website_year_invalid', sprintf( __( 'Question %1$s: year must be a real 4-digit year, or exactly "n.d." when no date can be identified; got "%2$s".', 'citex-tools' ), $id, $year_field ) );
+		}
+		if ( ! preg_match( '#^https?://\S+$#', $url ) ) {
+			return new WP_Error( 'citex_ai_website_url_malformed', sprintf( __( 'Question %s has a malformed URL.', 'citex-tools' ), $id ) );
+		}
+
+		$author = array( 'type' => $author_type );
+		if ( 'individual' === $author_type ) {
+			$author_full_name = trim( (string) ( $item['authorFullName'] ?? '' ) );
+			if ( '' === $author_full_name ) {
+				return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing authorFullName for an individual author.', 'citex-tools' ), $id ) );
+			}
+			$author_parts = self::derive_mla_author_parts( $author_full_name );
+			if ( is_wp_error( $author_parts ) ) { return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %1$s: %2$s', 'citex-tools' ), $id, $author_parts->get_error_message() ) ); }
+			$author['fullName']  = $author_full_name;
+			$author['surname']   = $author_parts['surname'];
+			$author['givenName'] = $author_parts['givenName'];
+		} else {
+			$organisation_name = trim( (string) ( $item['organisationName'] ?? '' ) );
+			if ( '' === $organisation_name ) {
+				return new WP_Error( 'citex_ai_missing_field', sprintf( __( 'Question %s is missing organisationName for an organisation author.', 'citex-tools' ), $id ) );
+			}
+			$author['name'] = $organisation_name;
+		}
+
+		return 'MCQ' === $type
+			? self::normalise_chicago_website_mcq_variant_item( $item, $id, $author, $year_field, $page_title, $url, $exercise, $difficulty )
+			: self::normalise_chicago_website_dragdrop_item( $item, $id, $author, $year_field, $page_title, $url, $scenario, $exercise, $difficulty );
+	}
+
+	/**
+	 * Chicago Edited Book DragDrop — mirrors normalise_chicago_book_dragdrop_item()
+	 * exactly, via Citex_Chicago_Edited_Book_Dragdrop_Parts/
+	 * Citex_Chicago_Reference_Rules::CATEGORY_EDITED_BOOK instead.
+	 *
+	 * @param array $editors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_chicago_edited_book_dragdrop_item( $item, $id, $editors, $year, $title, $place, $publisher, $scenario, $exercise, $difficulty ) {
+		$fields        = array( 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
+		$selected_keys = Citex_Chicago_Edited_Book_Dragdrop_Parts::select_parts( $id, $editors );
+		$built         = Citex_Chicago_Edited_Book_Dragdrop_Parts::build( $selected_keys, $editors, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_chicago_edited_book_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build Chicago Edited Book DragDrop parts for this record.', 'citex-tools' ), $id ) );
+		}
+		$reference         = Citex_Chicago_Reference_Rules::build_reference( Citex_Chicago_Reference_Rules::CATEGORY_EDITED_BOOK, array_merge( $fields, array( 'editors' => $editors ) ) );
+		$editor_full_names = array_column( $editors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Chicago | ReferenceList | Edited Book | DragDrop | %s', $id ), 'source' => 'Chicago', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Chicago', 'difficulty' => ucfirst( $difficulty ), 'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'givenName' => sanitize_text_field( $editor['givenName'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * Chicago Edited Book MCQ — mirrors normalise_chicago_book_mcq_variant_item()
+	 * exactly, via Citex_Chicago_Edited_Book_Mcq_Variants instead.
+	 *
+	 * @param array $editors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_chicago_edited_book_mcq_item( $item, $id, $editors, $year, $title, $place, $publisher, $exercise, $difficulty ) {
+		$fields  = array( 'editors' => $editors, 'year' => $year, 'title' => $title, 'place' => $place, 'publisher' => $publisher );
+		$variant = Citex_Chicago_Edited_Book_Mcq_Variants::variant_for( $id, count( $editors ) );
+		$built   = Citex_Chicago_Edited_Book_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_chicago_edited_book_mcq_variant_unknown', sprintf( __( 'Question %1$s: unrecognised Chicago Edited Book MCQ variant "%2$s".', 'citex-tools' ), $id, $variant ) );
+		}
+		$options   = $built['wrongOptions'];
+		$options[] = '';
+		$hint      = Citex_Chicago_Reference_Rules::mcq_hint( Citex_Chicago_Reference_Rules::CATEGORY_EDITED_BOOK );
+		$answer_explanation = sprintf( 'This question tests the "%s" Chicago (Author-Date) formatting rule.', $variant );
+
+		$editor_full_names = array_column( $editors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Chicago | ReferenceList | Edited Book | MCQ | %s', $id ), 'source' => 'Chicago', 'group' => 'ReferenceList', 'category' => 'Edited Book', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Chicago', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'chicago_edited_book_mcq_variant', 'chicagoEditedBookMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ), 'editors' => array_map( function ( $editor ) { return array( 'fullName' => sanitize_text_field( $editor['fullName'] ), 'surname' => sanitize_text_field( $editor['surname'] ), 'givenName' => sanitize_text_field( $editor['givenName'] ) ); }, $editors ), 'editorFullNames' => array_values( array_map( 'sanitize_text_field', $editor_full_names ) ), 'year' => sanitize_text_field( $year ), 'bookTitle' => sanitize_text_field( $title ), 'place' => sanitize_text_field( $place ), 'publisher' => sanitize_text_field( $publisher ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * Chicago Journal Article DragDrop — mirrors normalise_chicago_book_dragdrop_item()'s
+	 * own shape, via Citex_Chicago_Journal_Article_Dragdrop_Parts/
+	 * Citex_Chicago_Reference_Rules::CATEGORY_JOURNAL_ARTICLE instead. No
+	 * place/publisher fields at all.
+	 *
+	 * @param array $authors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_chicago_journal_article_dragdrop_item( $item, $id, $authors, $article_title, $journal_title, $volume, $issue, $year, $pages, $scenario, $exercise, $difficulty ) {
+		$fields        = array( 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'year' => $year, 'pages' => $pages );
+		$selected_keys = Citex_Chicago_Journal_Article_Dragdrop_Parts::select_parts( $id, $authors );
+		$built         = Citex_Chicago_Journal_Article_Dragdrop_Parts::build( $selected_keys, $authors, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_chicago_journal_article_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build Chicago Journal Article DragDrop parts for this record.', 'citex-tools' ), $id ) );
+		}
+		$reference         = Citex_Chicago_Reference_Rules::build_reference( Citex_Chicago_Reference_Rules::CATEGORY_JOURNAL_ARTICLE, array_merge( $fields, array( 'authors' => $authors ) ) );
+		$author_full_names = array_column( $authors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Chicago | ReferenceList | Journal Article | DragDrop | %s', $id ), 'source' => 'Chicago', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Chicago', 'difficulty' => ucfirst( $difficulty ), 'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorGivenName' => sanitize_text_field( $authors[0]['givenName'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * Chicago Journal Article MCQ — mirrors normalise_chicago_book_mcq_variant_item()'s
+	 * own shape, via Citex_Chicago_Journal_Article_Mcq_Variants instead.
+	 *
+	 * @param array $authors array<{fullName, surname, givenName}>, 1 or more.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_chicago_journal_article_mcq_item( $item, $id, $authors, $article_title, $journal_title, $volume, $issue, $year, $pages, $exercise, $difficulty ) {
+		$fields  = array( 'authors' => $authors, 'articleTitle' => $article_title, 'journalTitle' => $journal_title, 'volume' => $volume, 'issue' => $issue, 'year' => $year, 'pages' => $pages );
+		$variant = Citex_Chicago_Journal_Article_Mcq_Variants::variant_for( $id, count( $authors ) );
+		$built   = Citex_Chicago_Journal_Article_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_chicago_journal_article_mcq_variant_unknown', sprintf( __( 'Question %1$s: unrecognised Chicago Journal Article MCQ variant "%2$s".', 'citex-tools' ), $id, $variant ) );
+		}
+		$options   = $built['wrongOptions'];
+		$options[] = '';
+		$hint      = Citex_Chicago_Reference_Rules::mcq_hint( Citex_Chicago_Reference_Rules::CATEGORY_JOURNAL_ARTICLE );
+		$answer_explanation = sprintf( 'This question tests the "%s" Chicago (Author-Date) formatting rule.', $variant );
+
+		$author_full_names = array_column( $authors, 'fullName' );
+		return array( 'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Chicago | ReferenceList | Journal Article | MCQ | %s', $id ), 'source' => 'Chicago', 'group' => 'ReferenceList', 'category' => 'Journal Article', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Chicago', 'difficulty' => ucfirst( $difficulty ), 'mcqPattern' => 'chicago_journal_article_mcq_variant', 'chicagoJournalArticleMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ), 'authors' => array_map( function ( $author ) { return array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ); }, $authors ), 'authorFullNames' => array_values( array_map( 'sanitize_text_field', $author_full_names ) ), 'authorFullName' => sanitize_text_field( $authors[0]['fullName'] ), 'authorSurname' => sanitize_text_field( $authors[0]['surname'] ), 'authorGivenName' => sanitize_text_field( $authors[0]['givenName'] ), 'year' => sanitize_text_field( $year ), 'articleTitle' => sanitize_text_field( $article_title ), 'journalTitle' => sanitize_text_field( $journal_title ), 'volume' => sanitize_text_field( $volume ), 'issue' => sanitize_text_field( $issue ), 'pages' => sanitize_text_field( $pages ), 'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ), 'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ) );
+	}
+
+	/**
+	 * Chicago Website DragDrop — mirrors normalise_chicago_book_dragdrop_item()'s
+	 * own role, via Citex_Chicago_Website_Dragdrop_Parts/
+	 * Citex_Chicago_Reference_Rules::CATEGORY_WEBSITE instead. No
+	 * accessedDate at all.
+	 *
+	 * @param array $author {type, surname?, givenName?, name?, fullName?}.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_chicago_website_dragdrop_item( $item, $id, $author, $year, $title, $url, $scenario, $exercise, $difficulty ) {
+		$fields        = array( 'year' => $year, 'title' => $title, 'url' => $url );
+		$selected_keys = Citex_Chicago_Website_Dragdrop_Parts::select_parts( $id );
+		$built         = Citex_Chicago_Website_Dragdrop_Parts::build( $selected_keys, $author, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_chicago_website_dragdrop_parts_unknown', sprintf( __( 'Question %s: unable to build Chicago Website DragDrop parts for this record.', 'citex-tools' ), $id ) );
+		}
+		$reference = Citex_Chicago_Reference_Rules::build_reference( Citex_Chicago_Reference_Rules::CATEGORY_WEBSITE, array_merge( $fields, array( 'author' => $author ) ) );
+		return array(
+			'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Chicago | ReferenceList | Website | DragDrop | %s', $id ), 'source' => 'Chicago', 'group' => 'ReferenceList', 'category' => 'Website', 'exercise' => $exercise, 'type' => 'DragDrop', 'institution' => 'Chicago', 'difficulty' => ucfirst( $difficulty ),
+			'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ),
+			'authorType' => sanitize_key( $author['type'] ), 'authors' => 'individual' === $author['type'] ? array( array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ) ) : array(), 'organisationName' => 'organisation' === $author['type'] ? sanitize_text_field( $author['name'] ) : '',
+			'year' => sanitize_text_field( $year ), 'pageTitle' => sanitize_text_field( $title ), 'url' => sanitize_text_field( $url ),
+			'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ),
+			'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ),
+		);
+	}
+
+	/**
+	 * Chicago Website MCQ — mirrors normalise_chicago_book_mcq_variant_item()'s
+	 * own role, via Citex_Chicago_Website_Mcq_Variants instead.
+	 *
+	 * @param array $author {type, surname?, givenName?, name?, fullName?}.
+	 * @return array|WP_Error
+	 */
+	private static function normalise_chicago_website_mcq_variant_item( $item, $id, $author, $year, $title, $url, $exercise, $difficulty ) {
+		$fields  = array( 'author' => $author, 'year' => $year, 'title' => $title, 'url' => $url );
+		$variant = Citex_Chicago_Website_Mcq_Variants::variant_for( $id );
+		$built   = Citex_Chicago_Website_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) {
+			return new WP_Error( 'citex_ai_chicago_website_mcq_variant_unknown', sprintf( __( 'Question %1$s: unrecognised Chicago Website MCQ variant "%2$s".', 'citex-tools' ), $id, $variant ) );
+		}
+		$options   = $built['wrongOptions'];
+		$options[] = '';
+		$hint      = Citex_Chicago_Reference_Rules::mcq_hint( Citex_Chicago_Reference_Rules::CATEGORY_WEBSITE );
+		$answer_explanation = sprintf( 'This question tests the "%s" Chicago (Author-Date) formatting rule.', $variant );
+
+		return array(
+			'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'Chicago | ReferenceList | Website | MCQ | %s', $id ), 'source' => 'Chicago', 'group' => 'ReferenceList', 'category' => 'Website', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'Chicago', 'difficulty' => ucfirst( $difficulty ),
+			'mcqPattern' => 'chicago_website_mcq_variant', 'chicagoWebsiteMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ),
+			'authorType' => sanitize_key( $author['type'] ), 'authors' => 'individual' === $author['type'] ? array( array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ) ) : array(), 'organisationName' => 'organisation' === $author['type'] ? sanitize_text_field( $author['name'] ) : '',
+			'year' => sanitize_text_field( $year ), 'pageTitle' => sanitize_text_field( $title ), 'url' => sanitize_text_field( $url ),
+			'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ),
+			'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ),
+		);
 	}
 
 	/**

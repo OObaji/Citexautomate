@@ -48,13 +48,15 @@ class Citex_Generator {
 			'journal_article' => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
 			'website'         => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_WEBSITE ),
 		);
-		// Chicago (Author-Date) reference-list is Phase 1: Book only (see
-		// Citex_Chicago_Reference_Rules's own docblock) — its own "CB" prefix
-		// is the only one populated here; Edited Book/Journal Article/Website
-		// will gain their own CE/CJ/CW prefixes once a later phase extends
-		// Chicago past Book, mirroring how APA/MLA each started.
+		// Chicago (Author-Date) reference-list now covers all 4 categories,
+		// each with its own prefix (a "C" prefixed onto Harvard's own letter
+		// — CB/CE/CJ/CW) — the same Phase 2 build-out APA/MLA already went
+		// through.
 		$chicago_id_prefixes = array(
-			'book' => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_BOOK ),
+			'book'            => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_BOOK ),
+			'edited_book'     => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_EDITED_BOOK ),
+			'journal_article' => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
+			'website'         => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_WEBSITE ),
 		);
 		// MHRA (Bibliography) reference-list is likewise Phase 1: Book only
 		// (see Citex_MHRA_Reference_Rules's own docblock) — its own "HB"
@@ -304,13 +306,15 @@ class Citex_Generator {
 			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA, APA, Chicago or MHRA, for Book, Edited Book, Journal Article or Website, as DragDrop or MCQ.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
-		// Chicago (Author-Date) Phase 1 supports Book / Reference List
-		// only — Edited Book, Journal Article, Website and In-Text Citation
-		// are a later phase, following the exact same "Book first" pattern
-		// every other style in this app went through.
-		$chicago_scope_ok = 'chicago' !== $style || ( 'book' === $category && 'referencelist' === $group );
+		// Chicago (Author-Date) Reference List now covers all 4 categories
+		// (Book, Edited Book, Journal Article, Website) — the same Phase 2
+		// build-out APA/MLA already went through (see the docblock above).
+		// In-Text Citation is still a later phase, so $category is left to
+		// $category_ok's own generic check above and only $group is
+		// restricted here.
+		$chicago_scope_ok = 'chicago' !== $style || 'referencelist' === $group;
 		if ( ! $chicago_scope_ok ) {
-			Citex_Admin::set_notice( __( 'Chicago (Author-Date) currently supports Book / Reference List only — Edited Book, Journal Article, Website and In-Text Citation are coming in a later update.', 'citex-tools' ), 'error' );
+			Citex_Admin::set_notice( __( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		// MHRA Phase 1 likewise supports Book / Reference List only.
