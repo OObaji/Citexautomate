@@ -5,6 +5,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 /** @var array $snapshots */
 /** @var array $hook_report */
 /** @var string $post_type */
+/** @var string $target */
+$citex_diagnostics_target_labels = array( 'reference' => __( 'Reference List', 'citex-tools' ), 'citations' => __( 'Citations', 'citex-tools' ) );
+$citex_diagnostics_target_label  = $citex_diagnostics_target_labels[ $target ] ?? $citex_diagnostics_target_labels['reference'];
 ?>
 <div class="wrap citex-wrap">
 	<h1 class="citex-page-title"><?php esc_html_e( 'Citex Diagnostics', 'citex-tools' ); ?></h1>
@@ -13,8 +16,29 @@ if ( ! defined( 'ABSPATH' ) ) {
 	</p>
 
 	<h2><?php esc_html_e( '1. Who is actually listening on the save lifecycle?', 'citex-tools' ); ?></h2>
+	<p class="description">
+		<?php esc_html_e( 'Reference List and Citations are two separate real WordPress post types, so this must be checked independently for each — a hook registered for one says nothing about the other.', 'citex-tools' ); ?>
+	</p>
+	<p>
+		<?php foreach ( $citex_diagnostics_target_labels as $target_key => $target_label ) : ?>
+			<?php if ( $target_key === $target ) : ?>
+				<strong class="citex-target-tab-active"><?php echo esc_html( $target_label ); ?></strong>
+			<?php else : ?>
+				<a class="button button-small" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-diagnostics&target=' . $target_key ) ); ?>"><?php echo esc_html( $target_label ); ?></a>
+			<?php endif; ?>
+			&nbsp;
+		<?php endforeach; ?>
+	</p>
 	<?php if ( ! $post_type ) : ?>
-		<p><?php esc_html_e( 'Run a scan first (Dashboard) so Citex knows the real Reference List post type.', 'citex-tools' ); ?></p>
+		<p>
+			<?php
+			printf(
+				/* translators: %s: "Reference List" or "Citations" */
+				esc_html__( 'Run a scan first (Dashboard) so Citex knows the real %s post type.', 'citex-tools' ),
+				esc_html( $citex_diagnostics_target_label )
+			);
+			?>
+		</p>
 	<?php else : ?>
 		<p class="description">
 			<?php

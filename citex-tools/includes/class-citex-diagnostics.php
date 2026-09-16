@@ -61,7 +61,17 @@ class Citex_Diagnostics {
 	public function render() {
 		$this->maybe_handle_submit();
 
-		$scan      = Citex_Scanner::get_last_scan();
+		// Reference List and Citations are two genuinely separate real
+		// WordPress post types (see Citex_Populator's own class docblock),
+		// so "who is actually listening on the save lifecycle" must be
+		// inspected per destination — the hook registry for one post type
+		// says nothing about another. Defaults to 'reference' (this page's
+		// own pre-existing single-target behaviour) so an old bookmarked
+		// URL with no ?target= keeps working exactly as before; mirrors the
+		// same 'citations' === sanitize_key(...) normalisation
+		// Citex_Scanner::normalise_target()/target_for_group() already use.
+		$target    = 'citations' === sanitize_key( (string) ( $_GET['target'] ?? '' ) ) ? 'citations' : 'reference';
+		$scan      = Citex_Scanner::get_last_scan( $target );
 		$post_type = sanitize_key( (string) ( $scan['postType'] ?? '' ) );
 		$snapshots = self::get_snapshots();
 		$hook_report = $post_type ? self::list_registered_callbacks( self::hooks_for_post_type( $post_type ) ) : array();
