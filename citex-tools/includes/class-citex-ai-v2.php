@@ -4566,7 +4566,7 @@ class Citex_AI_V2 {
 			'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $selected_keys ) ), 'scenario' => sanitize_textarea_field( $scenario ),
 			'authorType' => sanitize_key( $author['type'] ), 'authors' => 'individual' === $author['type'] ? array( array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ) ) : array(), 'organisationName' => 'organisation' === $author['type'] ? sanitize_text_field( $author['name'] ) : '',
 			'pageTitle' => sanitize_text_field( $title ), 'url' => sanitize_text_field( $url ), 'accessedDate' => sanitize_text_field( $accessed_date ),
-			'fixedText' => sanitize_text_field( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => sanitize_text_field( $reference ),
+			'fixedText' => self::sanitize_reference_text( $built['fixedText'] ), 'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ), 'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ), 'reconstructedReference' => self::sanitize_reference_text( $reference ),
 			'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ),
 		);
 	}
@@ -4595,10 +4595,10 @@ class Citex_AI_V2 {
 
 		return array(
 			'key' => wp_generate_uuid4(), 'questionId' => $id, 'title' => sprintf( 'MHRA | ReferenceList | Website | MCQ | %s', $id ), 'source' => 'MHRA', 'group' => 'ReferenceList', 'category' => 'Website', 'exercise' => $exercise, 'type' => 'MCQ', 'institution' => 'MHRA', 'difficulty' => ucfirst( $difficulty ),
-			'mcqPattern' => 'mhra_website_mcq_variant', 'mhraWebsiteMcqVariant' => sanitize_key( $variant ), 'scenario' => sanitize_textarea_field( $built['stem'] ),
+			'mcqPattern' => 'mhra_website_mcq_variant', 'mhraWebsiteMcqVariant' => sanitize_key( $variant ), 'scenario' => self::sanitize_reference_textarea( $built['stem'] ),
 			'authorType' => sanitize_key( $author['type'] ), 'authors' => 'individual' === $author['type'] ? array( array( 'fullName' => sanitize_text_field( $author['fullName'] ), 'surname' => sanitize_text_field( $author['surname'] ), 'givenName' => sanitize_text_field( $author['givenName'] ) ) ) : array(), 'organisationName' => 'organisation' === $author['type'] ? sanitize_text_field( $author['name'] ) : '',
 			'pageTitle' => sanitize_text_field( $title ), 'url' => sanitize_text_field( $url ), 'accessedDate' => sanitize_text_field( $accessed_date ),
-			'options' => array_values( array_map( 'sanitize_text_field', $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ),
+			'options' => array_values( array_map( array( __CLASS__, 'sanitize_reference_text' ), $options ) ), 'hint' => sanitize_textarea_field( $hint ), 'answerExplanation' => sanitize_textarea_field( $answer_explanation ), 'reconstructedReference' => self::sanitize_reference_text( $built['correctAnswer'] ),
 			'status' => 'pending', 'validationStatus' => 'not_validated', 'validationErrors' => array(), 'origin' => 'generated_ai', 'aiProvider' => 'Gemini', 'aiModel' => self::get_model(), 'generatedAt' => gmdate( 'c' ),
 		);
 	}
@@ -5570,12 +5570,20 @@ class Citex_AI_V2 {
 	 * fixedText/reconstructedReference/MCQ option text — sanitize_text_field()
 	 * calls wp_strip_all_tags() internally, which treats "<https://example.com>"
 	 * as an (unclosed) HTML tag and silently deletes the ENTIRE bracketed
-	 * segment, dropping the URL from the stored question entirely. No other
-	 * category's reference text ever contains "<" or ">", so this is only
-	 * used for Website's own normalisers. Every consumer already
-	 * output-escapes this value with esc_html() (see admin/views/generate.php),
-	 * so skipping tag-stripping here introduces no XSS risk — it only stops
-	 * WordPress from corrupting legitimate Harvard-format content.
+	 * segment, dropping the URL from the stored question entirely. MHRA's own
+	 * Website format has the same "<URL>" requirement (see
+	 * Citex_MHRA_Reference_Rules's own docblock) and reuses this helper for
+	 * exactly the same reason — this was the actual root cause of "MHRA
+	 * Website keeps failing" validation with a reconstruction mismatch and a
+	 * format-mismatch error, reproduced directly with PHP's own strip_tags():
+	 * "Arts Council, 'Digital Art', <https://example.com> [accessed 16
+	 * September 2026]." loses the entire "<https://example.com>" segment. No
+	 * other style/category's reference text ever contains "<" or ">", so
+	 * this is only used for Harvard's and MHRA's own Website normalisers.
+	 * Every consumer already output-escapes this value with esc_html() (see
+	 * admin/views/generate.php), so skipping tag-stripping here introduces
+	 * no XSS risk — it only stops WordPress from corrupting legitimate
+	 * angle-bracketed content Citex itself composed.
 	 */
 	private static function sanitize_reference_text( $value ) {
 		$value = (string) $value;
@@ -5587,13 +5595,14 @@ class Citex_AI_V2 {
 	/**
 	 * Like sanitize_reference_text() but preserves newlines instead of
 	 * collapsing them to spaces — needed for Website MCQ's
-	 * 'identify_the_error' variant, whose stem deliberately embeds a
-	 * literal "\n\n"-separated broken reference (see
-	 * Citex_Website_Mcq_Variants::build_identify_the_error()) containing
-	 * the same bracketed "<URL>" sanitize_textarea_field() would otherwise
-	 * silently delete as an unclosed HTML tag — the exact bug
-	 * sanitize_reference_text() already exists to avoid for single-line
-	 * fields, just also needed here for a multi-line one.
+	 * 'identify_the_error'/'not_a_correct_reference' variants (Harvard's own
+	 * Citex_Website_Mcq_Variants and MHRA's own Citex_MHRA_Website_Mcq_Variants
+	 * alike), whose stems deliberately embed a literal "\n\n"-separated
+	 * broken reference containing the same bracketed "<URL>"
+	 * sanitize_textarea_field() would otherwise silently delete as an
+	 * unclosed HTML tag — the exact bug sanitize_reference_text() already
+	 * exists to avoid for single-line fields, just also needed here for a
+	 * multi-line one.
 	 */
 	private static function sanitize_reference_textarea( $value ) {
 		$value = (string) $value;
