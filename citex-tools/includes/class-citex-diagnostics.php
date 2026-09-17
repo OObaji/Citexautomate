@@ -42,6 +42,7 @@ class Citex_Diagnostics {
 	const NONCE_ACTION     = 'citex_diagnostics';
 	const OPTION_SNAPSHOTS = 'citex_diagnostics_snapshots';
 	const MAX_SNAPSHOTS    = 2;
+	const OPTION_COMPARE   = 'citex_diagnostics_compare';
 
 	/**
 	 * The fixed, standard WordPress/ACF hooks Citex_Populator relies on to
@@ -75,6 +76,7 @@ class Citex_Diagnostics {
 		$post_type = sanitize_key( (string) ( $scan['postType'] ?? '' ) );
 		$snapshots = self::get_snapshots();
 		$hook_report = $post_type ? self::list_registered_callbacks( self::hooks_for_post_type( $post_type ) ) : array();
+		$compare     = self::get_compare();
 
 		require CITEX_TOOLS_PATH . 'admin/views/diagnostics.php';
 	}
@@ -109,6 +111,48 @@ class Citex_Diagnostics {
 					__( 'Citex Diagnostics: captured "%1$s" snapshot for post #%2$d.', 'citex-tools' ),
 					$label,
 					$post_id
+				),
+				'success'
+			);
+			$this->redirect_back();
+		}
+
+		if ( ! empty( $_POST['citex_diagnostics_compare'] ) ) {
+			check_admin_referer( self::NONCE_ACTION, 'citex_diagnostics_nonce' );
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_die( esc_html__( 'You are not allowed to view Citex diagnostics.', 'citex-tools' ) );
+			}
+
+			$post_id_a = isset( $_POST['citex_diagnostics_compare_a'] ) ? absint( wp_unslash( $_POST['citex_diagnostics_compare_a'] ) ) : 0;
+			$post_id_b = isset( $_POST['citex_diagnostics_compare_b'] ) ? absint( wp_unslash( $_POST['citex_diagnostics_compare_b'] ) ) : 0;
+
+			$state_a = self::capture_post_state( $post_id_a );
+			if ( is_wp_error( $state_a ) ) {
+				Citex_Admin::set_notice( $state_a->get_error_message(), 'error' );
+				$this->redirect_back();
+			}
+			$state_b = self::capture_post_state( $post_id_b );
+			if ( is_wp_error( $state_b ) ) {
+				Citex_Admin::set_notice( $state_b->get_error_message(), 'error' );
+				$this->redirect_back();
+			}
+
+			update_option(
+				self::OPTION_COMPARE,
+				array(
+					'postIdA' => $post_id_a,
+					'postIdB' => $post_id_b,
+					'a'       => $state_a,
+					'b'       => $state_b,
+				),
+				false
+			);
+			Citex_Admin::set_notice(
+				sprintf(
+					/* translators: 1: first post ID, 2: second post ID */
+					__( 'Citex Diagnostics: compared post #%1$d against post #%2$d.', 'citex-tools' ),
+					$post_id_a,
+					$post_id_b
 				),
 				'success'
 			);
@@ -352,6 +396,21 @@ class Citex_Diagnostics {
 			}
 			$out[ $path ] = $value;
 		}
+	}
+
+	/**
+	 * The most recently run "compare two posts" result — diffs
+	 * capture_post_state() for two arbitrary post IDs directly against each
+	 * other, rather than the same post's own before/after. This is what lets
+	 * an admin diff a currently-working question against a currently-invisible
+	 * one and see exactly which meta/ACF/term key differs, instead of
+	 * guessing which site-specific value the app actually depends on.
+	 *
+	 * @return array{postIdA:int, postIdB:int, a:array, b:array}
+	 */
+	public static function get_compare() {
+		$compare = get_option( self::OPTION_COMPARE, array() );
+		return is_array( $compare ) ? $compare : array();
 	}
 
 	public static function get_snapshots( $post_id = 0 ) {

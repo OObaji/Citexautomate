@@ -6,6 +6,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /** @var array $hook_report */
 /** @var string $post_type */
 /** @var string $target */
+/** @var array $compare */
 $citex_diagnostics_target_labels = array( 'reference' => __( 'Reference List', 'citex-tools' ), 'citations' => __( 'Citations', 'citex-tools' ) );
 $citex_diagnostics_target_label  = $citex_diagnostics_target_labels[ $target ] ?? $citex_diagnostics_target_labels['reference'];
 ?>
@@ -130,6 +131,48 @@ $citex_diagnostics_target_label  = $citex_diagnostics_target_labels[ $target ] ?
 				</tr></thead>
 				<tbody>
 				<?php foreach ( $diff as $path => $change ) : ?>
+					<tr>
+						<td><code><?php echo esc_html( $path ); ?></code></td>
+						<td><code><?php echo esc_html( wp_json_encode( $change['before'] ) ); ?></code></td>
+						<td><code><?php echo esc_html( wp_json_encode( $change['after'] ) ); ?></code></td>
+					</tr>
+				<?php endforeach; ?>
+				</tbody>
+			</table>
+		<?php endif; ?>
+	<?php endif; ?>
+
+	<h2><?php esc_html_e( '3. Compare any two posts', 'citex-tools' ); ?></h2>
+	<p class="description">
+		<?php esc_html_e( 'Enter the post ID of a question that already shows correctly on the app, and the post ID of one that does not (e.g. one just populated into an empty table). This diffs their full state directly against each other — every postmeta key, taxonomy term and ACF value the working post has that the other is missing (or vice versa) — without needing to click Update on anything.', 'citex-tools' ); ?>
+	</p>
+	<form method="post" class="citex-form" style="margin-bottom:16px;">
+		<?php wp_nonce_field( Citex_Diagnostics::NONCE_ACTION, 'citex_diagnostics_nonce' ); ?>
+		<label><strong><?php esc_html_e( 'Working post ID:', 'citex-tools' ); ?></strong>
+			<input type="number" min="1" name="citex_diagnostics_compare_a" value="<?php echo esc_attr( (string) ( $compare['postIdA'] ?? '' ) ); ?>" required />
+		</label>
+		&nbsp;
+		<label><strong><?php esc_html_e( 'Invisible post ID:', 'citex-tools' ); ?></strong>
+			<input type="number" min="1" name="citex_diagnostics_compare_b" value="<?php echo esc_attr( (string) ( $compare['postIdB'] ?? '' ) ); ?>" required />
+		</label>
+		<button type="submit" name="citex_diagnostics_compare" value="1" class="button button-primary">
+			<?php esc_html_e( 'Compare', 'citex-tools' ); ?>
+		</button>
+	</form>
+
+	<?php if ( ! empty( $compare['a'] ) && ! empty( $compare['b'] ) ) : ?>
+		<?php $compare_diff = Citex_Diagnostics::diff_snapshots( $compare['a'], $compare['b'] ); ?>
+		<?php if ( empty( $compare_diff ) ) : ?>
+			<p><strong><?php esc_html_e( 'No difference — both posts have identical postmeta, taxonomy terms and ACF values (aside from ID/date/title). This would rule out anything WordPress/ACF itself can see as the cause.', 'citex-tools' ); ?></strong></p>
+		<?php else : ?>
+			<table class="wp-list-table widefat fixed striped citex-table">
+				<thead><tr>
+					<th><?php esc_html_e( 'Path', 'citex-tools' ); ?></th>
+					<th><?php printf( /* translators: %d: post ID */ esc_html__( 'Working (#%d)', 'citex-tools' ), (int) $compare['postIdA'] ); ?></th>
+					<th><?php printf( /* translators: %d: post ID */ esc_html__( 'Invisible (#%d)', 'citex-tools' ), (int) $compare['postIdB'] ); ?></th>
+				</tr></thead>
+				<tbody>
+				<?php foreach ( $compare_diff as $path => $change ) : ?>
 					<tr>
 						<td><code><?php echo esc_html( $path ); ?></code></td>
 						<td><code><?php echo esc_html( wp_json_encode( $change['before'] ) ); ?></code></td>
