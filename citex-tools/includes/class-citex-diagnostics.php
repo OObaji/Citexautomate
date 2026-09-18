@@ -78,6 +78,9 @@ class Citex_Diagnostics {
 		$hook_report = $post_type ? self::list_registered_callbacks( self::hooks_for_post_type( $post_type ) ) : array();
 		$compare     = self::get_compare();
 
+		$field_check_post_id = isset( $_GET['field_check_post_id'] ) ? absint( $_GET['field_check_post_id'] ) : 0;
+		$field_report         = $field_check_post_id ? self::field_attachment_report( $field_check_post_id ) : array();
+
 		require CITEX_TOOLS_PATH . 'admin/views/diagnostics.php';
 	}
 
@@ -411,6 +414,78 @@ class Citex_Diagnostics {
 	public static function get_compare() {
 		$compare = get_option( self::OPTION_COMPARE, array() );
 		return is_array( $compare ) ? $compare : array();
+	}
+
+	/**
+	 * For one specific post, reports — per known Citex_Populator ACF field
+	 * key — whether that field is (a) a globally valid ACF field
+	 * definition at all, and (b) actually ATTACHED to THIS specific post.
+	 *
+	 * This distinction matters because Citex_Populator's own write/verify
+	 * cycle (write_acf_value() + update_field(), then get_field() to read
+	 * it back) only ever needs a field KEY to resolve to SOME globally
+	 * registered ACF field definition — it never checks whether that
+	 * field's own field GROUP is actually attached (via its Location
+	 * rules) to this post's post type. So a field can be written,
+	 * verified, and read back successfully by Populator's own code, while
+	 * still not being a field ACF itself would ever render on this post's
+	 * real edit screen — and, going by a live reported pattern (DragDrop
+	 * In-Text Citation questions stay invisible on the app until a manual
+	 * Update, while MCQ In-Text Citation questions — sharing the same
+	 * Question Class field/write path — show up fine), this is exactly
+	 * the kind of gap that could explain a DragDrop-only, Citations-only
+	 * symptom: if the field group holding the DragDrop-only fields (Fixed
+	 * Text / Question Parts / Confusing Words) is attached only to
+	 * Reference List and not to Citations, those specific fields would
+	 * never truly belong to a Citations post, while Question Class and
+	 * the MCQ fields — evidently attached to both, since MCQ works —
+	 * would not show this gap at all.
+	 *
+	 * get_field_objects( $post_id, false, false ) is used for (b) because,
+	 * unlike acf_get_field()/update_field()/get_field() by field key, it
+	 * is ACF's own "what fields does this specific post actually have"
+	 * API and does respect each field group's Location rules.
+	 *
+	 * @return array<string, array{fieldKey:string, globallyDefined:bool, fieldName:string, attachedToThisPost:bool}>
+	 */
+	public static function field_attachment_report( $post_id ) {
+		$post_id = absint( $post_id );
+		$fields  = array(
+			'Fixed Text (DragDrop only)'      => Citex_Populator::FIELD_FIXED_TEXT,
+			'Question Parts (DragDrop only)'  => Citex_Populator::FIELD_QUESTION_PARTS,
+			'Confusing Words (DragDrop only)' => Citex_Populator::FIELD_CONFUSING_WORDS,
+			'Question Class (shared)'         => Citex_Populator::FIELD_QUESTION_CLASS,
+			'Hint (MCQ only)'                 => Citex_Populator::FIELD_HINT,
+			'Answer (MCQ only)'               => Citex_Populator::FIELD_ANSWER,
+			'Option 1 (MCQ only)'             => Citex_Populator::FIELD_OPTION_1,
+			'Option 2 (MCQ only)'             => Citex_Populator::FIELD_OPTION_2,
+			'Option 3 (MCQ only)'             => Citex_Populator::FIELD_OPTION_3,
+			'Option 4 (MCQ only)'             => Citex_Populator::FIELD_OPTION_4,
+		);
+
+		$attached_keys = array();
+		if ( $post_id && function_exists( 'get_field_objects' ) ) {
+			$objects = get_field_objects( $post_id, false, false );
+			if ( is_array( $objects ) ) {
+				foreach ( $objects as $field ) {
+					if ( is_array( $field ) && isset( $field['key'] ) ) {
+						$attached_keys[ $field['key'] ] = true;
+					}
+				}
+			}
+		}
+
+		$report = array();
+		foreach ( $fields as $label => $field_key ) {
+			$definition = function_exists( 'acf_get_field' ) ? acf_get_field( $field_key ) : null;
+			$report[ $label ] = array(
+				'fieldKey'           => $field_key,
+				'globallyDefined'    => is_array( $definition ),
+				'fieldName'          => is_array( $definition ) ? (string) ( $definition['name'] ?? '' ) : '',
+				'attachedToThisPost' => isset( $attached_keys[ $field_key ] ),
+			);
+		}
+		return $report;
 	}
 
 	public static function get_snapshots( $post_id = 0 ) {

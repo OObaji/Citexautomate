@@ -7,6 +7,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /** @var string $post_type */
 /** @var string $target */
 /** @var array $compare */
+/** @var array $field_report */
 $citex_diagnostics_target_labels = array( 'reference' => __( 'Reference List', 'citex-tools' ), 'citations' => __( 'Citations', 'citex-tools' ) );
 $citex_diagnostics_target_label  = $citex_diagnostics_target_labels[ $target ] ?? $citex_diagnostics_target_labels['reference'];
 ?>
@@ -182,5 +183,39 @@ $citex_diagnostics_target_label  = $citex_diagnostics_target_labels[ $target ] ?
 				</tbody>
 			</table>
 		<?php endif; ?>
+	<?php endif; ?>
+
+	<h2><?php esc_html_e( '4. DragDrop-only field attachment check', 'citex-tools' ); ?></h2>
+	<p class="description">
+		<?php esc_html_e( 'Enter a Citations DragDrop post ID (e.g. a stuck In-Text Citation question). This checks, per field, whether it is genuinely ATTACHED to this specific post (respecting the field\'s own Location rules) — not just whether Citex could write and read it back, which does not by itself prove the field group is attached to this post type at all. If the DragDrop-only fields show "No" here while the shared/MCQ fields show "Yes", that pinpoints a Location-rule gap for this post type as the cause.', 'citex-tools' ); ?>
+	</p>
+	<form method="get" class="citex-form" style="margin-bottom:16px;">
+		<input type="hidden" name="page" value="citex-diagnostics" />
+		<input type="hidden" name="target" value="<?php echo esc_attr( $target ); ?>" />
+		<label><strong><?php esc_html_e( 'Post ID:', 'citex-tools' ); ?></strong>
+			<input type="number" min="1" name="field_check_post_id" value="<?php echo esc_attr( (string) ( $_GET['field_check_post_id'] ?? '' ) ); ?>" required />
+		</label>
+		<button type="submit" class="button button-primary"><?php esc_html_e( 'Check', 'citex-tools' ); ?></button>
+	</form>
+
+	<?php if ( ! empty( $field_report ) ) : ?>
+		<table class="wp-list-table widefat fixed striped citex-table">
+			<thead><tr>
+				<th><?php esc_html_e( 'Field', 'citex-tools' ); ?></th>
+				<th><?php esc_html_e( 'Field key', 'citex-tools' ); ?></th>
+				<th><?php esc_html_e( 'Globally defined?', 'citex-tools' ); ?></th>
+				<th><?php esc_html_e( 'Attached to this post?', 'citex-tools' ); ?></th>
+			</tr></thead>
+			<tbody>
+			<?php foreach ( $field_report as $label => $row ) : ?>
+				<tr>
+					<td><?php echo esc_html( $label ); ?></td>
+					<td><code><?php echo esc_html( $row['fieldKey'] ); ?> <?php echo $row['fieldName'] ? '(' . esc_html( $row['fieldName'] ) . ')' : ''; ?></code></td>
+					<td><?php echo $row['globallyDefined'] ? esc_html__( 'Yes', 'citex-tools' ) : '<strong>' . esc_html__( 'No', 'citex-tools' ) . '</strong>'; ?></td>
+					<td><?php echo $row['attachedToThisPost'] ? esc_html__( 'Yes', 'citex-tools' ) : '<strong>' . esc_html__( 'No', 'citex-tools' ) . '</strong>'; ?></td>
+				</tr>
+			<?php endforeach; ?>
+			</tbody>
+		</table>
 	<?php endif; ?>
 </div>
