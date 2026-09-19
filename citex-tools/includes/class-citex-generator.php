@@ -140,12 +140,33 @@ class Citex_Generator {
 
 		$all_results = array();
 		$failures    = array();
+
+		// Saved as soon as each DragDrop/MCQ (and, for In-Text Citation,
+		// each individual Citation Form) sub-batch completes — not only
+		// once per whole combination, and never only once at the very end.
+		// A large bulk run doing dozens of combinations' worth of
+		// synchronous Gemini requests in one PHP process can still be
+		// killed outright by a server-side timeout despite set_time_limit(0)
+		// above (a host that disables it, or a reverse proxy's own hard
+		// cap) — if that happens mid-run, whatever sub-batches already
+		// completed must already be on disk, not sitting in a local
+		// variable that dies with the process. $pending is kept in sync
+		// locally so each save only adds its own new results, never
+		// re-writes (or drops) an earlier one's.
+		$on_partial_result = function ( array $partial ) use ( &$pending ) {
+			if ( empty( $partial ) ) {
+				return;
+			}
+			$pending = array_merge( $pending, $partial );
+			self::save_pending_questions( $pending );
+		};
+
 		foreach ( $combinations as $index => $combo ) {
 			$combo_quantity = $buckets[ $index ];
 			if ( $combo_quantity < 1 ) {
 				continue;
 			}
-			$combo_result = $this->generate_mixed_batch( $combo['categoryLabel'], $combo['category'], $combo_quantity, $difficulty, $web_verify, $style, $combo['group'], $used_ids, $pending );
+			$combo_result = $this->generate_mixed_batch( $combo['categoryLabel'], $combo['category'], $combo_quantity, $difficulty, $web_verify, $style, $combo['group'], $used_ids, $pending, $on_partial_result );
 			if ( is_wp_error( $combo_result ) ) {
 				$failures[] = sprintf(
 					'%1$s / %2$s: %3$s',
@@ -161,20 +182,7 @@ class Citex_Generator {
 					$used_ids[ $id ] = true;
 				}
 			}
-			// Saved after EVERY combination, not once at the very end: a
-			// large bulk run doing dozens of combinations' worth of
-			// synchronous Gemini requests in one PHP process can still be
-			// killed outright by a server-side timeout despite
-			// set_time_limit(0) above (a host that disables it, or a
-			// reverse proxy's own hard cap) — if that happens mid-run,
-			// whatever combinations already completed must already be on
-			// disk, not sitting in a local variable that dies with the
-			// process. $pending is kept in sync locally so each
-			// iteration's save only adds its own new results, never
-			// re-writes (or drops) an earlier iteration's.
-			$pending     = array_merge( $pending, $combo_result );
 			$all_results = array_merge( $all_results, $combo_result );
-			self::save_pending_questions( $pending );
 		}
 
 		$referencing_style_labels = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)', 'mhra' => 'MHRA' );
@@ -482,16 +490,35 @@ class Citex_Generator {
 	 * Always redirects (and exits).
 	 */
 	private function handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately = false ) {
+		// Best-effort: removes PHP's own default execution-time cap.
+		// DragDrop+MCQ mixing (and, for In-Text Citation, the further
+		// Citation Form split) means even a modest quantity like 100 can
+		// mean well over a dozen sequential Gemini requests in one
+		// submission — see generate_mixed_batch()'s own docblock. Some
+		// hosts disable set_time_limit() or still enforce their own hard
+		// cap regardless, which is exactly why saving happens
+		// incrementally below (via $on_partial_result), not only once at
+		// the end.
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 );
+		}
+
 		$pending  = self::get_pending_questions();
 		$used_ids = $this->collect_used_question_ids( $pending );
 
-		$result = $this->generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $used_ids, $pending );
+		$on_partial_result = function ( array $partial ) use ( &$pending ) {
+			if ( empty( $partial ) ) {
+				return;
+			}
+			$pending = array_merge( $pending, $partial );
+			Citex_Generator::save_pending_questions( $pending );
+		};
+
+		$result = $this->generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $used_ids, $pending, $on_partial_result );
 		if ( is_wp_error( $result ) ) {
 			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
 			$this->redirect_back();
 		}
-
-		self::save_pending_questions( array_merge( $pending, $result ) );
 
 		list( $dragdrop_quantity, $mcq_quantity ) = self::count_by_type( $result );
 
@@ -584,16 +611,27 @@ class Citex_Generator {
 	/**
 	 * The actual DragDrop+MCQ even split (and, via generate_for_type(),
 	 * the further Citation Form split for In-Text Citation) for ONE
-	 * category/group/style — pure generation only, no save, no notice, no
-	 * redirect, so both handle_mixed_generation() (one category/style/
-	 * group batch, from the plain Generate form) and
-	 * handle_bulk_generation() (every category/group combination for one
-	 * style, from one total quantity — the Bulk Generate form) share
-	 * exactly the same core logic.
+	 * category/group/style — no notice, no redirect, so both
+	 * handle_mixed_generation() (one category/style/group batch, from the
+	 * plain Generate form) and handle_bulk_generation() (every category/
+	 * group combination for one style, from one total quantity — the
+	 * Bulk Generate form) share exactly the same core logic.
+	 *
+	 * $on_partial_result, when given, is called with each successfully
+	 * generated sub-batch (DragDrop's own result, then MCQ's own, further
+	 * split per Citation Form inside generate_for_type() for In-Text
+	 * Citation) AS SOON AS it completes — never only once at the very
+	 * end. DragDrop+MCQ mixing (and Citation Form splitting) means even a
+	 * modest total quantity can mean well over a dozen sequential Gemini
+	 * requests in one submission; a server-side execution-time kill
+	 * partway through must never lose work that has already genuinely
+	 * succeeded — a real reported bug when this only saved once at the
+	 * end (or, for Bulk Generate, once per whole category/group
+	 * combination instead of this finer per-type/per-form granularity).
 	 *
 	 * @return array|WP_Error
 	 */
-	private function generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, array $used_ids, array $pending ) {
+	private function generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, array $used_ids, array $pending, callable $on_partial_result = null ) {
 		$dragdrop_quantity = (int) ceil( $quantity / 2 );
 		$mcq_quantity      = $quantity - $dragdrop_quantity;
 
@@ -603,7 +641,7 @@ class Citex_Generator {
 		$result = array();
 
 		if ( $dragdrop_quantity > 0 ) {
-			$dragdrop_result = $this->generate_for_type( $category_label, $category, 'DragDrop', 'dragdrop', $dragdrop_quantity, $dragdrop_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group );
+			$dragdrop_result = $this->generate_for_type( $category_label, $category, 'DragDrop', 'dragdrop', $dragdrop_quantity, $dragdrop_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, $on_partial_result );
 			if ( is_wp_error( $dragdrop_result ) ) {
 				return $dragdrop_result;
 			}
@@ -617,7 +655,7 @@ class Citex_Generator {
 		}
 
 		if ( $mcq_quantity > 0 ) {
-			$mcq_result = $this->generate_for_type( $category_label, $category, 'MCQ', 'mcq', $mcq_quantity, $mcq_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group );
+			$mcq_result = $this->generate_for_type( $category_label, $category, 'MCQ', 'mcq', $mcq_quantity, $mcq_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, $on_partial_result );
 			if ( is_wp_error( $mcq_result ) ) {
 				return $mcq_result;
 			}
@@ -665,9 +703,13 @@ class Citex_Generator {
 	 *
 	 * @return array|WP_Error
 	 */
-	private function generate_for_type( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group ) {
+	private function generate_for_type( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, callable $on_partial_result = null ) {
 		if ( 'intext' !== $group ) {
-			return $this->generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, 'narrative', 'auto' );
+			$result = $this->generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, 'narrative', 'auto' );
+			if ( ! is_wp_error( $result ) && $on_partial_result ) {
+				$on_partial_result( $result );
+			}
+			return $result;
 		}
 
 		$forms       = array( 'narrative', 'parenthetical', 'parenthetical_quote' );
@@ -687,6 +729,9 @@ class Citex_Generator {
 				if ( '' !== $id ) {
 					$used_ids[ $id ] = true;
 				}
+			}
+			if ( $on_partial_result ) {
+				$on_partial_result( $form_result );
 			}
 			$all_results = array_merge( $all_results, $form_result );
 		}
