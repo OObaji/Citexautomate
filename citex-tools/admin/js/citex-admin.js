@@ -17,6 +17,7 @@
 		wireDetectCitations();
 		wireValidation();
 		wireActionToast();
+		playActionToneIfNeeded();
 	} );
 
 	/**
@@ -41,6 +42,46 @@
 				}
 			}, 250 );
 		}, 6000 );
+	}
+
+	/**
+	 * Play a short chime the moment the page comes back with a Citex
+	 * action notice (see wireActionToast() above) — in particular
+	 * Generate/Generate & Publish, which can take long enough for an admin
+	 * to switch tabs while it runs. Best-effort only: some browsers block
+	 * audio that isn't tied to a very recent user gesture (form submission
+	 * itself usually counts, but not always), so this is wrapped so a
+	 * blocked/unsupported play() never affects the rest of the page — the
+	 * visual toast still shows either way.
+	 */
+	function playActionToneIfNeeded() {
+		if ( ! document.querySelector( '.citex-action-notice' ) ) {
+			return;
+		}
+
+		try {
+			var AudioContextClass = window.AudioContext || window.webkitAudioContext;
+			if ( ! AudioContextClass ) {
+				return;
+			}
+			var ctx = new AudioContextClass();
+			[ 660, 880 ].forEach( function ( frequency, index ) {
+				var oscillator = ctx.createOscillator();
+				var gain = ctx.createGain();
+				var startTime = ctx.currentTime + index * 0.16;
+				oscillator.type = 'sine';
+				oscillator.frequency.value = frequency;
+				gain.gain.setValueAtTime( 0.0001, startTime );
+				gain.gain.exponentialRampToValueAtTime( 0.2, startTime + 0.02 );
+				gain.gain.exponentialRampToValueAtTime( 0.0001, startTime + 0.18 );
+				oscillator.connect( gain );
+				gain.connect( ctx.destination );
+				oscillator.start( startTime );
+				oscillator.stop( startTime + 0.2 );
+			} );
+		} catch ( e ) {
+			// Autoplay blocked or Web Audio unsupported — nothing to do.
+		}
 	}
 
 	function wireSelectAll() {
