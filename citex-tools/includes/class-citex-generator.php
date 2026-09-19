@@ -18,83 +18,14 @@ class Citex_Generator {
 	public function render() {
 		$this->maybe_handle_submit();
 
+		// Question Type, Citation Form and Author Count are no longer
+		// admin-facing choices (see handle_generation()'s own docblock),
+		// so the view only needs Referencing Style, Category, Question
+		// Focus and Difficulty.
 		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)', 'mhra' => 'MHRA' );
 		$categories         = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
-		$id_prefixes        = array(
-			'book'            => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ),
-			'edited_book'     => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_EDITED_BOOK ),
-			'journal_article' => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
-			'website'         => Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_WEBSITE ),
-		);
-		// MLA reference-list now covers all 4 categories, each with its own
-		// prefix (an "M" prefixed onto Harvard's own letter — MB/ME/MJ/MW);
-		// the admin UI's JS below picks whichever of the four prefixes
-		// matches the currently selected Referencing Style + Question Focus
-		// combination.
-		$mla_id_prefixes    = array(
-			'book'            => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_BOOK ),
-			'edited_book'     => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_EDITED_BOOK ),
-			'journal_article' => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
-			'website'         => Citex_MLA_Reference_Rules::id_prefix( Citex_MLA_Reference_Rules::CATEGORY_WEBSITE ),
-		);
-		// APA reference-list now covers all 4 categories, each with its own
-		// prefix (an "A" prefixed onto Harvard's own letter — AB/AE/AJ/AW);
-		// the admin UI's JS below picks whichever of the three styles'
-		// prefixes matches the currently selected Referencing Style +
-		// Question Focus combination.
-		$apa_id_prefixes    = array(
-			'book'            => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_BOOK ),
-			'edited_book'     => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_EDITED_BOOK ),
-			'journal_article' => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
-			'website'         => Citex_APA_Reference_Rules::id_prefix( Citex_APA_Reference_Rules::CATEGORY_WEBSITE ),
-		);
-		// Chicago (Author-Date) reference-list now covers all 4 categories,
-		// each with its own prefix (a "C" prefixed onto Harvard's own letter
-		// — CB/CE/CJ/CW) — the same Phase 2 build-out APA/MLA already went
-		// through.
-		$chicago_id_prefixes = array(
-			'book'            => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_BOOK ),
-			'edited_book'     => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_EDITED_BOOK ),
-			'journal_article' => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
-			'website'         => Citex_Chicago_Reference_Rules::id_prefix( Citex_Chicago_Reference_Rules::CATEGORY_WEBSITE ),
-		);
-		// MHRA (Bibliography) reference-list now covers all 4 categories,
-		// each with its own prefix ("H" prefixed onto Harvard's own letter —
-		// HB/HE/HJ/HW) — the same Phase 2 build-out APA/MLA/Chicago already
-		// went through.
-		$mhra_id_prefixes = array(
-			'book'            => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_BOOK ),
-			'edited_book'     => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_EDITED_BOOK ),
-			'journal_article' => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ),
-			'website'         => Citex_MHRA_Reference_Rules::id_prefix( Citex_MHRA_Reference_Rules::CATEGORY_WEBSITE ),
-		);
-		// In-text citation has no reference-list category restriction at
-		// all (see self::intext_id_prefix()'s docblock) — every category
-		// gets its own prefix under all 3 styles.
-		$intext_id_prefixes     = array();
-		$mla_intext_id_prefixes = array();
-		$apa_intext_id_prefixes = array();
-		foreach ( $categories as $key => $label ) {
-			$intext_id_prefixes[ $key ]     = self::intext_id_prefix( $label, 'harvard' );
-			$mla_intext_id_prefixes[ $key ] = self::intext_id_prefix( $label, 'mla' );
-			$apa_intext_id_prefixes[ $key ] = self::intext_id_prefix( $label, 'apa' );
-		}
-		$question_types     = array( 'dragdrop' => 'DragDrop', 'mcq' => 'MCQ' );
 		$difficulties       = array( 'easy' => 'Easy', 'medium' => 'Medium', 'hard' => 'Hard' );
 		$question_groups    = array( 'referencelist' => 'Reference List', 'intext' => 'In-Text Citation' );
-		$citation_forms     = array( 'narrative' => 'Narrative', 'parenthetical' => 'Parenthetical', 'parenthetical_quote' => 'Parenthetical (Direct Quote)' );
-		// Author Count dropdown data: {category_key: {type_key: {scenario_id: label}}}
-		// — reused directly from the SAME scenario catalog that already
-		// drives batch-diversity auto-selection (Citex_Question_Scenarios),
-		// never a separate/new bucket list, per generate_via_scenarios()'s
-		// own reuse of that catalog for forced-scenario validation.
-		$scenario_catalog = array();
-		foreach ( $categories as $key => $label ) {
-			$scenario_catalog[ $key ] = array(
-				'dragdrop' => wp_list_pluck( Citex_Question_Scenarios::catalog( $label, 'DragDrop' ), 'label', 'id' ),
-				'mcq'      => wp_list_pluck( Citex_Question_Scenarios::catalog( $label, 'MCQ' ), 'label', 'id' ),
-			);
-		}
 		$pending_questions  = self::get_pending_questions();
 		$ai_configured      = '' !== Citex_AI_V2::get_api_key();
 		require CITEX_TOOLS_PATH . 'admin/views/generate.php';
@@ -233,6 +164,7 @@ class Citex_Generator {
 	public function maybe_handle_submit() {
 		if (
 			empty( $_POST['citex_generate_submit'] ) &&
+			empty( $_POST['citex_generate_and_populate_submit'] ) &&
 			empty( $_POST['citex_clear_pending'] ) &&
 			empty( $_POST['citex_delete_pending'] ) &&
 			empty( $_POST['citex_validate_pending'] ) &&
@@ -271,31 +203,41 @@ class Citex_Generator {
 			$this->validate_one_pending( $key );
 		}
 
-		$this->handle_generation();
+		$this->handle_generation( ! empty( $_POST['citex_generate_and_populate_submit'] ) );
 	}
 
-	private function handle_generation() {
-		$style       = isset( $_POST['citex_referencing_style'] ) ? sanitize_key( wp_unslash( $_POST['citex_referencing_style'] ) ) : '';
-		$category    = isset( $_POST['citex_category'] ) ? sanitize_key( wp_unslash( $_POST['citex_category'] ) ) : '';
-		$type        = isset( $_POST['citex_question_type'] ) ? sanitize_key( wp_unslash( $_POST['citex_question_type'] ) ) : '';
-		$difficulty  = isset( $_POST['citex_difficulty'] ) ? sanitize_key( wp_unslash( $_POST['citex_difficulty'] ) ) : 'medium';
-		$quantity    = isset( $_POST['citex_quantity'] ) ? absint( $_POST['citex_quantity'] ) : 10;
-		$starting_id = isset( $_POST['citex_starting_id'] ) ? strtoupper( sanitize_text_field( wp_unslash( $_POST['citex_starting_id'] ) ) ) : 'BK01';
-		$web_verify  = ! empty( $_POST['citex_ai_web_verify'] );
-		$group       = isset( $_POST['citex_question_group'] ) ? sanitize_key( wp_unslash( $_POST['citex_question_group'] ) ) : 'referencelist';
+	/**
+	 * Question Type (DragDrop/MCQ), Citation Form (Narrative/Parenthetical/
+	 * Parenthetical Quote — In-Text Citation only) and Author Count are no
+	 * longer admin-facing choices — every batch is always an even DragDrop
+	 * + MCQ split, an even split across all 3 Citation Forms, and an equal
+	 * split across every Author Count scenario bucket, and the Starting ID
+	 * is always freshly auto-computed — removed after a reported request
+	 * to cut down the number of choices needed before generating (see
+	 * handle_mixed_generation()/generate_for_type()/
+	 * Citex_Question_Diversity::assign_scenarios_equally()).
+	 *
+	 * @param bool $publish_immediately Also populate every newly-generated,
+	 *             newly-validated-as-passed question straight into the
+	 *             real Reference List/Citations, published — the
+	 *             "Generate & Publish" action. False runs the plain
+	 *             "Generate" action, leaving the batch in Pending exactly
+	 *             as before.
+	 */
+	private function handle_generation( $publish_immediately = false ) {
+		$style      = isset( $_POST['citex_referencing_style'] ) ? sanitize_key( wp_unslash( $_POST['citex_referencing_style'] ) ) : '';
+		$category   = isset( $_POST['citex_category'] ) ? sanitize_key( wp_unslash( $_POST['citex_category'] ) ) : '';
+		$difficulty = isset( $_POST['citex_difficulty'] ) ? sanitize_key( wp_unslash( $_POST['citex_difficulty'] ) ) : 'hard';
+		$quantity   = isset( $_POST['citex_quantity'] ) ? absint( $_POST['citex_quantity'] ) : 10;
+		$group      = isset( $_POST['citex_question_group'] ) ? sanitize_key( wp_unslash( $_POST['citex_question_group'] ) ) : 'referencelist';
 		if ( ! in_array( $group, array( 'referencelist', 'intext' ), true ) ) {
 			$group = 'referencelist';
 		}
-		$citation_form = isset( $_POST['citex_citation_form'] ) ? sanitize_key( wp_unslash( $_POST['citex_citation_form'] ) ) : 'narrative';
-		if ( ! in_array( $citation_form, array( 'narrative', 'parenthetical', 'parenthetical_quote' ), true ) ) {
-			$citation_form = 'narrative';
-		}
-		$forced_scenario_id = isset( $_POST['citex_author_count_scenario'] ) ? sanitize_key( wp_unslash( $_POST['citex_author_count_scenario'] ) ) : 'auto';
 
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 
-		$quantity   = max( 1, min( 100, $quantity ) );
-		$style_ok   = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
+		$quantity = max( 1, min( 100, $quantity ) );
+		$style_ok = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
 		// MLA and APA reference-list both now cover all 4 categories (Book,
 		// Edited Book, Journal Article, Website) — the same shared-structure
 		// build-out already used for in-text citation (see
@@ -306,8 +248,8 @@ class Citex_Generator {
 		// docblocks) and are checked separately below, once
 		// $category_labels/$group are both resolved.
 		$category_ok = isset( $category_labels[ $category ] );
-		if ( ! $style_ok || ! $category_ok || ! in_array( $type, array( 'dragdrop', 'mcq' ), true ) ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA, APA, Chicago or MHRA, for Book, Edited Book, Journal Article or Website, as DragDrop or MCQ.', 'citex-tools' ), 'error' );
+		if ( ! $style_ok || ! $category_ok ) {
+			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA, APA, Chicago or MHRA, for Book, Edited Book, Journal Article or Website.', 'citex-tools' ), 'error' );
 			$this->redirect_back();
 		}
 		// Chicago (Author-Date) Reference List now covers all 4 categories
@@ -332,58 +274,232 @@ class Citex_Generator {
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
-			$difficulty = 'medium';
+			$difficulty = 'hard';
 		}
 
 		$category_label = $category_labels[ $category ];
-		$starting_id    = self::normalise_starting_id( $starting_id, $category_label, $style, $group, $type );
+		$web_verify      = Citex_AI_V2::web_verification_enabled();
 
-		$type_label  = 'mcq' === $type ? 'MCQ' : 'DragDrop';
+		$this->handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately );
+		// Always redirects (and exits).
+	}
 
-		// A forced Author Count bucket must actually exist in this
-		// category/type's own scenario catalog (the SAME catalog
-		// generate_via_scenarios() otherwise auto-selects from) — an
-		// unrecognised or stale value (e.g. a scenario id left over from a
-		// previously selected category) silently falls back to 'auto'
-		// rather than erroring, matching $difficulty's own fallback pattern
-		// above.
-		if ( 'auto' !== $forced_scenario_id && ! Citex_Question_Scenarios::find( $category_label, $type_label, $forced_scenario_id ) ) {
-			$forced_scenario_id = 'auto';
+	/**
+	 * An even split between DragDrop and MCQ in one submission (a reported
+	 * request: "generate 10 questions, 5 DragDrop and 5 MCQ" rather than
+	 * having to run two separate batches and match their quantities up by
+	 * hand) — the only path handle_generation() now uses. DragDrop gets
+	 * the extra question on an odd total (e.g. 11 -> 6 DragDrop + 5 MCQ).
+	 *
+	 * Each half is generated via generate_for_type() (which further
+	 * splits evenly across all 3 Citation Forms for In-Text Citation —
+	 * see its own docblock), with its own starting ID (DragDrop's own
+	 * unchanged prefix; MCQ's own "Q"-suffixed prefix — see
+	 * normalise_starting_id()'s own docblock), so the two types number
+	 * independently exactly like a manually-run separate DragDrop batch
+	 * and MCQ batch would.
+	 *
+	 * With $publish_immediately, every successfully generated question is
+	 * also validated and, for whichever pass, immediately populated into
+	 * the real Reference List/Citations as Published — the "Generate &
+	 * Publish" action — via Citex_Populator::populate_questions(), the
+	 * exact same population logic (and post-save verification) the
+	 * Populate screen's own submit handler uses, just invoked directly
+	 * with this freshly generated batch instead of a separate trip through
+	 * that screen.
+	 *
+	 * Always redirects (and exits).
+	 */
+	private function handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately = false ) {
+		$dragdrop_quantity = (int) ceil( $quantity / 2 );
+		$mcq_quantity      = $quantity - $dragdrop_quantity;
+
+		$dragdrop_starting_id = self::normalise_starting_id( '', $category_label, $style, $group, 'dragdrop' );
+		$mcq_starting_id      = self::normalise_starting_id( '', $category_label, $style, $group, 'mcq' );
+
+		$pending  = self::get_pending_questions();
+		$used_ids = $this->collect_used_question_ids( $pending );
+
+		$result = array();
+
+		if ( $dragdrop_quantity > 0 ) {
+			$dragdrop_result = $this->generate_for_type( $category_label, $category, 'DragDrop', 'dragdrop', $dragdrop_quantity, $dragdrop_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group );
+			if ( is_wp_error( $dragdrop_result ) ) {
+				Citex_Admin::set_notice( $dragdrop_result->get_error_message(), 'error' );
+				$this->redirect_back();
+			}
+			foreach ( $dragdrop_result as $candidate ) {
+				$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
+				if ( '' !== $id ) {
+					$used_ids[ $id ] = true;
+				}
+			}
+			$result = array_merge( $result, $dragdrop_result );
 		}
 
-		$pending     = self::get_pending_questions();
-		$used_ids    = $this->collect_used_question_ids( $pending );
-		$result      = $this->generate_via_scenarios( $category_label, $category, $type_label, $type, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, $citation_form, $forced_scenario_id );
-
-		if ( is_wp_error( $result ) ) {
-			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
-			$this->redirect_back();
+		if ( $mcq_quantity > 0 ) {
+			$mcq_result = $this->generate_for_type( $category_label, $category, 'MCQ', 'mcq', $mcq_quantity, $mcq_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group );
+			if ( is_wp_error( $mcq_result ) ) {
+				Citex_Admin::set_notice( $mcq_result->get_error_message(), 'error' );
+				$this->redirect_back();
+			}
+			$result = array_merge( $result, $mcq_result );
 		}
 
 		self::save_pending_questions( array_merge( $pending, $result ) );
 
-		$coverage_after = self::compute_category_coverage( $category_label );
-		$type_covered = 0;
+		$coverage_after   = self::compute_category_coverage( $category_label );
+		$dragdrop_covered = 0;
+		$mcq_covered      = 0;
 		foreach ( $coverage_after as $counts ) {
-			if ( ( $counts[ $type_label ] ?? 0 ) > 0 ) {
-				$type_covered++;
+			if ( ( $counts['DragDrop'] ?? 0 ) > 0 ) {
+				$dragdrop_covered++;
+			}
+			if ( ( $counts['MCQ'] ?? 0 ) > 0 ) {
+				$mcq_covered++;
 			}
 		}
 		$message = sprintf(
-			_n( '%d AI question generated and saved to Pending. Validate it when ready — only validated questions can be populated.', '%d AI questions generated and saved to Pending. Validate them when ready — only validated questions can be populated.', count( $result ), 'citex-tools' ),
-			count( $result )
+			__( '%1$d AI questions generated and saved to Pending (%2$d DragDrop, %3$d MCQ).', 'citex-tools' ),
+			count( $result ),
+			$dragdrop_quantity,
+			$mcq_quantity
 		);
 		$message .= ' ' . sprintf(
-			__( '%1$s %2$s exercise coverage: %3$d/5 exercises now have at least one question.', 'citex-tools' ),
+			__( '%1$s exercise coverage: DragDrop %2$d/5, MCQ %3$d/5 exercises now have at least one question.', 'citex-tools' ),
 			$category_label,
-			$type_label,
-			$type_covered
+			$dragdrop_covered,
+			$mcq_covered
 		);
-		if ( $type_covered < 5 ) {
+		if ( $dragdrop_covered < 5 || $mcq_covered < 5 ) {
 			$message .= ' ' . __( 'Coverage is not yet complete.', 'citex-tools' );
 		}
-		Citex_Admin::set_notice( $message, 'success' );
+
+		if ( ! $publish_immediately ) {
+			$message = str_replace( '.  ', '. ', $message . ' ' . __( 'Validate them when ready — only validated questions can be populated.', 'citex-tools' ) );
+			Citex_Admin::set_notice( $message, 'success' );
+			$this->redirect_back();
+		}
+
+		// "Generate & Publish": validate this freshly generated batch (only
+		// this batch — never re-validates the rest of the pending queue),
+		// then immediately populate whichever of it passed, Published,
+		// using the exact same Citex_Populator logic the Populate screen's
+		// own submit handler uses.
+		$new_keys = array();
+		foreach ( $result as $candidate ) {
+			$key = (string) ( $candidate['key'] ?? '' );
+			if ( '' !== $key ) {
+				$new_keys[ $key ] = true;
+			}
+		}
+
+		$all_pending = self::get_pending_questions();
+		$passed      = array();
+		foreach ( $all_pending as &$question ) {
+			if ( ! isset( $new_keys[ (string) ( $question['key'] ?? '' ) ] ) ) {
+				continue;
+			}
+			$validated = Citex_Generated_Validator::validate( $question );
+			$question['validationStatus'] = $validated['status'];
+			$question['validationErrors'] = $validated['errors'];
+			$question['validatedAt']      = $validated['validatedAt'];
+			if ( ! empty( $validated['reconstructedReference'] ) ) {
+				$question['validatedReference'] = $validated['reconstructedReference'];
+			}
+			if ( 'passed' === $validated['status'] ) {
+				$passed[] = $question;
+			}
+		}
+		unset( $question );
+		self::save_pending_questions( $all_pending );
+
+		if ( empty( $passed ) ) {
+			$message .= ' ' . sprintf(
+				__( 'Validated: 0/%d passed, so nothing was published — the failing question(s) are still in Pending for review.', 'citex-tools' ),
+				count( $result )
+			);
+			Citex_Admin::set_notice( $message, 'warning' );
+			$this->redirect_back();
+		}
+
+		$populate_result  = ( new Citex_Populator() )->populate_questions( $passed, 'publish' );
+		$population_message = Citex_Populator::build_population_message( $populate_result['created'], $populate_result['failed'], $populate_result['createdByTarget'] );
+		$message .= ' ' . sprintf(
+			__( 'Validated: %1$d/%2$d passed.', 'citex-tools' ),
+			count( $passed ),
+			count( $result )
+		) . ' ' . $population_message;
+		Citex_Admin::set_notice( $message, empty( $populate_result['failed'] ) ? 'success' : 'warning' );
 		$this->redirect_back();
+	}
+
+	/**
+	 * Runs generate_via_scenarios() for one Question Type, splitting
+	 * further across all 3 Citation Forms (evenly, via
+	 * Citex_Generator::split_evenly()) whenever $group is 'intext' —
+	 * Citation Form has no meaning for Reference List and is never split
+	 * there. Every form sub-batch reuses the SAME $starting_id: Citation
+	 * Form is not reflected in the ID prefix at all (see
+	 * self::intext_id_prefix()'s own docblock — prefixes are keyed by
+	 * category + style only), so the existing "skip already-used IDs"
+	 * logic in Citex_AI_V2::build_ids() naturally continues one single
+	 * count across forms as $used_ids accumulates from each prior form's
+	 * own result, with no separate prefix needed per form.
+	 *
+	 * Author Count is always 'auto' here (equal split — see
+	 * Citex_Question_Diversity::assign_scenarios_equally()), since forcing
+	 * one specific bucket is no longer an admin-facing choice.
+	 *
+	 * @return array|WP_Error
+	 */
+	private function generate_for_type( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group ) {
+		if ( 'intext' !== $group ) {
+			return $this->generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, 'narrative', 'auto' );
+		}
+
+		$forms       = array( 'narrative', 'parenthetical', 'parenthetical_quote' );
+		$buckets     = self::split_evenly( $quantity, count( $forms ) );
+		$all_results = array();
+		foreach ( $forms as $index => $form ) {
+			$form_quantity = $buckets[ $index ];
+			if ( $form_quantity < 1 ) {
+				continue;
+			}
+			$form_result = $this->generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $form_quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, $form, 'auto' );
+			if ( is_wp_error( $form_result ) ) {
+				return $form_result;
+			}
+			foreach ( $form_result as $candidate ) {
+				$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
+				if ( '' !== $id ) {
+					$used_ids[ $id ] = true;
+				}
+			}
+			$all_results = array_merge( $all_results, $form_result );
+		}
+		return $all_results;
+	}
+
+	/**
+	 * Splits $total into $bucket_count near-equal integer parts, giving
+	 * the remainder to the first buckets (e.g. split_evenly(10, 3) ->
+	 * [4, 3, 3]). Shared by every even-split feature in this class
+	 * (DragDrop/MCQ, Citation Form).
+	 *
+	 * @return int[]
+	 */
+	private static function split_evenly( $total, $bucket_count ) {
+		if ( $bucket_count < 1 ) {
+			return array();
+		}
+		$base      = intdiv( $total, $bucket_count );
+		$remainder = $total % $bucket_count;
+		$buckets   = array_fill( 0, $bucket_count, $base );
+		for ( $i = 0; $i < $remainder; $i++ ) {
+			$buckets[ $i ]++;
+		}
+		return $buckets;
 	}
 
 	/**
@@ -415,17 +531,22 @@ class Citex_Generator {
 		// target-count enforcement) — there is nothing in its response to
 		// trust or distrust for either dimension.
 		$exercise_assignments = self::build_exercise_assignments( $category_label, $type_label, $quantity );
-		// An admin-forced Author Count bucket (validated against
-		// Citex_Question_Scenarios::find() by the caller already) assigns
-		// every slot in this batch to that ONE bucket instead of letting
-		// Citex_Question_Diversity spread across all of them — the
-		// concrete fix for "separate single-author questions" from a
-		// blended batch. Batch-history recording is unaffected: that still
-		// happens inside Citex_AI_V2::generate_questions() itself, keyed
-		// off the same scenario id either way.
+		// A forced Author Count bucket (still supported internally, though
+		// no longer reachable from the simplified admin form — see
+		// handle_generation()) assigns every slot in this batch to that
+		// ONE bucket instead of splitting across all of them. Otherwise
+		// (the only path the admin form itself ever exercises now),
+		// Citex_Question_Diversity::assign_scenarios_equally() splits this
+		// batch's own quantity as evenly as possible across every scenario
+		// bucket — considering ONLY this one batch, never cross-batch
+		// history, which is what guarantees a batch of 10 never lands
+		// "too many of a particular author count" (a reported problem with
+		// the older assign_scenarios(), which balances out across many
+		// batches over time but can leave any ONE batch lopsided whenever
+		// history already happened to be skewed).
 		$scenario_assignments = 'auto' !== $forced_scenario_id
 			? array_fill( 0, max( 0, (int) $quantity ), $forced_scenario_id )
-			: Citex_Question_Diversity::assign_scenarios( $category_label, $type_label, $quantity );
+			: Citex_Question_Diversity::assign_scenarios_equally( $category_label, $type_label, $quantity );
 
 		$groups      = array();
 		$group_order = array();

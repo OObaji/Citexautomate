@@ -117,6 +117,43 @@ class Citex_Question_Diversity {
 	}
 
 	/**
+	 * Splits $quantity as evenly as possible across every scenario bucket
+	 * in this category+type's own catalog, considering ONLY this one
+	 * batch — never cross-batch history. This is deliberately different
+	 * from assign_scenarios() above: that method starts from each
+	 * bucket's own historical count and always fills the currently-lowest
+	 * one first, which balances out over MANY batches but can leave a
+	 * SINGLE batch entirely lopsided (e.g. every one of 10 new questions
+	 * landing in the same author-count bucket) whenever history already
+	 * happens to be skewed — a reported real complaint ("too many of a
+	 * particular author count" in one batch). This method never reads
+	 * history at all, so a batch of 10 across 4 buckets always comes out
+	 * 3/3/2/2 (or all-equal buckets when $quantity divides evenly), no
+	 * matter what earlier batches looked like — the round-robin cycle
+	 * gives the extra remainder slots to the first buckets, in catalog
+	 * order.
+	 *
+	 * @return string[] Scenario id for each of the $quantity slots, in order.
+	 */
+	public static function assign_scenarios_equally( $category, $question_type, $quantity ) {
+		$scenarios = Citex_Question_Scenarios::catalog( $category, $question_type );
+		if ( empty( $scenarios ) ) {
+			return array_fill( 0, max( 0, (int) $quantity ), null );
+		}
+
+		$ids = array();
+		foreach ( $scenarios as $scenario ) {
+			$ids[] = $scenario['id'];
+		}
+
+		$assignments = array();
+		for ( $i = 0; $i < $quantity; $i++ ) {
+			$assignments[] = $ids[ $i % count( $ids ) ];
+		}
+		return $assignments;
+	}
+
+	/**
 	 * True when $reference already appears (case-insensitively,
 	 * whitespace-normalised) among $existing_references — the concrete,
 	 * checkable "too similar" case this increment guards against: Gemini

@@ -208,27 +208,48 @@ class Citex_Populator {
 			$this->redirect_back();
 		}
 
-		// In-Text Citation questions populate into the real Citations post
-		// type — a genuinely separate WordPress list from the Reference
-		// List (confirmed live: the site's admin sidebar shows "Reference
-		// List" and "Citations" as two distinct top-level screens), never
-		// mixed into the same destination. Every other group (including
-		// the default 'ReferenceList') keeps populating into the
-		// Reference List exactly as before. One population run can
-		// legitimately contain both, so it is split into up to 2
-		// independent batches — each resolves its own scan/post type/
-		// template/field maps via populate_batch() — before merging their
-		// results back into one notice.
+		$result  = $this->populate_questions( $eligible, $final_status );
+		$message = self::build_population_message( $result['created'], $result['failed'], $result['createdByTarget'] );
+		Citex_Admin::set_notice( $message, empty( $result['failed'] ) ? 'success' : 'warning' );
+		$this->redirect_back();
+	}
+
+	/**
+	 * Populates one already-filtered batch of eligible (validationStatus
+	 * === 'passed') pending questions into the real Reference List /
+	 * Citations post types, routing each question to its own real
+	 * destination automatically (see Citex_Scanner::target_for_group()'s
+	 * own docblock — In-Text Citation questions populate into the real
+	 * Citations post type, a genuinely separate WordPress list from the
+	 * Reference List, never mixed into the same destination; one call can
+	 * legitimately contain both, split into up to 2 independent batches).
+	 *
+	 * Pure logic only — no $_POST reading, nonce check, notice, or
+	 * redirect — so it is reusable both by this class's own Populate
+	 * screen submit handler above, and by Citex Generator's "Generate &
+	 * Publish" action, which populates a freshly generated batch
+	 * immediately without a separate trip through the Populate screen.
+	 *
+	 * @param array  $eligible     Pending questions to populate — the
+	 *                             caller is responsible for having already
+	 *                             filtered to validationStatus === 'passed'
+	 *                             and whatever scope it wants (all passed,
+	 *                             a selection, or one freshly generated
+	 *                             batch).
+	 * @param string $final_status 'draft' or 'publish'.
+	 * @return array{created: array[], failed: string[], successfulKeys: string[], createdByTarget: array{reference:int, citations:int}}
+	 */
+	public function populate_questions( array $eligible, $final_status ) {
 		$batches = array( 'reference' => array(), 'citations' => array() );
 		foreach ( $eligible as $question ) {
 			$batches[ Citex_Scanner::target_for_group( $question['group'] ?? '' ) ][] = $question;
 		}
 
-		$successful_keys = array();
-		$created          = array();
-		$failed           = array();
+		$successful_keys   = array();
+		$created           = array();
+		$failed            = array();
 		$created_by_target = array( 'reference' => 0, 'citations' => 0 );
-		$synced_targets     = array();
+		$synced_targets    = array();
 
 		foreach ( $batches as $target => $questions ) {
 			if ( empty( $questions ) ) {
@@ -247,7 +268,7 @@ class Citex_Populator {
 		if ( ! empty( $successful_keys ) ) {
 			$pending = array_values(
 				array_filter(
-					$pending,
+					Citex_Generator::get_pending_questions(),
 					function ( $question ) use ( $successful_keys ) {
 						return ! in_array( (string) ( $question['key'] ?? '' ), $successful_keys, true );
 					}
@@ -259,10 +280,27 @@ class Citex_Populator {
 			}
 		}
 
+		return array(
+			'created'         => $created,
+			'failed'          => $failed,
+			'successfulKeys'  => $successful_keys,
+			'createdByTarget' => $created_by_target,
+		);
+	}
+
+	/**
+	 * The exact same human-readable population summary this class has
+	 * always shown on the Populate screen (created/failed counts, per-
+	 * question verification detail for up to 3 created questions, up to 3
+	 * failure messages) — extracted so Citex Generator's "Generate &
+	 * Publish" action can show the identical summary shape, not a
+	 * second, differently-worded one.
+	 */
+	public static function build_population_message( array $created, array $failed, array $created_by_target ) {
 		$message = sprintf(
 			__( 'Population complete. Created in Reference List: %1$d. Created in Citations: %2$d. Failed: %3$d.', 'citex-tools' ),
-			$created_by_target['reference'],
-			$created_by_target['citations'],
+			$created_by_target['reference'] ?? 0,
+			$created_by_target['citations'] ?? 0,
 			count( $failed )
 		);
 		if ( ! empty( $created ) ) {
@@ -290,8 +328,7 @@ class Citex_Populator {
 		if ( ! empty( $failed ) ) {
 			$message .= ' ' . implode( ' | ', array_slice( $failed, 0, 3 ) );
 		}
-		Citex_Admin::set_notice( $message, empty( $failed ) ? 'success' : 'warning' );
-		$this->redirect_back();
+		return $message;
 	}
 
 	/**

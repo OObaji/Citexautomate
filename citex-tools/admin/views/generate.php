@@ -16,85 +16,30 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<div class="notice notice-success inline"><p><strong><?php esc_html_e( 'Gemini connected.', 'citex-tools' ); ?></strong> <?php echo esc_html( Citex_AI_V2::get_model() ); ?><?php if ( Citex_AI_V2::web_verification_enabled() ) : ?> — <?php esc_html_e( 'web verification enabled', 'citex-tools' ); ?><?php endif; ?>.</p></div>
 	<?php endif; ?>
 
+	<p class="description">
+		<?php esc_html_e( 'Question Type (DragDrop/MCQ), Citation Form (for In-Text Citation) and Author Count are no longer chosen here — every batch is automatically split evenly across DragDrop and MCQ, evenly across every Citation Form, and equally across every Author Count scenario, so a batch never lands lopsided. Question IDs are always freshly auto-numbered.', 'citex-tools' ); ?>
+	</p>
+
 	<form method="post" class="citex-form">
 		<?php wp_nonce_field( Citex_Generator::NONCE_ACTION, 'citex_generate_nonce' ); ?>
 		<table class="form-table" role="presentation">
 			<tr><th scope="row"><label for="citex_question_group"><?php esc_html_e( 'Question Focus', 'citex-tools' ); ?></label></th><td><select id="citex_question_group" name="citex_question_group"><?php foreach ( $question_groups as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p class="description"><?php esc_html_e( 'Reference List builds a full bibliography entry. In-Text Citation builds the short in-sentence/parenthetical citation instead — available for every category under both styles.', 'citex-tools' ); ?></p></td></tr>
-			<tr id="citex_citation_form_row" style="display:none;"><th scope="row"><label for="citex_citation_form"><?php esc_html_e( 'Citation Form', 'citex-tools' ); ?></label></th><td><select id="citex_citation_form" name="citex_citation_form"><?php foreach ( $citation_forms as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_referencing_style"><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></label></th><td><select id="citex_referencing_style" name="citex_referencing_style"><?php foreach ( $referencing_styles as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" data-id-prefix="<?php echo esc_attr( $id_prefixes[ $value ] ?? '' ); ?>" data-mla-id-prefix="<?php echo esc_attr( $mla_id_prefixes[ $value ] ?? '' ); ?>" data-apa-id-prefix="<?php echo esc_attr( $apa_id_prefixes[ $value ] ?? '' ); ?>" data-chicago-id-prefix="<?php echo esc_attr( $chicago_id_prefixes[ $value ] ?? '' ); ?>" data-mhra-id-prefix="<?php echo esc_attr( $mhra_id_prefixes[ $value ] ?? '' ); ?>" data-intext-id-prefix="<?php echo esc_attr( $intext_id_prefixes[ $value ] ?? '' ); ?>" data-mla-intext-id-prefix="<?php echo esc_attr( $mla_intext_id_prefixes[ $value ] ?? '' ); ?>" data-apa-intext-id-prefix="<?php echo esc_attr( $apa_intext_id_prefixes[ $value ] ?? '' ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p id="citex_chicago_scope_note" class="description citex-chicago-scope-note" style="display:none;"><?php esc_html_e( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p><p id="citex_mhra_scope_note" class="description citex-mhra-scope-note" style="display:none;"><?php esc_html_e( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p></td></tr>
-			<tr><th scope="row"><label for="citex_question_type"><?php esc_html_e( 'Question Type', 'citex-tools' ); ?></label></th><td><select id="citex_question_type" name="citex_question_type"><?php foreach ( $question_types as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_author_count_scenario"><?php esc_html_e( 'Author Count', 'citex-tools' ); ?></label></th><td><select id="citex_author_count_scenario" name="citex_author_count_scenario"><option value="auto"><?php esc_html_e( 'Mixed / Auto (recommended)', 'citex-tools' ); ?></option></select><p class="description"><?php esc_html_e( 'Leave on Auto to spread the batch across every author-count scenario for this category. Pick one to force the whole batch onto it instead — e.g. generate a batch of single-author questions only.', 'citex-tools' ); ?></p></td></tr>
-			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'medium', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_starting_id"><?php esc_html_e( 'Starting Question ID', 'citex-tools' ); ?></label></th><td><input type="text" id="citex_starting_id" name="citex_starting_id" value="<?php echo esc_attr( ( $id_prefixes['book'] ?? 'BK' ) . '01' ); ?>" class="regular-text" /><p class="description"><?php esc_html_e( 'Each category has its own ID prefix (e.g. BK for Book, ED for Edited Book, JA for Journal Article, WR for Website — prefixed with I/MI for In-Text Citation), and MCQ gets a "Q" appended onto that same prefix (e.g. BKQ, IBQ) — each of these starts its own numbering fresh at 01, so DragDrop and MCQ never share one interleaved count. Updates automatically when you change Category, Referencing Style, Question Focus or Question Type. Existing Reference List and pending IDs within that category/type are skipped automatically.', 'citex-tools' ); ?></p></td></tr>
-			<tr><th scope="row"><label for="citex_quantity"><?php esc_html_e( 'Quantity', 'citex-tools' ); ?></label></th><td><input type="number" id="citex_quantity" name="citex_quantity" value="20" min="1" max="100" class="small-text" /><p class="description"><?php esc_html_e( 'Generate up to 100 questions in one batch.', 'citex-tools' ); ?></p></td></tr>
-			<tr><th scope="row"><?php esc_html_e( 'Bibliographic Verification', 'citex-tools' ); ?></th><td><label><input type="checkbox" name="citex_ai_web_verify" value="1" <?php checked( Citex_AI_V2::web_verification_enabled(), true ); ?> /> <?php esc_html_e( 'Use Gemini Google Search to verify books, authors, years, publishers and places before returning questions.', 'citex-tools' ); ?></label><p class="description"><?php esc_html_e( 'Recommended for real questions. It may use additional Gemini tool quota.', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p id="citex_chicago_scope_note" class="description citex-chicago-scope-note" style="display:none;"><?php esc_html_e( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p><p id="citex_mhra_scope_note" class="description citex-mhra-scope-note" style="display:none;"><?php esc_html_e( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'hard', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
+			<tr><th scope="row"><label for="citex_quantity"><?php esc_html_e( 'Quantity', 'citex-tools' ); ?></label></th><td><input type="number" id="citex_quantity" name="citex_quantity" value="20" min="1" max="100" class="small-text" /><p class="description"><?php esc_html_e( 'Generate up to 100 questions in one batch, split evenly across DragDrop/MCQ (and Citation Form, for In-Text Citation).', 'citex-tools' ); ?></p></td></tr>
 		</table>
-		<p class="submit"><button type="submit" name="citex_generate_submit" value="1" class="button button-primary" <?php disabled( ! $ai_configured ); ?>><?php esc_html_e( 'Generate Real Questions with Gemini', 'citex-tools' ); ?></button> <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-ai' ) ); ?>"><?php esc_html_e( 'AI Settings', 'citex-tools' ); ?></a></p>
+		<p class="submit">
+			<button type="submit" name="citex_generate_submit" value="1" class="button button-primary" <?php disabled( ! $ai_configured ); ?>><?php esc_html_e( 'Generate Real Questions with Gemini', 'citex-tools' ); ?></button>
+			<button type="submit" name="citex_generate_and_populate_submit" value="1" class="button button-primary" <?php disabled( ! $ai_configured ); ?>><?php esc_html_e( 'Generate & Publish', 'citex-tools' ); ?></button>
+			<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=citex-ai' ) ); ?>"><?php esc_html_e( 'AI Settings', 'citex-tools' ); ?></a>
+		</p>
+		<p class="description"><?php esc_html_e( '"Generate & Publish" also validates this batch and immediately populates whichever questions pass straight into the real Reference List/Citations as Published — skipping the separate Validate and Populate steps for this batch. Anything that fails validation stays in Pending below for review.', 'citex-tools' ); ?></p>
 	</form>
 	<script>
 	( function () {
-		var categorySelect  = document.getElementById( 'citex_category' );
-		var startingIdField = document.getElementById( 'citex_starting_id' );
-		var styleSelect      = document.getElementById( 'citex_referencing_style' );
-		var groupSelect       = document.getElementById( 'citex_question_group' );
-		var citationFormRow   = document.getElementById( 'citex_citation_form_row' );
-		var typeSelect         = document.getElementById( 'citex_question_type' );
-		var authorCountSelect  = document.getElementById( 'citex_author_count_scenario' );
-		var scenarioCatalog    = <?php echo wp_json_encode( $scenario_catalog ); ?>;
-
-		// Keeps "Starting Question ID" in sync with the selected Category's
-		// own ID prefix (BK/ED/... for Reference List, IB/IE/.../MIB/MIE/...
-		// for In-Text Citation) so each category/style/focus combination
-		// visibly starts fresh at 01 instead of showing a leftover prefix
-		// from a different combination. Only overwrites the field when it
-		// still looks like a bare "<PREFIX>01" default — a value the admin
-		// has deliberately edited (e.g. "ED05" to resume a gap) is left
-		// alone.
-		function syncStartingId() {
-			if ( ! categorySelect || ! startingIdField ) {
-				return;
-			}
-			var option = categorySelect.options[ categorySelect.selectedIndex ];
-			if ( ! option ) {
-				return;
-			}
-			var style    = styleSelect ? styleSelect.value : 'harvard';
-			var isIntext = groupSelect && 'intext' === groupSelect.value;
-			var attr;
-			if ( isIntext ) {
-				// Chicago has no In-Text Citation prefix at all yet (still a
-				// later phase — see syncChicagoScope()'s own "referencelist
-				// only" lock, which prevents this branch from ever running
-				// while Chicago is selected), so it is deliberately absent
-				// from this lookup.
-				attr = 'mla' === style ? 'data-mla-intext-id-prefix' : ( 'apa' === style ? 'data-apa-intext-id-prefix' : 'data-intext-id-prefix' );
-			} else if ( 'chicago' === style ) {
-				attr = 'data-chicago-id-prefix';
-			} else if ( 'mhra' === style ) {
-				attr = 'data-mhra-id-prefix';
-			} else if ( 'apa' === style ) {
-				attr = 'data-apa-id-prefix';
-			} else if ( 'mla' === style ) {
-				attr = 'data-mla-id-prefix';
-			} else {
-				attr = 'data-id-prefix';
-			}
-			var prefix = option.getAttribute( attr );
-			if ( ! prefix ) {
-				return;
-			}
-			// MCQ gets its own "Q"-suffixed prefix (IB -> IBQ, BK -> BKQ,
-			// etc.) so it numbers independently from DragDrop, starting
-			// fresh at 01 too, instead of the two types sharing one
-			// interleaved count.
-			if ( typeSelect && 'mcq' === typeSelect.value ) {
-				prefix += 'Q';
-			}
-			if ( /^[A-Z]+01$/.test( startingIdField.value.trim().toUpperCase() ) ) {
-				startingIdField.value = prefix + '01';
-			}
-		}
+		var styleSelect = document.getElementById( 'citex_referencing_style' );
+		var groupSelect  = document.getElementById( 'citex_question_group' );
 
 		// Chicago (Author-Date) Reference List now covers all 4 categories
 		// (the same Phase 2 build-out APA/MLA already went through) — only
@@ -154,82 +99,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 			}
 		}
 
-		// Shows the Citation Form dropdown only when Question Focus is
-		// In-Text Citation — irrelevant (and never read server-side) for a
-		// Reference List batch.
-		function syncCitationFormVisibility() {
-			if ( ! citationFormRow || ! groupSelect ) {
-				return;
-			}
-			citationFormRow.style.display = 'intext' === groupSelect.value ? '' : 'none';
-		}
-
-		// Rebuilds the Author Count dropdown's options from the SAME
-		// scenario catalog Citex_Question_Scenarios already exposes for the
-		// currently selected Category + Question Type — always keeping the
-		// leading "Mixed / Auto" option first, and resetting to it if the
-		// previously-selected bucket id doesn't exist for the new
-		// category/type (e.g. switching from Book to Website, which has no
-		// author-count buckets).
-		function syncAuthorCountOptions() {
-			if ( ! authorCountSelect || ! categorySelect || ! typeSelect ) {
-				return;
-			}
-			var categoryKey = categorySelect.value;
-			var typeKey      = typeSelect.value;
-			var previous      = authorCountSelect.value;
-			var options       = ( scenarioCatalog[ categoryKey ] && scenarioCatalog[ categoryKey ][ typeKey ] ) || {};
-
-			authorCountSelect.innerHTML = '';
-			var autoOption = document.createElement( 'option' );
-			autoOption.value = 'auto';
-			autoOption.textContent = '<?php echo esc_js( __( 'Mixed / Auto (recommended)', 'citex-tools' ) ); ?>';
-			authorCountSelect.appendChild( autoOption );
-
-			var hasPrevious = false;
-			Object.keys( options ).forEach( function ( id ) {
-				var opt = document.createElement( 'option' );
-				opt.value = id;
-				opt.textContent = options[ id ];
-				authorCountSelect.appendChild( opt );
-				if ( id === previous ) {
-					hasPrevious = true;
-				}
-			} );
-			authorCountSelect.value = hasPrevious ? previous : 'auto';
-		}
-
-		if ( categorySelect ) {
-			categorySelect.addEventListener( 'change', function () {
-				syncStartingId();
-				syncAuthorCountOptions();
-			} );
-		}
 		if ( styleSelect ) {
 			styleSelect.addEventListener( 'change', function () {
 				syncChicagoScope();
 				syncMhraScope();
-				syncStartingId();
-				syncAuthorCountOptions();
-			} );
-		}
-		if ( groupSelect ) {
-			groupSelect.addEventListener( 'change', function () {
-				syncStartingId();
-				syncCitationFormVisibility();
-			} );
-		}
-		if ( typeSelect ) {
-			typeSelect.addEventListener( 'change', function () {
-				syncStartingId();
-				syncAuthorCountOptions();
 			} );
 		}
 
 		syncChicagoScope();
 		syncMhraScope();
-		syncCitationFormVisibility();
-		syncAuthorCountOptions();
 	} )();
 	</script>
 

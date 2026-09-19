@@ -143,5 +143,45 @@ check(
 check( '[6] an empty reference is never flagged as a duplicate', Citex_Question_Diversity::is_duplicate_reference( '', $existing ), false );
 check( '[6] an empty existing list never flags anything', Citex_Question_Diversity::is_duplicate_reference( 'Anything at all.', array() ), false );
 
+// ---------------------------------------------------------------------
+// 7. assign_scenarios_equally(): a strict round-robin split of THIS
+// batch's own quantity, ignoring history entirely — added after a
+// reported problem where assign_scenarios()'s own cross-batch "lowest
+// historical count" selection could leave a single batch lopsided (e.g.
+// every one of 10 new questions landing in the same author-count bucket)
+// whenever history already happened to be skewed. Book/MCQ has 4 buckets
+// (one_author, two_authors, three_authors, four_or_more_authors).
+// ---------------------------------------------------------------------
+reset_options();
+// Skew history heavily toward one_author, the exact scenario
+// assign_scenarios() itself would be vulnerable to: assign_scenarios()
+// would keep filling every new slot into two_authors/three_authors/
+// four_or_more_authors until they catch up, but assign_scenarios_equally()
+// must ignore this entirely and still split evenly.
+$skewed_history = array();
+for ( $i = 0; $i < 50; $i++ ) {
+	$skewed_history[] = array( 'scenario' => 'one_author', 'ruleTested' => 'author_formatting', 'questionType' => 'MCQ' );
+}
+Citex_Question_Diversity::record_batch( $book, $skewed_history );
+
+$equal_assignments = Citex_Question_Diversity::assign_scenarios_equally( $book, 'MCQ', 10 );
+check( '[7] returns exactly 10 assignments for a quantity of 10', count( $equal_assignments ), 10 );
+$equal_counts = array_count_values( $equal_assignments );
+check( '[7] one_author gets 3 of 10 despite 50 prior uses (history ignored)', $equal_counts['one_author'] ?? 0, 3 );
+check( '[7] two_authors gets 3 of 10', $equal_counts['two_authors'] ?? 0, 3 );
+check( '[7] three_authors gets 2 of 10', $equal_counts['three_authors'] ?? 0, 2 );
+check( '[7] four_or_more_authors gets 2 of 10', $equal_counts['four_or_more_authors'] ?? 0, 2 );
+check(
+	'[7] the cycle order is a stable round-robin (0,1,2,3,0,1,2,3,0,1)',
+	$equal_assignments,
+	array( 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors', 'one_author', 'two_authors', 'three_authors', 'four_or_more_authors', 'one_author', 'two_authors' )
+);
+check(
+	'[7] a quantity that divides evenly (8) splits exactly 2/2/2/2',
+	array_count_values( Citex_Question_Diversity::assign_scenarios_equally( $book, 'MCQ', 8 ) ),
+	array( 'one_author' => 2, 'two_authors' => 2, 'three_authors' => 2, 'four_or_more_authors' => 2 )
+);
+check( '[7] a quantity of 0 returns an empty array', Citex_Question_Diversity::assign_scenarios_equally( $book, 'MCQ', 0 ), array() );
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );
