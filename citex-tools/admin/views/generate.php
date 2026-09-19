@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<?php esc_html_e( 'Question Type (DragDrop/MCQ), Citation Form (for In-Text Citation) and Author Count are no longer chosen here — every batch is automatically split evenly across DragDrop and MCQ, evenly across every Citation Form, and equally across every Author Count scenario, so a batch never lands lopsided. Question IDs are always freshly auto-numbered.', 'citex-tools' ); ?>
 	</p>
 	<p class="description">
-		<?php esc_html_e( 'The number in brackets next to each Referencing Style/Category option is how many questions are already published (Reference List + Citations combined), as of the last scan — see the Dashboard to refresh it.', 'citex-tools' ); ?>
+		<?php esc_html_e( 'The number in brackets next to each Referencing Style option is how many of that style are already published, across every category (Reference List + Citations combined), as of the last scan — see the Dashboard to refresh it. The Category dropdown\'s own counts are scoped to whichever Referencing Style is currently selected — e.g. selecting MLA shows MLA\'s own Book/Edited Book/Journal Article/Website counts, not every style\'s combined.', 'citex-tools' ); ?>
 	</p>
 
 	<form method="post" class="citex-form">
@@ -28,7 +28,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<table class="form-table" role="presentation">
 			<tr><th scope="row"><label for="citex_question_group"><?php esc_html_e( 'Question Focus', 'citex-tools' ); ?></label></th><td><select id="citex_question_group" name="citex_question_group"><?php foreach ( $question_groups as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p class="description"><?php esc_html_e( 'Reference List builds a full bibliography entry. In-Text Citation builds the short in-sentence/parenthetical citation instead — available for every category under both styles.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_referencing_style"><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></label></th><td><select id="citex_referencing_style" name="citex_referencing_style"><?php foreach ( $referencing_styles as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?> (<?php echo esc_html( number_format_i18n( $style_counts[ $value ] ?? 0 ) ); ?>)</option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?> (<?php echo esc_html( number_format_i18n( $category_counts[ $value ] ?? 0 ) ); ?>)</option><?php endforeach; ?></select><p id="citex_chicago_scope_note" class="description citex-chicago-scope-note" style="display:none;"><?php esc_html_e( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p><p id="citex_mhra_scope_note" class="description citex-mhra-scope-note" style="display:none;"><?php esc_html_e( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?> (<?php echo esc_html( number_format_i18n( $combined_counts[ $default_style_key ][ $value ] ?? 0 ) ); ?>)</option><?php endforeach; ?></select><p id="citex_chicago_scope_note" class="description citex-chicago-scope-note" style="display:none;"><?php esc_html_e( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p><p id="citex_mhra_scope_note" class="description citex-mhra-scope-note" style="display:none;"><?php esc_html_e( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'hard', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_quantity"><?php esc_html_e( 'Quantity', 'citex-tools' ); ?></label></th><td><input type="number" id="citex_quantity" name="citex_quantity" value="20" min="1" max="100" class="small-text" /><p class="description"><?php esc_html_e( 'Generate up to 100 questions in one batch, split evenly across DragDrop/MCQ (and Citation Form, for In-Text Citation). "Generate & Publish" also populates every question that passes in the same request, so it is capped lower — 20 at a time — to avoid timing out. "Generate Real Questions with Gemini" alone still allows the full 100.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_question_type"><?php esc_html_e( 'Question Type', 'citex-tools' ); ?></label></th><td><select id="citex_question_type" name="citex_question_type"><option value="mixed"><?php esc_html_e( 'Mixed — even DragDrop/MCQ split (recommended)', 'citex-tools' ); ?></option><option value="dragdrop"><?php esc_html_e( 'DragDrop only', 'citex-tools' ); ?></option><option value="mcq"><?php esc_html_e( 'MCQ only', 'citex-tools' ); ?></option></select><p class="description"><?php esc_html_e( 'For testing one question type in isolation. Leave this as Mixed for normal use — DragDrop only/MCQ only route the whole Quantity to one type, skipping the other half entirely.', 'citex-tools' ); ?></p></td></tr>
@@ -40,6 +40,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 		</p>
 		<p class="description"><?php esc_html_e( '"Generate & Publish" also validates this batch and immediately populates whichever questions pass straight into the real Reference List/Citations as Published — skipping the separate Validate and Populate steps for this batch. Anything that fails validation stays in Pending below for review.', 'citex-tools' ); ?></p>
 	</form>
+
+	<hr />
+	<div class="citex-auto-generate" data-published-counts="<?php echo esc_attr( wp_json_encode( $combined_counts ) ); ?>">
+		<h2><?php esc_html_e( 'Auto-Generate', 'citex-tools' ); ?></h2>
+		<p class="description"><?php esc_html_e( 'Repeats "Generate & Publish" (up to 20 at a time) for the Referencing Style/Category/Difficulty/Question Focus/Question Type selected above, on its own, until the target total published for that Style + Category is reached. Uses the whole page\'s current Quantity/Difficulty/etc. settings, so set those first.', 'citex-tools' ); ?></p>
+		<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+			<label><strong><?php esc_html_e( 'Target total published:', 'citex-tools' ); ?></strong>
+				<input type="number" id="citex_auto_generate_target" min="1" value="100" class="small-text" />
+			</label>
+			<button type="button" id="citex-auto-generate-start" class="button button-primary" <?php disabled( ! $ai_configured ); ?>><?php esc_html_e( 'Start Auto-Generate', 'citex-tools' ); ?></button>
+			<button type="button" id="citex-auto-generate-stop" class="button" style="display:none;"><?php esc_html_e( 'Stop', 'citex-tools' ); ?></button>
+		</div>
+		<p id="citex-auto-generate-status" class="description"></p>
+		<ul id="citex-auto-generate-log" style="max-height:220px;overflow:auto;margin:8px 0 0 18px;"></ul>
+	</div>
+
 	<script>
 	( function () {
 		// "Generate & Publish" is capped lower server-side than plain

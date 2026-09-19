@@ -1,24 +1,35 @@
 <?php
 /**
  * Regression tests for the Generate Questions page's published-question
- * counts — a real requested feature: each Referencing Style/Category
- * dropdown option now shows how many questions are already published in
- * brackets, e.g. "Harvard (50)", "Book (60)", so the admin can see
- * coverage before generating more.
+ * counts — a real requested feature: each Referencing Style dropdown
+ * option shows how many of that style are already published in brackets,
+ * e.g. "Harvard (50)", so the admin can see coverage before generating
+ * more.
  *
- * Citex_Generator::render() builds these from Citex_Scanner::filter_by_style()
- * (new — factored out of Citex_Dashboard::render()'s own per-style filter so
+ * The Category dropdown's own counts are SCOPED TO THE SELECTED STYLE —
+ * a real reported bug fixed after shipping: selecting MLA still showed
+ * "Book (200)", a total across every style combined, not MLA's own Book
+ * count. Citex_Generator::render() now builds $combined_counts, keyed
+ * style_key => category_key => count, from Citex_Scanner::filter_by_style()
+ * (factored out of Citex_Dashboard::render()'s own per-style filter so
  * both draw from one rule) and Citex_Scanner::compute_breakdowns()'s
  * existing 'categories' rows, combined across BOTH real destinations
  * (Reference List + Citations) via Citex_Scanner::merge_scans(), matching
- * the Dashboard's own "combined" convention.
+ * the Dashboard's own "combined" convention. The view renders the
+ * Category dropdown's INITIAL counts against $default_style_key (the
+ * first Referencing Style, matching the browser's own default selection
+ * with no `selected` attribute set), and ships the whole $combined_counts
+ * map as JSON on the page (.citex-auto-generate's own
+ * data-published-counts attribute) so admin/js/citex-admin.js's own
+ * wireCategoryStyleCounts() can re-label every Category option the
+ * instant Referencing Style changes, without a page reload.
  *
  * render() itself is tightly coupled to the WordPress request cycle (a
  * `require` of the view template, wp_nonce_field(), etc.), so — mirroring
  * this codebase's established pattern for that position (see
  * dashboard-style-breakdown.test.php) — this file exercises the underlying,
- * pure Citex_Scanner logic standalone and verifies render()'s own source
- * wiring directly.
+ * pure Citex_Scanner logic standalone and verifies render()'s/the JS's own
+ * source wiring directly.
  *
  * Repo-level only, run with plain
  * `php tests/generator-published-counts.test.php` — not shipped in
@@ -74,21 +85,32 @@ check( '[1] a style with no questions yet counts 0, not an error', count( $apa_q
 check( '[1] a Harvard question never leaks into the MLA count', in_array( 'BK01', array_column( $mla_questions, 'questionId' ), true ), false );
 
 // ---------------------------------------------------------------------
-// 2. Category counts — compute_breakdowns()'s own 'categories' rows,
-// looked up by exact category label (the same labels Citex_Generator's
-// own $categories map uses: Book, Edited Book, Journal Article,
-// Website), matching how Citex_Generator::render() builds
-// $category_counts.
+// 2. Category counts are SCOPED TO ONE STYLE'S OWN questions — the fix
+// for the reported bug (a total across every style, mixed together, is
+// never what $combined_counts[ style ][ category ] should be). Filter to
+// one style FIRST (Citex_Scanner::filter_by_style()), THEN break down by
+// category (Citex_Scanner::compute_breakdowns()'s own 'categories' rows)
+// — never the other way around, and never on the unfiltered $questions —
+// matching how Citex_Generator::render() builds $combined_counts.
 // ---------------------------------------------------------------------
-$breakdowns = Citex_Scanner::compute_breakdowns( $questions );
-$category_counts_by_name = array();
-foreach ( $breakdowns['categories'] as $row ) {
-	$category_counts_by_name[ $row['name'] ] = $row['count'];
+$harvard_only_breakdowns = Citex_Scanner::compute_breakdowns( Citex_Scanner::filter_by_style( $questions, 'Harvard' ) );
+$mla_only_breakdowns      = Citex_Scanner::compute_breakdowns( Citex_Scanner::filter_by_style( $questions, 'MLA' ) );
+
+$harvard_category_counts = array();
+foreach ( $harvard_only_breakdowns['categories'] as $row ) {
+	$harvard_category_counts[ $row['name'] ] = $row['count'];
 }
-check( '[2] Book category count is 2', $category_counts_by_name['Book'] ?? null, 2 );
-check( '[2] Website category count is 1', $category_counts_by_name['Website'] ?? null, 1 );
-check( '[2] Journal Article category count is 1', $category_counts_by_name['Journal Article'] ?? null, 1 );
-check( '[2] a category with no questions yet is simply absent from the map (render() must default it to 0)', isset( $category_counts_by_name['Edited Book'] ), false );
+$mla_category_counts = array();
+foreach ( $mla_only_breakdowns['categories'] as $row ) {
+	$mla_category_counts[ $row['name'] ] = $row['count'];
+}
+
+check( "[2] Harvard's own Book category count is 2, never mixed with any other style", $harvard_category_counts['Book'] ?? null, 2 );
+check( "[2] Harvard's own Website category count is 1", $harvard_category_counts['Website'] ?? null, 1 );
+check( "[2] Harvard's own breakdown never counts MLA's Journal Article question", isset( $harvard_category_counts['Journal Article'] ), false );
+check( "[2] MLA's own Journal Article category count is 1, scoped to MLA only", $mla_category_counts['Journal Article'] ?? null, 1 );
+check( "[2] MLA's own breakdown never counts Harvard's Book questions", isset( $mla_category_counts['Book'] ), false );
+check( '[2] a category with no questions yet for that style is simply absent from the map (render() must default it to 0)', isset( $harvard_category_counts['Edited Book'] ), false );
 
 // ---------------------------------------------------------------------
 // 3. merge_scans() combines Reference List + Citations before counting
@@ -118,8 +140,12 @@ check( '[4] merge_scans() returns null when neither target has ever been scanned
 
 // ---------------------------------------------------------------------
 // 5. Source wiring: Citex_Generator::render() actually builds
-// $style_counts/$category_counts from merge_scans()+filter_by_style(),
-// and the view prints them in brackets next to each option.
+// $style_counts (style-only) and $combined_counts (style => category)
+// from merge_scans()+filter_by_style()+compute_breakdowns(), the view
+// prints them in brackets next to each option (Category's own INITIAL
+// render scoped to $default_style_key, never a cross-style total), and
+// admin/js/citex-admin.js re-labels the Category dropdown client-side
+// whenever Referencing Style changes.
 // ---------------------------------------------------------------------
 $generator_source = file_get_contents( __DIR__ . '/../citex-tools/includes/class-citex-generator.php' );
 check(
@@ -132,6 +158,16 @@ check(
 	false !== strpos( $generator_source, "Citex_Scanner::merge_scans( array( Citex_Scanner::get_last_scan( 'reference' ), Citex_Scanner::get_last_scan( 'citations' ) ) )" ),
 	true
 );
+check(
+	'[5] render() builds $combined_counts by filtering to one style BEFORE breaking down by category',
+	false !== strpos( $generator_source, "\$combined_counts[ \$style_key ][ \$category_key ] = \$style_category_counts_by_name[ \$category_label ] ?? 0;" ),
+	true
+);
+check(
+	'[5] render() derives $default_style_key from the Referencing Style map\'s own first key',
+	false !== strpos( $generator_source, "array_key_first( \$referencing_styles )" ),
+	true
+);
 
 $generate_view_source = file_get_contents( __DIR__ . '/../citex-tools/admin/views/generate.php' );
 check(
@@ -140,8 +176,20 @@ check(
 	true
 );
 check(
-	'[5] the Category option prints its bracketed count',
-	false !== strpos( $generate_view_source, '$category_counts[ $value ] ?? 0' ),
+	'[5] the Category option\'s INITIAL count is scoped to $default_style_key, never a cross-style total',
+	false !== strpos( $generate_view_source, '$combined_counts[ $default_style_key ][ $value ] ?? 0' ),
+	true
+);
+check(
+	'[5] the whole $combined_counts map ships as JSON for client-side re-labelling',
+	false !== strpos( $generate_view_source, 'data-published-counts="<?php echo esc_attr( wp_json_encode( $combined_counts ) ); ?>"' ),
+	true
+);
+
+$admin_js_source = file_get_contents( __DIR__ . '/../citex-tools/admin/js/citex-admin.js' );
+check(
+	'[5] citex-admin.js re-labels the Category dropdown on Referencing Style change',
+	false !== strpos( $admin_js_source, 'function wireCategoryStyleCounts()' ) && false !== strpos( $admin_js_source, "styleSelect.addEventListener( 'change', sync )" ),
 	true
 );
 

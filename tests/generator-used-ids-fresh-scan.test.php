@@ -38,6 +38,7 @@ class WP_Error {
 function is_wp_error( $thing ) {
 	return $thing instanceof WP_Error;
 }
+function add_action( $hook, $callback, $priority = 10, $args = 1 ) {}
 function sanitize_text_field( $v ) {
 	return trim( (string) $v );
 }

@@ -25,6 +25,11 @@ class Citex_Generator {
 
 	const NONCE_ACTION   = 'citex_generate_questions';
 	const OPTION_PENDING = 'citex_pending_questions';
+	const AJAX_AUTO_GENERATE_BATCH = 'citex_auto_generate_batch';
+
+	public function __construct() {
+		add_action( 'wp_ajax_' . self::AJAX_AUTO_GENERATE_BATCH, array( $this, 'ajax_auto_generate_batch' ) );
+	}
 
 	public function render() {
 		$this->maybe_handle_submit();
@@ -59,14 +64,41 @@ class Citex_Generator {
 		foreach ( $referencing_styles as $style_key => $style_label ) {
 			$style_counts[ $style_key ] = count( Citex_Scanner::filter_by_style( $published_questions, $style_label ) );
 		}
-		$category_counts_by_name = array();
-		foreach ( ( $published_scan['breakdowns']['categories'] ?? array() ) as $row ) {
-			$category_counts_by_name[ $row['name'] ?? '' ] = (int) ( $row['count'] ?? 0 );
+
+		// The COMBINED Style+Category published count (e.g. "MLA Book:
+		// 60"), keyed style_key => category_key => count. A real reported
+		// bug: the Category dropdown's own bracketed count used to be a
+		// single total across EVERY style combined (e.g. "Book (200)" even
+		// with MLA selected, mixing in Harvard/APA/Chicago/MHRA's own Book
+		// counts too) — genuinely misleading once more than one style has
+		// real coverage. $combined_counts drives BOTH the Category
+		// dropdown (re-labelled client-side whenever Referencing Style
+		// changes — see admin/js/citex-admin.js's own wireCategoryStyleCounts())
+		// and the Auto-Generate feature's own baseline (see
+		// admin/views/generate.php's own "Auto-Generate" section: "I want
+		// about 100 questions total for THIS combination" needs to know
+		// how many already exist for that specific combination, not a
+		// style-only/category-only total that mixes in every other one).
+		// Computed the same way $style_counts is, then broken down by
+		// category on top — still driven off the same last-scan snapshot,
+		// not a live query.
+		$combined_counts = array();
+		foreach ( $referencing_styles as $style_key => $style_label ) {
+			$style_questions = Citex_Scanner::filter_by_style( $published_questions, $style_label );
+			$style_category_counts_by_name = array();
+			foreach ( Citex_Scanner::compute_breakdowns( $style_questions )['categories'] as $row ) {
+				$style_category_counts_by_name[ $row['name'] ?? '' ] = (int) ( $row['count'] ?? 0 );
+			}
+			$combined_counts[ $style_key ] = array();
+			foreach ( $categories as $category_key => $category_label ) {
+				$combined_counts[ $style_key ][ $category_key ] = $style_category_counts_by_name[ $category_label ] ?? 0;
+			}
 		}
-		$category_counts = array();
-		foreach ( $categories as $category_key => $category_label ) {
-			$category_counts[ $category_key ] = $category_counts_by_name[ $category_label ] ?? 0;
-		}
+		// The Category dropdown's own INITIAL server-rendered counts (before
+		// any JS re-labelling on a style change) must match whichever style
+		// option the browser shows selected by default — the first one,
+		// with no explicit `selected` attribute on any option below.
+		$default_style_key = array_key_first( $referencing_styles );
 
 		require CITEX_TOOLS_PATH . 'admin/views/generate.php';
 	}
@@ -247,6 +279,97 @@ class Citex_Generator {
 	}
 
 	/**
+	 * Auto-Generate — a real requested feature: "I want about 100
+	 * questions total, I can only generate 20 at a time, so I want the
+	 * site to generate 20, populate, and repeat until it reaches 100"
+	 * (see admin/views/generate.php's own "Auto-Generate" section and
+	 * admin/js/citex-admin.js's own runAutoGenerate()). One click of
+	 * "Generate & Publish" is already capped at 20 (see
+	 * handle_generation()'s own docblock on why) purely to fit inside one
+	 * request's timeout budget — Auto-Generate does not raise that cap;
+	 * it instead runs that exact same 20-at-a-time batch repeatedly over
+	 * AJAX, driven by JavaScript in a loop, until the requested total is
+	 * reached (or a stop condition below applies), without the admin
+	 * having to click the button by hand each time.
+	 *
+	 * Every batch is independent (its own $_POST, its own nonce check, its
+	 * own request) — never one long-running server-side loop — so it
+	 * carries the exact same never-loses-work guarantees as a single
+	 * manual "Generate & Publish" click (incremental Pending save,
+	 * Throwable-safe population; see run_generate_batch()'s own docblock),
+	 * and a page reload or closed tab simply stops the JS loop rather than
+	 * losing or corrupting anything already published.
+	 *
+	 * Returns JSON: { generatedCount, passedCount, createdCount,
+	 * failedCount, warnings } on success, so the JS loop can track its own
+	 * running total (starting quantity + this batch's createdCount, batch
+	 * after batch) without an extra round trip to re-query WordPress after
+	 * every single batch.
+	 */
+	public function ajax_auto_generate_batch() {
+		if ( ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
+			wp_send_json_error( array( 'message' => __( 'Your session has expired. Please refresh the page and try again.', 'citex-tools' ) ), 403 );
+		}
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'You are not allowed to generate questions.', 'citex-tools' ) ), 403 );
+		}
+
+		try {
+			$this->auto_generate_batch_body();
+		} catch ( Throwable $e ) {
+			error_log( '[Citex Tools] ajax_auto_generate_batch failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() );
+			wp_send_json_error( array( 'message' => sprintf( __( 'Citex: the auto-generate batch failed — %s.', 'citex-tools' ), $e->getMessage() ) ), 500 );
+		}
+	}
+
+	private function auto_generate_batch_body() {
+		$style      = isset( $_POST['citex_referencing_style'] ) ? sanitize_key( wp_unslash( $_POST['citex_referencing_style'] ) ) : '';
+		$category   = isset( $_POST['citex_category'] ) ? sanitize_key( wp_unslash( $_POST['citex_category'] ) ) : '';
+		$difficulty = isset( $_POST['citex_difficulty'] ) ? sanitize_key( wp_unslash( $_POST['citex_difficulty'] ) ) : 'hard';
+		$group      = isset( $_POST['citex_question_group'] ) ? sanitize_key( wp_unslash( $_POST['citex_question_group'] ) ) : 'referencelist';
+		if ( ! in_array( $group, array( 'referencelist', 'intext' ), true ) ) {
+			$group = 'referencelist';
+		}
+		$type_filter = isset( $_POST['citex_question_type'] ) ? sanitize_key( wp_unslash( $_POST['citex_question_type'] ) ) : 'mixed';
+		if ( ! in_array( $type_filter, array( 'mixed', 'dragdrop', 'mcq' ), true ) ) {
+			$type_filter = 'mixed';
+		}
+		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
+			$difficulty = 'hard';
+		}
+
+		$scope_check = self::validate_generation_scope( $style, $category, $group );
+		if ( is_wp_error( $scope_check ) ) {
+			wp_send_json_error( array( 'message' => $scope_check->get_error_message() ) );
+		}
+
+		// Every Auto-Generate batch always publishes (that is the whole
+		// point) and is always clamped to the same 20-question "Generate &
+		// Publish" cap a manual click uses, for the exact same request-
+		// timeout reasons — see handle_generation()'s own docblock. A
+		// smaller quantity may be requested (e.g. the last batch, to avoid
+		// overshooting the target by much), never a larger one.
+		$quantity = max( 1, min( 20, isset( $_POST['citex_quantity'] ) ? absint( $_POST['citex_quantity'] ) : 20 ) );
+
+		$category_label = self::category_labels()[ $category ];
+		$web_verify      = Citex_AI_V2::web_verification_enabled();
+
+		$output = $this->run_generate_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, true, $type_filter );
+		if ( is_wp_error( $output ) ) {
+			wp_send_json_error( array( 'message' => $output->get_error_message() ) );
+		}
+
+		wp_send_json_success( array(
+			'generatedCount' => count( $output['generated'] ),
+			'passedCount'    => is_array( $output['passed'] ) ? count( $output['passed'] ) : 0,
+			'createdCount'   => is_array( $output['populate']['created'] ?? null ) ? count( $output['populate']['created'] ) : 0,
+			'failedCount'    => is_array( $output['populate']['failed'] ?? null ) ? count( $output['populate']['failed'] ) : 0,
+			'warnings'       => array_slice( $output['warnings'], 0, 3 ),
+		) );
+	}
+
+	/**
 	 * Citation Form (Narrative/Parenthetical/Parenthetical Quote — In-Text
 	 * Citation only) and Author Count are no longer admin-facing choices —
 	 * every batch is always an even split across all 3 Citation Forms and
@@ -291,8 +414,6 @@ class Citex_Generator {
 			$group = 'referencelist';
 		}
 
-		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
-
 		// "Generate & Publish" does full generation AND, for every question
 		// that passes, a full synchronous population (create the post,
 		// write every field, then read every one back to verify it
@@ -315,51 +436,62 @@ class Citex_Generator {
 		// next run instead of losing anything.
 		$publish_cap = 20;
 		$quantity    = max( 1, min( $publish_immediately ? $publish_cap : 100, $quantity ) );
-		$style_ok = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
-		// MLA and APA reference-list both now cover all 4 categories (Book,
-		// Edited Book, Journal Article, Website) — the same shared-structure
-		// build-out already used for in-text citation (see
-		// self::intext_id_prefix()'s docblock). No category restriction
-		// remains for either of those 2 styles, under either group. Chicago
-		// and MHRA are each Phase 1 (Book / Reference List only — see
-		// Citex_Chicago_Reference_Rules's/Citex_MHRA_Reference_Rules's own
-		// docblocks) and are checked separately below, once
-		// $category_labels/$group are both resolved.
-		$category_ok = isset( $category_labels[ $category ] );
-		if ( ! $style_ok || ! $category_ok ) {
-			Citex_Admin::set_notice( __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA, APA, Chicago or MHRA, for Book, Edited Book, Journal Article or Website.', 'citex-tools' ), 'error' );
-			$this->redirect_back();
-		}
-		// Chicago (Author-Date) Reference List now covers all 4 categories
-		// (Book, Edited Book, Journal Article, Website) — the same Phase 2
-		// build-out APA/MLA already went through (see the docblock above).
-		// In-Text Citation is still a later phase, so $category is left to
-		// $category_ok's own generic check above and only $group is
-		// restricted here.
-		$chicago_scope_ok = 'chicago' !== $style || 'referencelist' === $group;
-		if ( ! $chicago_scope_ok ) {
-			Citex_Admin::set_notice( __( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ), 'error' );
-			$this->redirect_back();
-		}
-		// MHRA (11th edition) Reference List now covers all 4 categories
-		// (Book, Edited Book, Journal Article, Website) — the same Phase 2
-		// build-out APA/MLA/Chicago already went through. In-Text Citation
-		// is still a later phase, so $category is left to $category_ok's own
-		// generic check above and only $group is restricted here.
-		$mhra_scope_ok = 'mhra' !== $style || 'referencelist' === $group;
-		if ( ! $mhra_scope_ok ) {
-			Citex_Admin::set_notice( __( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ), 'error' );
+
+		$scope_check = self::validate_generation_scope( $style, $category, $group );
+		if ( is_wp_error( $scope_check ) ) {
+			Citex_Admin::set_notice( $scope_check->get_error_message(), 'error' );
 			$this->redirect_back();
 		}
 		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
 			$difficulty = 'hard';
 		}
 
-		$category_label = $category_labels[ $category ];
+		$category_label = self::category_labels()[ $category ];
 		$web_verify      = Citex_AI_V2::web_verification_enabled();
 
 		$this->handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately, $type_filter );
 		// Always redirects (and exits).
+	}
+
+	/**
+	 * Referencing category key => human label — the AI generator's own
+	 * fixed 4-category set, shared by every entry point that needs it
+	 * (the classic form via handle_generation(), the Auto-Generate AJAX
+	 * loop via ajax_auto_generate_batch()) so it can't drift out of sync.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function category_labels() {
+		return array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
+	}
+
+	/**
+	 * Validates a Referencing Style + Category + Question Focus (Question
+	 * Group) combination against the AI generator's own current support
+	 * matrix — Harvard/MLA/APA cover all 4 categories under both Reference
+	 * List and In-Text Citation; Chicago/MHRA are each Phase 1 (Reference
+	 * List only, all 4 categories — see Citex_Chicago_Reference_Rules's/
+	 * Citex_MHRA_Reference_Rules's own docblocks). Shared by
+	 * handle_generation() (the classic form, which turns a WP_Error here
+	 * into a notice + redirect) and ajax_auto_generate_batch() (which
+	 * turns it into a JSON error instead) so the rule can't drift between
+	 * the two entry points.
+	 *
+	 * @return true|WP_Error
+	 */
+	private static function validate_generation_scope( $style, $category, $group ) {
+		$style_ok    = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
+		$category_ok = isset( self::category_labels()[ $category ] );
+		if ( ! $style_ok || ! $category_ok ) {
+			return new WP_Error( 'citex_invalid_generation_scope', __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA, APA, Chicago or MHRA, for Book, Edited Book, Journal Article or Website.', 'citex-tools' ) );
+		}
+		if ( 'chicago' === $style && 'referencelist' !== $group ) {
+			return new WP_Error( 'citex_chicago_scope', __( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ) );
+		}
+		if ( 'mhra' === $style && 'referencelist' !== $group ) {
+			return new WP_Error( 'citex_mhra_scope', __( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ) );
+		}
+		return true;
 	}
 
 	/**
@@ -393,6 +525,94 @@ class Citex_Generator {
 	 * Always redirects (and exits).
 	 */
 	private function handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately = false, $type_filter = 'mixed' ) {
+		$output = $this->run_generate_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately, $type_filter );
+		if ( is_wp_error( $output ) ) {
+			Citex_Admin::set_notice( $output->get_error_message(), 'error' );
+			$this->redirect_back();
+		}
+
+		$result   = $output['generated'];
+		$coverage = $output['coverage'];
+		$dragdrop_covered = 0;
+		$mcq_covered      = 0;
+		foreach ( $coverage as $counts ) {
+			if ( ( $counts['DragDrop'] ?? 0 ) > 0 ) {
+				$dragdrop_covered++;
+			}
+			if ( ( $counts['MCQ'] ?? 0 ) > 0 ) {
+				$mcq_covered++;
+			}
+		}
+		$message = sprintf(
+			__( '%1$d AI questions generated and saved to Pending (%2$d DragDrop, %3$d MCQ).', 'citex-tools' ),
+			count( $result ),
+			$output['dragdropCount'],
+			$output['mcqCount']
+		);
+		if ( count( $result ) < $quantity ) {
+			$message .= ' ' . sprintf(
+				__( 'Requested %1$d — %2$d could not be generated after retrying and were skipped (nothing else was lost).', 'citex-tools' ),
+				$quantity,
+				$quantity - count( $result )
+			);
+		}
+		if ( ! empty( $output['warnings'] ) ) {
+			$message .= ' ' . __( 'Skipped:', 'citex-tools' ) . ' ' . implode( ' | ', array_slice( $output['warnings'], 0, 3 ) );
+		}
+		$message .= ' ' . sprintf(
+			__( '%1$s exercise coverage: DragDrop %2$d/5, MCQ %3$d/5 exercises now have at least one question.', 'citex-tools' ),
+			$category_label,
+			$dragdrop_covered,
+			$mcq_covered
+		);
+		if ( $dragdrop_covered < 5 || $mcq_covered < 5 ) {
+			$message .= ' ' . __( 'Coverage is not yet complete.', 'citex-tools' );
+		}
+
+		if ( ! $publish_immediately ) {
+			$message = str_replace( '.  ', '. ', $message . ' ' . __( 'Validate them when ready — only validated questions can be populated.', 'citex-tools' ) );
+			Citex_Admin::set_notice( $message, 'success' );
+			$this->redirect_back();
+		}
+
+		$passed = $output['passed'];
+		if ( empty( $passed ) ) {
+			$message .= ' ' . sprintf(
+				__( 'Validated: 0/%d passed, so nothing was published — the failing question(s) are still in Pending for review.', 'citex-tools' ),
+				count( $result )
+			);
+			Citex_Admin::set_notice( $message, 'warning' );
+			$this->redirect_back();
+		}
+
+		$populate_result     = $output['populate'];
+		$population_message = Citex_Populator::build_population_message( $populate_result['created'], $populate_result['failed'], $populate_result['createdByTarget'] );
+		$message .= ' ' . sprintf(
+			__( 'Validated: %1$d/%2$d passed.', 'citex-tools' ),
+			count( $passed ),
+			count( $result )
+		) . ' ' . $population_message;
+		Citex_Admin::set_notice( $message, empty( $populate_result['failed'] ) ? 'success' : 'warning' );
+		$this->redirect_back();
+	}
+
+	/**
+	 * Runs ONE generate (+validate, +populate when $publish_immediately)
+	 * batch and returns its raw results — no notice, no redirect. Shared
+	 * by handle_mixed_generation() (the classic Generate/Generate &
+	 * Publish form, which formats an admin notice from this) and
+	 * ajax_auto_generate_batch() (the Auto-Generate loop — see
+	 * admin/views/generate.php's own "Auto-Generate" section — which
+	 * returns a JSON summary from this instead), so the two entry points
+	 * can never drift apart on what one batch actually does.
+	 *
+	 * @return array{generated: array[], dragdropCount: int, mcqCount: int,
+	 *               coverage: array, warnings: string[],
+	 *               passed: array[]|null, populate: array|null}|WP_Error
+	 *         `passed`/`populate` stay null when $publish_immediately is
+	 *         false (the plain "Generate" action never validates/populates).
+	 */
+	private function run_generate_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately, $type_filter ) {
 		// Best-effort: removes PHP's own default execution-time cap.
 		// DragDrop+MCQ mixing (and, for In-Text Citation, the further
 		// Citation Form split) means even a modest quantity like 100 can
@@ -421,60 +641,30 @@ class Citex_Generator {
 
 		$result = $this->generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $used_ids, $pending, $on_partial_result, $type_filter );
 		if ( is_wp_error( $result ) ) {
-			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
-			$this->redirect_back();
+			return $result;
 		}
 
 		list( $dragdrop_quantity, $mcq_quantity ) = self::count_by_type( $result );
 
-		$coverage_after   = self::compute_category_coverage( $category_label );
-		$dragdrop_covered = 0;
-		$mcq_covered      = 0;
-		foreach ( $coverage_after as $counts ) {
-			if ( ( $counts['DragDrop'] ?? 0 ) > 0 ) {
-				$dragdrop_covered++;
-			}
-			if ( ( $counts['MCQ'] ?? 0 ) > 0 ) {
-				$mcq_covered++;
-			}
-		}
-		$message = sprintf(
-			__( '%1$d AI questions generated and saved to Pending (%2$d DragDrop, %3$d MCQ).', 'citex-tools' ),
-			count( $result ),
-			$dragdrop_quantity,
-			$mcq_quantity
+		$output = array(
+			'generated'     => $result,
+			'dragdropCount' => $dragdrop_quantity,
+			'mcqCount'      => $mcq_quantity,
+			'coverage'      => self::compute_category_coverage( $category_label ),
+			'warnings'      => $this->generation_warnings,
+			'passed'        => null,
+			'populate'      => null,
 		);
-		if ( count( $result ) < $quantity ) {
-			$message .= ' ' . sprintf(
-				__( 'Requested %1$d — %2$d could not be generated after retrying and were skipped (nothing else was lost).', 'citex-tools' ),
-				$quantity,
-				$quantity - count( $result )
-			);
-		}
-		if ( ! empty( $this->generation_warnings ) ) {
-			$message .= ' ' . __( 'Skipped:', 'citex-tools' ) . ' ' . implode( ' | ', array_slice( $this->generation_warnings, 0, 3 ) );
-		}
-		$message .= ' ' . sprintf(
-			__( '%1$s exercise coverage: DragDrop %2$d/5, MCQ %3$d/5 exercises now have at least one question.', 'citex-tools' ),
-			$category_label,
-			$dragdrop_covered,
-			$mcq_covered
-		);
-		if ( $dragdrop_covered < 5 || $mcq_covered < 5 ) {
-			$message .= ' ' . __( 'Coverage is not yet complete.', 'citex-tools' );
-		}
 
 		if ( ! $publish_immediately ) {
-			$message = str_replace( '.  ', '. ', $message . ' ' . __( 'Validate them when ready — only validated questions can be populated.', 'citex-tools' ) );
-			Citex_Admin::set_notice( $message, 'success' );
-			$this->redirect_back();
+			return $output;
 		}
 
-		// "Generate & Publish": validate this freshly generated batch (only
-		// this batch — never re-validates the rest of the pending queue),
-		// then immediately populate whichever of it passed, Published,
-		// using the exact same Citex_Populator logic the Populate screen's
-		// own submit handler uses.
+		// Validate this freshly generated batch (only this batch — never
+		// re-validates the rest of the pending queue), then immediately
+		// populate whichever of it passed, Published, using the exact
+		// same Citex_Populator logic the Populate screen's own submit
+		// handler uses.
 		$new_keys = array();
 		foreach ( $result as $candidate ) {
 			$key = (string) ( $candidate['key'] ?? '' );
@@ -503,24 +693,13 @@ class Citex_Generator {
 		unset( $question );
 		self::save_pending_questions( $all_pending );
 
+		$output['passed'] = $passed;
 		if ( empty( $passed ) ) {
-			$message .= ' ' . sprintf(
-				__( 'Validated: 0/%d passed, so nothing was published — the failing question(s) are still in Pending for review.', 'citex-tools' ),
-				count( $result )
-			);
-			Citex_Admin::set_notice( $message, 'warning' );
-			$this->redirect_back();
+			return $output;
 		}
 
-		$populate_result  = ( new Citex_Populator() )->populate_questions( $passed, 'publish' );
-		$population_message = Citex_Populator::build_population_message( $populate_result['created'], $populate_result['failed'], $populate_result['createdByTarget'] );
-		$message .= ' ' . sprintf(
-			__( 'Validated: %1$d/%2$d passed.', 'citex-tools' ),
-			count( $passed ),
-			count( $result )
-		) . ' ' . $population_message;
-		Citex_Admin::set_notice( $message, empty( $populate_result['failed'] ) ? 'success' : 'warning' );
-		$this->redirect_back();
+		$output['populate'] = ( new Citex_Populator() )->populate_questions( $passed, 'publish' );
+		return $output;
 	}
 
 	/**

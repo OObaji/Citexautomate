@@ -18,7 +18,72 @@
 		wireValidation();
 		wireActionToast();
 		playActionToneIfNeeded();
+		wireCategoryStyleCounts();
+		wireAutoGenerate();
 	} );
+
+	/**
+	 * The Style+Category published-count map server-rendered onto
+	 * .citex-auto-generate's own data-published-counts attribute (see
+	 * Citex_Generator::render()'s own docblock on $combined_counts) —
+	 * shared by wireCategoryStyleCounts() (re-labels the Category
+	 * dropdown's own bracketed counts whenever Referencing Style changes)
+	 * and wireAutoGenerate() (the Auto-Generate feature's own baseline),
+	 * so both read the exact same numbers rather than parsing the
+	 * attribute twice. Returns {} (never null) if the container or
+	 * attribute is missing/unparsable, so callers never need their own
+	 * null check.
+	 */
+	function readPublishedCounts() {
+		var container = document.querySelector( '.citex-auto-generate' );
+		if ( ! container ) {
+			return {};
+		}
+		try {
+			return JSON.parse( container.getAttribute( 'data-published-counts' ) || '{}' ) || {};
+		} catch ( e ) {
+			return {};
+		}
+	}
+
+	/**
+	 * A real reported bug: the Category dropdown's own bracketed count
+	 * used to be a single total across EVERY Referencing Style combined
+	 * (e.g. "Book (200)" even with MLA selected, mixing in every other
+	 * style's own Book count too) — genuinely misleading once more than
+	 * one style has real coverage. Re-labels each Category option to that
+	 * SPECIFIC style's own count instead, the moment Referencing Style is
+	 * changed (and once on page load, since the server already rendered
+	 * the initial options against the default-selected style — see
+	 * Citex_Generator::render()'s own $default_style_key).
+	 */
+	function wireCategoryStyleCounts() {
+		var styleSelect    = document.getElementById( 'citex_referencing_style' );
+		var categorySelect = document.getElementById( 'citex_category' );
+		if ( ! styleSelect || ! categorySelect ) {
+			return;
+		}
+
+		var publishedCounts = readPublishedCounts();
+
+		// Each option's own base label (without a trailing " (N)") is
+		// captured once up front, so re-labelling repeatedly on every
+		// style change never compounds onto an already-relabelled string.
+		var baseLabels = Array.prototype.map.call( categorySelect.options, function ( opt ) {
+			return opt.textContent.replace( /\s*\([\d,]+\)\s*$/, '' );
+		} );
+
+		function sync() {
+			var counts = publishedCounts[ styleSelect.value ] || {};
+			Array.prototype.forEach.call( categorySelect.options, function ( opt, index ) {
+				var count = counts[ opt.value ] || 0;
+				opt.textContent = baseLabels[ index ] + ' (' + count.toLocaleString() + ')';
+			} );
+		}
+
+		styleSelect.addEventListener( 'change', sync );
+		sync();
+	}
 
 	/**
 	 * Auto-dismiss the Citex action toast (server-rendered by
@@ -425,6 +490,175 @@
 	function toggleValidateButtons( enabled ) {
 		document.querySelectorAll( '.citex-validate-btn, #citex-validate-all, #citex-validate-selected' ).forEach( function ( btn ) {
 			btn.disabled = ! enabled;
+		} );
+	}
+
+	/* ---- Auto-Generate (Generate Questions page) ---- */
+
+	/**
+	 * "I want about 100 questions total, I can only generate 20 at a
+	 * time, so I want the site to generate 20, populate, and repeat until
+	 * it reaches 100" — a real requested feature. Drives
+	 * Citex_Generator::ajax_auto_generate_batch() in a loop, one small
+	 * batch (capped the same 20 a manual "Generate & Publish" click uses)
+	 * per request, using the SAME Referencing Style/Category/Difficulty/
+	 * Question Focus/Question Type fields the manual button reads — never
+	 * a second, separate set of controls to keep in sync.
+	 *
+	 * Every batch is its own independent AJAX request — never one long-
+	 * running server-side loop — so closing the tab or reloading the page
+	 * simply stops the JS loop; whatever was already published in earlier
+	 * batches stays published, and Start can just be clicked again.
+	 *
+	 * The baseline (how many are already published for the selected
+	 * Style + Category) comes from data-published-counts, server-rendered
+	 * from the last scan (see Citex_Generator::render()'s own docblock on
+	 * $combined_counts) — not a live re-query before/after every batch.
+	 */
+	function wireAutoGenerate() {
+		var container = document.querySelector( '.citex-auto-generate' );
+		if ( ! container || ! window.citexTools || ! citexTools.generator ) {
+			return;
+		}
+
+		var publishedCounts = readPublishedCounts();
+
+		var startButton = document.getElementById( 'citex-auto-generate-start' );
+		var stopButton  = document.getElementById( 'citex-auto-generate-stop' );
+		var targetInput = document.getElementById( 'citex_auto_generate_target' );
+		var status      = document.getElementById( 'citex-auto-generate-status' );
+		var log         = document.getElementById( 'citex-auto-generate-log' );
+
+		var styleSelect       = document.getElementById( 'citex_referencing_style' );
+		var categorySelect    = document.getElementById( 'citex_category' );
+		var difficultySelect  = document.getElementById( 'citex_difficulty' );
+		var groupSelect       = document.getElementById( 'citex_question_group' );
+		var typeSelect        = document.getElementById( 'citex_question_type' );
+
+		if ( ! startButton || ! stopButton || ! targetInput || ! styleSelect || ! categorySelect ) {
+			return;
+		}
+
+		// Matches Citex_Generator::auto_generate_batch_body()'s own
+		// server-side clamp — requesting more than this per batch would
+		// just be clamped down anyway, silently.
+		var BATCH_CAP = 20;
+		// A hard ceiling on consecutive batches in one run, independent of
+		// the target total, so a runaway loop (e.g. a mistyped target of
+		// 100000) cannot hammer the server indefinitely — the admin can
+		// simply click Start again to continue from wherever it stopped.
+		var MAX_BATCHES = 50;
+
+		var running          = false;
+		var batchesRun       = 0;
+		var createdTotal     = 0;
+		var baseline         = 0;
+		var target           = 0;
+		var noProgressStreak = 0;
+
+		function logLine( text ) {
+			if ( ! log ) {
+				return;
+			}
+			var item = document.createElement( 'li' );
+			item.textContent = text;
+			log.appendChild( item );
+			log.scrollTop = log.scrollHeight;
+		}
+
+		function finish( message ) {
+			running = false;
+			startButton.disabled = false;
+			stopButton.style.display = 'none';
+			setText( status, message );
+		}
+
+		function runNextBatch() {
+			if ( ! running ) {
+				return;
+			}
+			var totalSoFar = baseline + createdTotal;
+			var remaining  = target - totalSoFar;
+			if ( remaining <= 0 ) {
+				finish( citexTools.generator.strings.targetReached.replace( '{total}', totalSoFar ).replace( '{target}', target ) );
+				return;
+			}
+			if ( batchesRun >= MAX_BATCHES ) {
+				finish( citexTools.generator.strings.batchLimit.replace( '{batches}', MAX_BATCHES ).replace( '{total}', totalSoFar ).replace( '{target}', target ) );
+				return;
+			}
+
+			batchesRun++;
+			var batchQuantity = Math.min( BATCH_CAP, remaining );
+			setText( status, 'Running batch ' + batchesRun + '… (' + totalSoFar + '/' + target + ')' );
+
+			postToAjax( {
+				action: citexTools.generator.autoGenerateAction,
+				nonce: citexTools.generator.nonce,
+				citex_referencing_style: styleSelect.value,
+				citex_category: categorySelect.value,
+				citex_difficulty: difficultySelect ? difficultySelect.value : 'hard',
+				citex_question_group: groupSelect ? groupSelect.value : 'referencelist',
+				citex_question_type: typeSelect ? typeSelect.value : 'mixed',
+				citex_quantity: batchQuantity,
+			} )
+				.then( function ( result ) {
+					if ( ! running ) {
+						return;
+					}
+					if ( ! result || ! result.success ) {
+						finish( citexTools.generator.strings.batchFailed.replace( '{batch}', batchesRun ).replace( '{message}', ( result && result.data && result.data.message ) || 'unknown error' ) );
+						return;
+					}
+					var data    = result.data || {};
+					var created = data.createdCount || 0;
+					createdTotal += created;
+					logLine(
+						citexTools.generator.strings.batchDone
+							.replace( '{batch}', batchesRun )
+							.replace( '{created}', created )
+							.replace( '{total}', baseline + createdTotal )
+							.replace( '{target}', target )
+					);
+
+					noProgressStreak = created > 0 ? 0 : noProgressStreak + 1;
+					if ( noProgressStreak >= 3 ) {
+						finish( citexTools.generator.strings.noProgress );
+						return;
+					}
+
+					window.setTimeout( runNextBatch, 500 );
+				} )
+				.catch( function ( error ) {
+					finish( citexTools.generator.strings.batchFailed.replace( '{batch}', batchesRun ).replace( '{message}', error.message ) );
+				} );
+		}
+
+		startButton.addEventListener( 'click', function () {
+			var styleKey    = styleSelect.value;
+			var categoryKey = categorySelect.value;
+			baseline = ( publishedCounts[ styleKey ] && publishedCounts[ styleKey ][ categoryKey ] ) || 0;
+			target   = parseInt( targetInput.value, 10 ) || 0;
+
+			if ( target <= baseline ) {
+				setText( status, citexTools.generator.strings.alreadyAtTarget );
+				return;
+			}
+
+			running           = true;
+			batchesRun        = 0;
+			createdTotal      = 0;
+			noProgressStreak  = 0;
+			if ( log ) {
+				log.innerHTML = '';
+			}
+			startButton.disabled     = true;
+			stopButton.style.display = '';
+			runNextBatch();
+		} );
+
+		stopButton.addEventListener( 'click', function () {
+			finish( citexTools.generator.strings.stopped.replace( '{total}', baseline + createdTotal ).replace( '{target}', target ) );
 		} );
 	}
 } )();

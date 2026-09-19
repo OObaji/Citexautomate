@@ -89,6 +89,7 @@ $ajax_handlers = array(
 	'class-citex-scanner.php'     => array( 'ajax_save_settings', 'ajax_save_scan' ),
 	'class-citex-validator.php'   => array( 'ajax_save_result' ),
 	'class-citex-bulk-editor.php' => array( 'ajax_update_status' ),
+	'class-citex-generator.php'   => array( 'ajax_auto_generate_batch' ),
 );
 foreach ( $ajax_handlers as $file => $methods ) {
 	$source = file_get_contents( __DIR__ . '/../citex-tools/includes/' . $file );
