@@ -185,6 +185,15 @@ class Citex_Populator {
 		$selected_keys = isset( $_POST['citex_populate_keys'] ) && is_array( $_POST['citex_populate_keys'] )
 			? array_map( 'sanitize_text_field', wp_unslash( $_POST['citex_populate_keys'] ) )
 			: array();
+		// "First N passed questions (chunk)": publishes only the first N
+		// eligible questions per submission, so a very large pending queue
+		// (e.g. from Bulk Generate) can be worked through in repeated,
+		// manageable requests instead of one single very large population
+		// run. Same eligibility (validationStatus === 'passed') as every
+		// other scope — chunking never bypasses validation.
+		$chunk_size = 'first_n' === $scope
+			? max( 1, absint( $_POST['citex_population_chunk_size'] ?? 100 ) )
+			: 0;
 
 		$pending = Citex_Generator::get_pending_questions();
 		$eligible = array();
@@ -196,6 +205,9 @@ class Citex_Populator {
 				continue;
 			}
 			$eligible[] = $question;
+			if ( $chunk_size > 0 && count( $eligible ) >= $chunk_size ) {
+				break;
+			}
 		}
 
 		if ( empty( $eligible ) ) {

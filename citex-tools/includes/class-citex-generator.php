@@ -32,6 +32,156 @@ class Citex_Generator {
 	}
 
 	/**
+	 * "Bulk Generate": one total quantity for one Referencing Style,
+	 * spread automatically across every Question Focus (Reference List +
+	 * In-Text Citation) and Category (Book/Edited Book/Journal Article/
+	 * Website) combination that style supports — e.g. "Harvard, 500"
+	 * generates Reference List AND In-Text Citation questions, across all
+	 * 4 categories, in DragDrop and MCQ, evenly, without picking each
+	 * combination one at a time on the plain Generate form. See
+	 * handle_bulk_generation() for exactly how the total is split.
+	 */
+	public function render_bulk() {
+		$this->maybe_handle_bulk_submit();
+
+		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)', 'mhra' => 'MHRA' );
+		$difficulties        = array( 'easy' => 'Easy', 'medium' => 'Medium', 'hard' => 'Hard' );
+		$pending_questions   = self::get_pending_questions();
+		$ai_configured       = '' !== Citex_AI_V2::get_api_key();
+		require CITEX_TOOLS_PATH . 'admin/views/bulk-generate.php';
+	}
+
+	/**
+	 * Called on admin_init (before any output) as well as at the top of
+	 * render_bulk(), matching maybe_handle_submit()'s own pattern.
+	 */
+	public function maybe_handle_bulk_submit() {
+		if ( empty( $_POST['citex_bulk_generate_submit'] ) ) {
+			return;
+		}
+
+		check_admin_referer( self::NONCE_ACTION, 'citex_generate_nonce' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You are not allowed to do this.', 'citex-tools' ) );
+		}
+
+		$this->handle_bulk_generation();
+	}
+
+	/**
+	 * Splits one total quantity for one Referencing Style evenly (via
+	 * split_evenly()) across every Question Focus x Category combination
+	 * that style supports — 8 combinations (2 Question Focus x 4
+	 * Category) for Harvard/MLA/APA, or 4 (Reference List only x 4
+	 * Category) for Chicago/MHRA, which are still Reference-List-only —
+	 * then runs generate_mixed_batch() (the exact same DragDrop/MCQ/
+	 * Citation Form even-split core the plain Generate form uses) once
+	 * per combination, in a stable, deterministic order (Reference List
+	 * before In-Text Citation; Book, Edited Book, Journal Article, Website
+	 * within each).
+	 *
+	 * Resilient, not atomic, unlike a single-combination batch: if one
+	 * combination's generation request fails (e.g. a transient Gemini
+	 * error), that combination is skipped and reported, but every other
+	 * combination's successfully generated questions are still saved —
+	 * losing an entire large bulk run over one combination's failure
+	 * would be far more costly than a single-category batch's own
+	 * all-or-nothing contract (see generate_via_scenarios()'s own
+	 * docblock).
+	 *
+	 * Always redirects (and exits).
+	 */
+	private function handle_bulk_generation() {
+		$style      = isset( $_POST['citex_bulk_style'] ) ? sanitize_key( wp_unslash( $_POST['citex_bulk_style'] ) ) : '';
+		$difficulty = isset( $_POST['citex_bulk_difficulty'] ) ? sanitize_key( wp_unslash( $_POST['citex_bulk_difficulty'] ) ) : 'hard';
+		$quantity   = isset( $_POST['citex_bulk_quantity'] ) ? absint( $_POST['citex_bulk_quantity'] ) : 0;
+
+		if ( ! in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true ) ) {
+			Citex_Admin::set_notice( __( 'Choose a Referencing Style to bulk generate.', 'citex-tools' ), 'error' );
+			$this->redirect_bulk_back();
+		}
+		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
+			$difficulty = 'hard';
+		}
+		// Capped well below PHP's typical admin request execution time
+		// limit: each combination issues its own Gemini request(s), so a
+		// very large total can still take a long time even split evenly —
+		// large runs are expected to be submitted a few hundred at a time,
+		// repeated, rather than as one single enormous request.
+		$quantity = max( 1, min( 2000, $quantity ) );
+
+		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
+		$groups           = in_array( $style, array( 'chicago', 'mhra' ), true ) ? array( 'referencelist' ) : array( 'referencelist', 'intext' );
+
+		$combinations = array();
+		foreach ( $groups as $group ) {
+			foreach ( $category_labels as $category => $category_label ) {
+				$combinations[] = array( 'group' => $group, 'category' => $category, 'categoryLabel' => $category_label );
+			}
+		}
+
+		$buckets     = self::split_evenly( $quantity, count( $combinations ) );
+		$web_verify  = Citex_AI_V2::web_verification_enabled();
+
+		$pending  = self::get_pending_questions();
+		$used_ids = $this->collect_used_question_ids( $pending );
+
+		$all_results = array();
+		$failures    = array();
+		foreach ( $combinations as $index => $combo ) {
+			$combo_quantity = $buckets[ $index ];
+			if ( $combo_quantity < 1 ) {
+				continue;
+			}
+			$combo_result = $this->generate_mixed_batch( $combo['categoryLabel'], $combo['category'], $combo_quantity, $difficulty, $web_verify, $style, $combo['group'], $used_ids, $pending );
+			if ( is_wp_error( $combo_result ) ) {
+				$failures[] = sprintf(
+					'%1$s / %2$s: %3$s',
+					'intext' === $combo['group'] ? __( 'In-Text Citation', 'citex-tools' ) : __( 'Reference List', 'citex-tools' ),
+					$combo['categoryLabel'],
+					$combo_result->get_error_message()
+				);
+				continue;
+			}
+			foreach ( $combo_result as $candidate ) {
+				$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
+				if ( '' !== $id ) {
+					$used_ids[ $id ] = true;
+				}
+			}
+			$all_results = array_merge( $all_results, $combo_result );
+		}
+
+		if ( ! empty( $all_results ) ) {
+			self::save_pending_questions( array_merge( $pending, $all_results ) );
+		}
+
+		$referencing_style_labels = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)', 'mhra' => 'MHRA' );
+		list( $dragdrop_total, $mcq_total ) = self::count_by_type( $all_results );
+		$message = sprintf(
+			__( 'Bulk generate for %1$s complete: %2$d/%3$d requested questions generated and saved to Pending (%4$d DragDrop, %5$d MCQ) across %6$d/%7$d Question Focus x Category combinations.', 'citex-tools' ),
+			$referencing_style_labels[ $style ] ?? $style,
+			count( $all_results ),
+			$quantity,
+			$dragdrop_total,
+			$mcq_total,
+			count( $combinations ) - count( $failures ),
+			count( $combinations )
+		);
+		if ( ! empty( $failures ) ) {
+			$message .= ' ' . __( 'Failed combinations:', 'citex-tools' ) . ' ' . implode( ' | ', array_slice( $failures, 0, 5 ) );
+		}
+		$message .= ' ' . __( 'Validate them when ready, then populate in manageable chunks from the Populate screen.', 'citex-tools' );
+		Citex_Admin::set_notice( $message, empty( $failures ) ? 'success' : 'warning' );
+		$this->redirect_bulk_back();
+	}
+
+	private function redirect_bulk_back() {
+		wp_safe_redirect( admin_url( 'admin.php?page=citex-bulk-generate' ) );
+		exit;
+	}
+
+	/**
 	 * The in-text citation ID prefix map — an `I`/`MI` prefix onto each
 	 * category's own reference-list letter (IB/IE/IJ/IW for Harvard, an
 	 * `M` prefixed onto each for MLA: MIB/MIE/MIJ/MIW), exactly how MB was
@@ -311,42 +461,18 @@ class Citex_Generator {
 	 * Always redirects (and exits).
 	 */
 	private function handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately = false ) {
-		$dragdrop_quantity = (int) ceil( $quantity / 2 );
-		$mcq_quantity      = $quantity - $dragdrop_quantity;
-
-		$dragdrop_starting_id = self::normalise_starting_id( '', $category_label, $style, $group, 'dragdrop' );
-		$mcq_starting_id      = self::normalise_starting_id( '', $category_label, $style, $group, 'mcq' );
-
 		$pending  = self::get_pending_questions();
 		$used_ids = $this->collect_used_question_ids( $pending );
 
-		$result = array();
-
-		if ( $dragdrop_quantity > 0 ) {
-			$dragdrop_result = $this->generate_for_type( $category_label, $category, 'DragDrop', 'dragdrop', $dragdrop_quantity, $dragdrop_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group );
-			if ( is_wp_error( $dragdrop_result ) ) {
-				Citex_Admin::set_notice( $dragdrop_result->get_error_message(), 'error' );
-				$this->redirect_back();
-			}
-			foreach ( $dragdrop_result as $candidate ) {
-				$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
-				if ( '' !== $id ) {
-					$used_ids[ $id ] = true;
-				}
-			}
-			$result = array_merge( $result, $dragdrop_result );
-		}
-
-		if ( $mcq_quantity > 0 ) {
-			$mcq_result = $this->generate_for_type( $category_label, $category, 'MCQ', 'mcq', $mcq_quantity, $mcq_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group );
-			if ( is_wp_error( $mcq_result ) ) {
-				Citex_Admin::set_notice( $mcq_result->get_error_message(), 'error' );
-				$this->redirect_back();
-			}
-			$result = array_merge( $result, $mcq_result );
+		$result = $this->generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $used_ids, $pending );
+		if ( is_wp_error( $result ) ) {
+			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
+			$this->redirect_back();
 		}
 
 		self::save_pending_questions( array_merge( $pending, $result ) );
+
+		list( $dragdrop_quantity, $mcq_quantity ) = self::count_by_type( $result );
 
 		$coverage_after   = self::compute_category_coverage( $category_label );
 		$dragdrop_covered = 0;
@@ -435,6 +561,71 @@ class Citex_Generator {
 	}
 
 	/**
+	 * The actual DragDrop+MCQ even split (and, via generate_for_type(),
+	 * the further Citation Form split for In-Text Citation) for ONE
+	 * category/group/style — pure generation only, no save, no notice, no
+	 * redirect, so both handle_mixed_generation() (one category/style/
+	 * group batch, from the plain Generate form) and
+	 * handle_bulk_generation() (every category/group combination for one
+	 * style, from one total quantity — the Bulk Generate form) share
+	 * exactly the same core logic.
+	 *
+	 * @return array|WP_Error
+	 */
+	private function generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, array $used_ids, array $pending ) {
+		$dragdrop_quantity = (int) ceil( $quantity / 2 );
+		$mcq_quantity      = $quantity - $dragdrop_quantity;
+
+		$dragdrop_starting_id = self::normalise_starting_id( '', $category_label, $style, $group, 'dragdrop' );
+		$mcq_starting_id      = self::normalise_starting_id( '', $category_label, $style, $group, 'mcq' );
+
+		$result = array();
+
+		if ( $dragdrop_quantity > 0 ) {
+			$dragdrop_result = $this->generate_for_type( $category_label, $category, 'DragDrop', 'dragdrop', $dragdrop_quantity, $dragdrop_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group );
+			if ( is_wp_error( $dragdrop_result ) ) {
+				return $dragdrop_result;
+			}
+			foreach ( $dragdrop_result as $candidate ) {
+				$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
+				if ( '' !== $id ) {
+					$used_ids[ $id ] = true;
+				}
+			}
+			$result = array_merge( $result, $dragdrop_result );
+		}
+
+		if ( $mcq_quantity > 0 ) {
+			$mcq_result = $this->generate_for_type( $category_label, $category, 'MCQ', 'mcq', $mcq_quantity, $mcq_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group );
+			if ( is_wp_error( $mcq_result ) ) {
+				return $mcq_result;
+			}
+			$result = array_merge( $result, $mcq_result );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * @return array{0:int,1:int} [DragDrop count, MCQ count] actually
+	 *         present in $questions — used for notice wording, so it
+	 *         always reflects what was truly generated rather than what
+	 *         was requested.
+	 */
+	private static function count_by_type( array $questions ) {
+		$dragdrop = 0;
+		$mcq      = 0;
+		foreach ( $questions as $question ) {
+			if ( 'MCQ' === ( $question['type'] ?? '' ) ) {
+				$mcq++;
+			} else {
+				$dragdrop++;
+			}
+		}
+		return array( $dragdrop, $mcq );
+	}
+
+	/**
 	 * Runs generate_via_scenarios() for one Question Type, splitting
 	 * further across all 3 Citation Forms (evenly, via
 	 * Citex_Generator::split_evenly()) whenever $group is 'intext' —
@@ -489,7 +680,7 @@ class Citex_Generator {
 	 *
 	 * @return int[]
 	 */
-	private static function split_evenly( $total, $bucket_count ) {
+	public static function split_evenly( $total, $bucket_count ) {
 		if ( $bucket_count < 1 ) {
 			return array();
 		}

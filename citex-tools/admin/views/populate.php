@@ -6,6 +6,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 <div class="wrap citex-wrap">
 	<h1 class="citex-page-title"><?php esc_html_e( 'Populate Questions', 'citex-tools' ); ?></h1>
 	<p class="description"><?php esc_html_e( 'Only pending questions that have passed Citex validation are eligible — whether they were generated inside Citex or imported from CSV/JSON. Passed records are created in the real Reference List and then synced back into the Citex Question Bank.', 'citex-tools' ); ?></p>
+	<p class="description"><?php esc_html_e( 'With a large pending queue (e.g. from Bulk Generate), use "First N passed questions (chunk)" to publish a manageable batch at a time — e.g. 100 — instead of everything in one request; repeat the same action to work through the rest.', 'citex-tools' ); ?></p>
 
 	<div class="citex-stat-cards citex-stat-cards-compact">
 		<div class="citex-card"><span class="citex-card-label"><?php esc_html_e( 'Ready to populate', 'citex-tools' ); ?></span><span class="citex-card-value"><?php echo esc_html( $status['ready'] ); ?></span></div>
@@ -26,10 +27,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 			<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:16px 0;">
 				<label><strong><?php esc_html_e( 'Scope:', 'citex-tools' ); ?></strong>
-					<select name="citex_population_scope">
+					<select name="citex_population_scope" id="citex_population_scope">
 						<option value="all_passed"><?php printf( esc_html__( 'All passed questions (%d)', 'citex-tools' ), (int) $status['passed'] ); ?></option>
+						<option value="first_n"><?php esc_html_e( 'First N passed questions (chunk)', 'citex-tools' ); ?></option>
 						<option value="selected"><?php esc_html_e( 'Selected passed questions', 'citex-tools' ); ?></option>
 					</select>
+				</label>
+				<label id="citex_population_chunk_size_row" style="display:none;"><strong><?php esc_html_e( 'Chunk size:', 'citex-tools' ); ?></strong>
+					<input type="number" name="citex_population_chunk_size" min="1" max="<?php echo esc_attr( (string) max( 1, (int) $status['passed'] ) ); ?>" value="100" class="small-text" />
 				</label>
 				<label><strong><?php esc_html_e( 'Create as:', 'citex-tools' ); ?></strong>
 					<select name="citex_population_status">
@@ -74,5 +79,21 @@ if ( ! defined( 'ABSPATH' ) ) {
 				</tbody>
 			</table>
 		</form>
+		<script>
+		( function () {
+			var scopeSelect = document.getElementById( 'citex_population_scope' );
+			var chunkRow    = document.getElementById( 'citex_population_chunk_size_row' );
+			function syncChunkSizeVisibility() {
+				if ( ! scopeSelect || ! chunkRow ) {
+					return;
+				}
+				chunkRow.style.display = 'first_n' === scopeSelect.value ? '' : 'none';
+			}
+			if ( scopeSelect ) {
+				scopeSelect.addEventListener( 'change', syncChunkSizeVisibility );
+			}
+			syncChunkSizeVisibility();
+		} )();
+		</script>
 	<?php endif; ?>
 </div>

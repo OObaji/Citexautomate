@@ -58,6 +58,7 @@ class Citex_Admin {
 	public function handle_admin_actions() {
 		$handlers = array(
 			array( $this->generator, 'maybe_handle_submit' ),
+			array( $this->generator, 'maybe_handle_bulk_submit' ),
 			array( $this->importer, 'maybe_handle_submit' ),
 			array( $this->populator, 'maybe_handle_submit' ),
 			array( $this->populator, 'maybe_handle_finalize_submit' ),
@@ -91,6 +92,7 @@ class Citex_Admin {
 		$this->page_hooks[] = add_menu_page( __( 'Citex', 'citex-tools' ), __( 'Question generator', 'citex-tools' ), 'manage_options', 'citex', array( $this->dashboard, 'render' ), 'dashicons-book-alt', 30 );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Dashboard', 'citex-tools' ), __( 'Dashboard', 'citex-tools' ), 'manage_options', 'citex', array( $this->dashboard, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Generate Questions', 'citex-tools' ), __( 'Generate Questions', 'citex-tools' ), 'manage_options', 'citex-generate', array( $this->generator, 'render' ) );
+		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Bulk Generate', 'citex-tools' ), __( 'Bulk Generate', 'citex-tools' ), 'manage_options', 'citex-bulk-generate', array( $this->generator, 'render_bulk' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'AI Settings', 'citex-tools' ), __( 'AI Settings', 'citex-tools' ), 'manage_options', 'citex-ai', array( 'Citex_AI_V2', 'render_settings' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Import Questions', 'citex-tools' ), __( 'Import Questions', 'citex-tools' ), 'manage_options', 'citex-import', array( $this->importer, 'render' ) );
 		$this->page_hooks[] = add_submenu_page( 'citex', __( 'Questions', 'citex-tools' ), __( 'Questions', 'citex-tools' ), 'manage_options', 'citex-questions', array( $this->questions, 'render' ) );
