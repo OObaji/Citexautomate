@@ -403,15 +403,22 @@ class Citex_Generator {
 	}
 
 	/**
-	 * Question Type (DragDrop/MCQ), Citation Form (Narrative/Parenthetical/
-	 * Parenthetical Quote — In-Text Citation only) and Author Count are no
-	 * longer admin-facing choices — every batch is always an even DragDrop
-	 * + MCQ split, an even split across all 3 Citation Forms, and an equal
-	 * split across every Author Count scenario bucket, and the Starting ID
-	 * is always freshly auto-computed — removed after a reported request
-	 * to cut down the number of choices needed before generating (see
-	 * handle_mixed_generation()/generate_for_type()/
+	 * Citation Form (Narrative/Parenthetical/Parenthetical Quote — In-Text
+	 * Citation only) and Author Count are no longer admin-facing choices —
+	 * every batch is always an even split across all 3 Citation Forms and
+	 * an equal split across every Author Count scenario bucket, and the
+	 * Starting ID is always freshly auto-computed — removed after a
+	 * reported request to cut down the number of choices needed before
+	 * generating (see generate_for_type()/
 	 * Citex_Question_Diversity::assign_scenarios_equally()).
+	 *
+	 * Question Type (DragDrop/MCQ) works the same way by default — every
+	 * batch is an even split — but the "Question Type" field (see
+	 * admin/views/generate.php) additionally offers a testing-only
+	 * override, 'dragdrop'/'mcq' in place of the default 'mixed', so one
+	 * type can be generated in isolation without spending API calls and
+	 * Pending slots on the other (see generate_mixed_batch()'s own
+	 * docblock — a reported request).
 	 *
 	 * @param bool $publish_immediately Also populate every newly-generated,
 	 *             newly-validated-as-passed question straight into the
@@ -425,6 +432,16 @@ class Citex_Generator {
 		$category   = isset( $_POST['citex_category'] ) ? sanitize_key( wp_unslash( $_POST['citex_category'] ) ) : '';
 		$difficulty = isset( $_POST['citex_difficulty'] ) ? sanitize_key( wp_unslash( $_POST['citex_difficulty'] ) ) : 'hard';
 		$quantity   = isset( $_POST['citex_quantity'] ) ? absint( $_POST['citex_quantity'] ) : 10;
+		// Testing-only override (see generate_mixed_batch()'s own docblock)
+		// — normal use leaves this at its default 'mixed', the even
+		// DragDrop/MCQ split every batch has always used since mixing was
+		// introduced. A reported request: being able to generate a batch of
+		// just one question type to test it in isolation, without the
+		// other half's API calls and Pending slots.
+		$type_filter = isset( $_POST['citex_question_type'] ) ? sanitize_key( wp_unslash( $_POST['citex_question_type'] ) ) : 'mixed';
+		if ( ! in_array( $type_filter, array( 'mixed', 'dragdrop', 'mcq' ), true ) ) {
+			$type_filter = 'mixed';
+		}
 		$group      = isset( $_POST['citex_question_group'] ) ? sanitize_key( wp_unslash( $_POST['citex_question_group'] ) ) : 'referencelist';
 		if ( ! in_array( $group, array( 'referencelist', 'intext' ), true ) ) {
 			$group = 'referencelist';
@@ -486,7 +503,7 @@ class Citex_Generator {
 		$category_label = $category_labels[ $category ];
 		$web_verify      = Citex_AI_V2::web_verification_enabled();
 
-		$this->handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately );
+		$this->handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately, $type_filter );
 		// Always redirects (and exits).
 	}
 
@@ -496,6 +513,10 @@ class Citex_Generator {
 	 * having to run two separate batches and match their quantities up by
 	 * hand) — the only path handle_generation() now uses. DragDrop gets
 	 * the extra question on an odd total (e.g. 11 -> 6 DragDrop + 5 MCQ).
+	 * $type_filter overrides this to route the whole quantity to one type
+	 * only ('dragdrop'/'mcq') — a testing-only choice (see
+	 * generate_mixed_batch()'s own docblock); the default 'mixed' is this
+	 * even split.
 	 *
 	 * Each half is generated via generate_for_type() (which further
 	 * splits evenly across all 3 Citation Forms for In-Text Citation —
@@ -516,7 +537,7 @@ class Citex_Generator {
 	 *
 	 * Always redirects (and exits).
 	 */
-	private function handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately = false ) {
+	private function handle_mixed_generation( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $publish_immediately = false, $type_filter = 'mixed' ) {
 		// Best-effort: removes PHP's own default execution-time cap.
 		// DragDrop+MCQ mixing (and, for In-Text Citation, the further
 		// Citation Form split) means even a modest quantity like 100 can
@@ -543,7 +564,7 @@ class Citex_Generator {
 			Citex_Generator::save_pending_questions( $pending );
 		};
 
-		$result = $this->generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $used_ids, $pending, $on_partial_result );
+		$result = $this->generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, $used_ids, $pending, $on_partial_result, $type_filter );
 		if ( is_wp_error( $result ) ) {
 			Citex_Admin::set_notice( $result->get_error_message(), 'error' );
 			$this->redirect_back();
@@ -648,6 +669,31 @@ class Citex_Generator {
 	}
 
 	/**
+	 * [DragDrop quantity, MCQ quantity] for one generate_mixed_batch() call.
+	 * $type_filter is a testing-only override (see handle_generation()'s own
+	 * docblock and the "Question Type" field in admin/views/generate.php —
+	 * a reported request: being able to generate a batch of just one
+	 * question type to test it in isolation) — normal use always leaves it
+	 * 'mixed', the even DragDrop/MCQ split (DragDrop gets the extra
+	 * question on an odd total). 'dragdrop'/'mcq' route the WHOLE quantity
+	 * to one type only, so the other type's own generate_for_type() call is
+	 * skipped entirely (0 quantity), spending no API calls or Pending slots
+	 * on it.
+	 *
+	 * @return array{0:int,1:int}
+	 */
+	private static function resolve_mixed_quantities( $quantity, $type_filter = 'mixed' ) {
+		if ( 'dragdrop' === $type_filter ) {
+			return array( $quantity, 0 );
+		}
+		if ( 'mcq' === $type_filter ) {
+			return array( 0, $quantity );
+		}
+		$dragdrop_quantity = (int) ceil( $quantity / 2 );
+		return array( $dragdrop_quantity, $quantity - $dragdrop_quantity );
+	}
+
+	/**
 	 * The actual DragDrop+MCQ even split (and, via generate_for_type(),
 	 * the further Citation Form split for In-Text Citation) for ONE
 	 * category/group/style — no notice, no redirect, so both
@@ -670,9 +716,8 @@ class Citex_Generator {
 	 *
 	 * @return array|WP_Error
 	 */
-	private function generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, array $used_ids, array $pending, callable $on_partial_result = null ) {
-		$dragdrop_quantity = (int) ceil( $quantity / 2 );
-		$mcq_quantity      = $quantity - $dragdrop_quantity;
+	private function generate_mixed_batch( $category_label, $category, $quantity, $difficulty, $web_verify, $style, $group, array $used_ids, array $pending, callable $on_partial_result = null, $type_filter = 'mixed' ) {
+		list( $dragdrop_quantity, $mcq_quantity ) = self::resolve_mixed_quantities( $quantity, $type_filter );
 
 		$dragdrop_starting_id = self::normalise_starting_id( '', $category_label, $style, $group, 'dragdrop' );
 		$mcq_starting_id      = self::normalise_starting_id( '', $category_label, $style, $group, 'mcq' );
