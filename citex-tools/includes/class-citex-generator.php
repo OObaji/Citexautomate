@@ -110,6 +110,18 @@ class Citex_Generator {
 		// repeated, rather than as one single enormous request.
 		$quantity = max( 1, min( 2000, $quantity ) );
 
+		// Best-effort: removes PHP's own default execution-time cap as a
+		// likely cause of a hard mid-run kill for a large total (dozens of
+		// synchronous Gemini requests in one submission can easily exceed
+		// the common 30s default). Some hosts disable set_time_limit() or
+		// still enforce their own hard cap (e.g. a reverse proxy's read
+		// timeout) regardless — this cannot guarantee the whole request
+		// completes, which is exactly why saving happens after EVERY
+		// combination below, not once at the end.
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 );
+		}
+
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 		$groups           = in_array( $style, array( 'chicago', 'mhra' ), true ) ? array( 'referencelist' ) : array( 'referencelist', 'intext' );
 
@@ -149,11 +161,20 @@ class Citex_Generator {
 					$used_ids[ $id ] = true;
 				}
 			}
+			// Saved after EVERY combination, not once at the very end: a
+			// large bulk run doing dozens of combinations' worth of
+			// synchronous Gemini requests in one PHP process can still be
+			// killed outright by a server-side timeout despite
+			// set_time_limit(0) above (a host that disables it, or a
+			// reverse proxy's own hard cap) — if that happens mid-run,
+			// whatever combinations already completed must already be on
+			// disk, not sitting in a local variable that dies with the
+			// process. $pending is kept in sync locally so each
+			// iteration's save only adds its own new results, never
+			// re-writes (or drops) an earlier iteration's.
+			$pending     = array_merge( $pending, $combo_result );
 			$all_results = array_merge( $all_results, $combo_result );
-		}
-
-		if ( ! empty( $all_results ) ) {
-			self::save_pending_questions( array_merge( $pending, $all_results ) );
+			self::save_pending_questions( $pending );
 		}
 
 		$referencing_style_labels = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)', 'mhra' => 'MHRA' );
