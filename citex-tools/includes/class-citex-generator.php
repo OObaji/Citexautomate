@@ -459,7 +459,21 @@ class Citex_Generator {
 		// under the combined load, showing a raw server error page after a
 		// long wait. Capped lower here so the combined action stays inside
 		// a realistic request budget; plain "Generate" keeps the full 100.
-		$quantity = max( 1, min( $publish_immediately ? 20 : 100, $quantity ) );
+		//
+		// The cap is further split by type: DragDrop's own population is
+		// genuinely heavier than MCQ's — two ACF repeater fields (Question
+		// Parts, Confusing Words), each written row-by-row with its real
+		// discovered shape and then read back row-by-row to verify, on top
+		// of Fixed Text/Scenario/Question Class — versus MCQ's handful of
+		// plain text field writes. A real reported bug: "Generate &
+		// Publish" with DragDrop-only (or Mixed, which is half DragDrop)
+		// silently did nothing at the same quantity that worked fine for
+		// MCQ-only — no error at all, because the request was killed by a
+		// server-side timeout before it ever got back far enough to show
+		// one. MCQ-only keeps the full 20; anything that includes DragDrop
+		// gets a lower cap to stay inside a realistic request budget too.
+		$publish_cap = 'mcq' === $type_filter ? 20 : 10;
+		$quantity    = max( 1, min( $publish_immediately ? $publish_cap : 100, $quantity ) );
 		$style_ok = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
 		// MLA and APA reference-list both now cover all 4 categories (Book,
 		// Edited Book, Journal Article, Website) — the same shared-structure
