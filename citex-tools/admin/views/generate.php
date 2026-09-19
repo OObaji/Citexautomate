@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<tr><th scope="row"><label for="citex_question_type"><?php esc_html_e( 'Question Type', 'citex-tools' ); ?></label></th><td><select id="citex_question_type" name="citex_question_type"><?php foreach ( $question_types as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_author_count_scenario"><?php esc_html_e( 'Author Count', 'citex-tools' ); ?></label></th><td><select id="citex_author_count_scenario" name="citex_author_count_scenario"><option value="auto"><?php esc_html_e( 'Mixed / Auto (recommended)', 'citex-tools' ); ?></option></select><p class="description"><?php esc_html_e( 'Leave on Auto to spread the batch across every author-count scenario for this category. Pick one to force the whole batch onto it instead — e.g. generate a batch of single-author questions only.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'medium', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_starting_id"><?php esc_html_e( 'Starting Question ID', 'citex-tools' ); ?></label></th><td><input type="text" id="citex_starting_id" name="citex_starting_id" value="<?php echo esc_attr( ( $id_prefixes['book'] ?? 'BK' ) . '01' ); ?>" class="regular-text" /><p class="description"><?php esc_html_e( 'Each category has its own ID prefix (e.g. BK for Book, ED for Edited Book, JA for Journal Article, WR for Website — prefixed with I/MI for In-Text Citation) and starts its own numbering fresh at 01 — updates automatically when you change Category, Referencing Style or Question Focus. Existing Reference List and pending IDs within that category are skipped automatically.', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_starting_id"><?php esc_html_e( 'Starting Question ID', 'citex-tools' ); ?></label></th><td><input type="text" id="citex_starting_id" name="citex_starting_id" value="<?php echo esc_attr( ( $id_prefixes['book'] ?? 'BK' ) . '01' ); ?>" class="regular-text" /><p class="description"><?php esc_html_e( 'Each category has its own ID prefix (e.g. BK for Book, ED for Edited Book, JA for Journal Article, WR for Website — prefixed with I/MI for In-Text Citation), and MCQ gets a "Q" appended onto that same prefix (e.g. BKQ, IBQ) — each of these starts its own numbering fresh at 01, so DragDrop and MCQ never share one interleaved count. Updates automatically when you change Category, Referencing Style, Question Focus or Question Type. Existing Reference List and pending IDs within that category/type are skipped automatically.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_quantity"><?php esc_html_e( 'Quantity', 'citex-tools' ); ?></label></th><td><input type="number" id="citex_quantity" name="citex_quantity" value="20" min="1" max="100" class="small-text" /><p class="description"><?php esc_html_e( 'Generate up to 100 questions in one batch.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><?php esc_html_e( 'Bibliographic Verification', 'citex-tools' ); ?></th><td><label><input type="checkbox" name="citex_ai_web_verify" value="1" <?php checked( Citex_AI_V2::web_verification_enabled(), true ); ?> /> <?php esc_html_e( 'Use Gemini Google Search to verify books, authors, years, publishers and places before returning questions.', 'citex-tools' ); ?></label><p class="description"><?php esc_html_e( 'Recommended for real questions. It may use additional Gemini tool quota.', 'citex-tools' ); ?></p></td></tr>
 		</table>
@@ -83,6 +83,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 			var prefix = option.getAttribute( attr );
 			if ( ! prefix ) {
 				return;
+			}
+			// MCQ gets its own "Q"-suffixed prefix (IB -> IBQ, BK -> BKQ,
+			// etc.) so it numbers independently from DragDrop, starting
+			// fresh at 01 too, instead of the two types sharing one
+			// interleaved count.
+			if ( typeSelect && 'mcq' === typeSelect.value ) {
+				prefix += 'Q';
 			}
 			if ( /^[A-Z]+01$/.test( startingIdField.value.trim().toUpperCase() ) ) {
 				startingIdField.value = prefix + '01';
@@ -213,7 +220,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 			} );
 		}
 		if ( typeSelect ) {
-			typeSelect.addEventListener( 'change', syncAuthorCountOptions );
+			typeSelect.addEventListener( 'change', function () {
+				syncStartingId();
+				syncAuthorCountOptions();
+			} );
 		}
 
 		syncChicagoScope();

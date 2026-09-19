@@ -233,5 +233,50 @@ check(
 	false
 );
 
+// ---------------------------------------------------------------------
+// 13. MCQ gets its own "Q"-suffixed prefix (BK -> BKQ, IB -> IBQ, etc.),
+// added after a real production complaint: DragDrop and MCQ questions for
+// the same category/style/group were sharing one interleaved ID count
+// (e.g. IB04-IB06 landing as MCQ and IB07-IB20 as DragDrop, instead of
+// each type starting cleanly at 01). DragDrop's own prefix is completely
+// unchanged (the default $type), so every already-populated DragDrop
+// question's ID stays valid.
+// ---------------------------------------------------------------------
+check(
+	'[13] omitting $type defaults to DragDrop\'s own unchanged "BK" prefix',
+	Citex_Generator::normalise_starting_id( 'ED01', Citex_Reference_Rules::CATEGORY_BOOK ),
+	'BK01'
+);
+check(
+	'[13] DragDrop explicitly requested keeps the same unchanged "BK" prefix',
+	Citex_Generator::normalise_starting_id( 'ED01', Citex_Reference_Rules::CATEGORY_BOOK, 'harvard', 'referencelist', 'dragdrop' ),
+	'BK01'
+);
+check(
+	'[13] MCQ gets "BKQ" instead of DragDrop\'s "BK" for the same category',
+	Citex_Generator::normalise_starting_id( 'BK01', Citex_Reference_Rules::CATEGORY_BOOK, 'harvard', 'referencelist', 'mcq' ),
+	'BKQ01'
+);
+check(
+	'[13] an MCQ-prefixed ID the admin deliberately typed ("BKQ05") is left untouched',
+	Citex_Generator::normalise_starting_id( 'BKQ05', Citex_Reference_Rules::CATEGORY_BOOK, 'harvard', 'referencelist', 'mcq' ),
+	'BKQ05'
+);
+check(
+	'[13] a leftover MCQ value ("BKQ05") is reset to a fresh DragDrop start, not wrongly accepted as already-"BK"-prefixed',
+	Citex_Generator::normalise_starting_id( 'BKQ05', Citex_Reference_Rules::CATEGORY_BOOK, 'harvard', 'referencelist', 'dragdrop' ),
+	'BK01'
+);
+check(
+	'[13] In-Text Citation MCQ gets "IBQ" instead of DragDrop\'s own "IB"',
+	Citex_Generator::normalise_starting_id( 'IB01', Citex_Reference_Rules::CATEGORY_BOOK, 'harvard', 'intext', 'mcq' ),
+	'IBQ01'
+);
+check(
+	'[13] MLA Book MCQ gets "MBQ" instead of DragDrop\'s own "MB"',
+	Citex_Generator::normalise_starting_id( 'MB01', Citex_Reference_Rules::CATEGORY_BOOK, 'mla', 'referencelist', 'mcq' ),
+	'MBQ01'
+);
+
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

@@ -336,7 +336,7 @@ class Citex_Generator {
 		}
 
 		$category_label = $category_labels[ $category ];
-		$starting_id    = self::normalise_starting_id( $starting_id, $category_label, $style, $group );
+		$starting_id    = self::normalise_starting_id( $starting_id, $category_label, $style, $group, $type );
 
 		$type_label  = 'mcq' === $type ? 'MCQ' : 'DragDrop';
 
@@ -569,8 +569,18 @@ class Citex_Generator {
 	 * (e.g. "ED05" to resume a gap) is honoured as-is. Pure/static so it can
 	 * be tested directly, unlike handle_generation() itself which redirects
 	 * (and exits) on every path.
+	 *
+	 * MCQ gets a "Q" appended onto the same base prefix (BK -> BKQ, IB ->
+	 * IBQ, etc.), giving it its own independent numbering that starts fresh
+	 * at 01 too — DragDrop and MCQ questions for the same
+	 * category/style/group no longer share one interleaved counter (a
+	 * reported problem: DragDrop and MCQ question IDs for the same category
+	 * were interleaved from one shared count, e.g. IB04-IB06 landing as MCQ
+	 * and IB07-IB20 as DragDrop, instead of each starting cleanly at 01).
+	 * DragDrop's own prefix is left completely unchanged so every
+	 * already-populated DragDrop question's ID stays valid.
 	 */
-	public static function normalise_starting_id( $starting_id, $category_label, $style = 'harvard', $group = 'referencelist' ) {
+	public static function normalise_starting_id( $starting_id, $category_label, $style = 'harvard', $group = 'referencelist', $type = 'dragdrop' ) {
 		$starting_id     = strtoupper( trim( (string) $starting_id ) );
 		if ( 'intext' === $group ) {
 			$expected_prefix = self::intext_id_prefix( $category_label, $style );
@@ -585,7 +595,16 @@ class Citex_Generator {
 				? Citex_MLA_Reference_Rules::id_prefix( $category_label )
 				: Citex_Reference_Rules::id_prefix( $category_label );
 		}
-		if ( 0 !== strpos( $starting_id, $expected_prefix ) ) {
+		if ( 'mcq' === $type ) {
+			$expected_prefix .= 'Q';
+		}
+		// Matched against the digit that must immediately follow the prefix
+		// — not a plain strpos() — so DragDrop's own bare prefix (e.g. "IB")
+		// never matches a leftover MCQ value that merely starts with it
+		// (e.g. "IBQ05"), which a simple substring check would wrongly
+		// accept as "already correct for this category" instead of
+		// resetting it.
+		if ( ! preg_match( '/^' . preg_quote( $expected_prefix, '/' ) . '\d/', $starting_id ) ) {
 			return $expected_prefix . '01';
 		}
 		return $starting_id;
