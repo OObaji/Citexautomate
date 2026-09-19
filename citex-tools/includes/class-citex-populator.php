@@ -252,6 +252,19 @@ class Citex_Populator {
 	 * @return array{created: array[], failed: string[], successfulKeys: string[], createdByTarget: array{reference:int, citations:int}}
 	 */
 	public function populate_questions( array $eligible, $final_status ) {
+		// Best-effort: removes PHP's own default execution-time cap.
+		// Populating one question is a slow, synchronous WordPress/ACF
+		// round trip (create the post, write every field, then read every
+		// one of them back to verify it actually persisted — see this
+		// class's own docblock) repeated once per question, so even a
+		// moderate batch can run long. Some hosts disable set_time_limit()
+		// or still enforce their own hard cap regardless, which is exactly
+		// why each question is removed from Pending as it succeeds below,
+		// not only once the whole batch finishes.
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 );
+		}
+
 		$batches = array( 'reference' => array(), 'citations' => array() );
 		foreach ( $eligible as $question ) {
 			$batches[ Citex_Scanner::target_for_group( $question['group'] ?? '' ) ][] = $question;
@@ -263,11 +276,39 @@ class Citex_Populator {
 		$created_by_target = array( 'reference' => 0, 'citations' => 0 );
 		$synced_targets    = array();
 
+		// Removed from Pending the instant EACH question is actually
+		// created in WordPress — never batched to the end. A real post is
+		// created (and, for 'publish', already live) the moment
+		// populate_one() succeeds for it; if a server-side timeout kills
+		// the process during a later question in the same batch, every
+		// question already created must already be off the Pending queue,
+		// not sitting there waiting for a save that never happens. Without
+		// this, an already-populated question stays marked "pending"
+		// forever and every later Populate attempt fails it again with a
+		// duplicate-title error, since its real post already exists — a
+		// real reported bug ("populate isn't working").
+		$pending = Citex_Generator::get_pending_questions();
+		$on_item_success = function ( $key ) use ( &$pending ) {
+			$key = (string) $key;
+			if ( '' === $key ) {
+				return;
+			}
+			$pending = array_values(
+				array_filter(
+					$pending,
+					function ( $question ) use ( $key ) {
+						return (string) ( $question['key'] ?? '' ) !== $key;
+					}
+				)
+			);
+			Citex_Generator::save_pending_questions( $pending );
+		};
+
 		foreach ( $batches as $target => $questions ) {
 			if ( empty( $questions ) ) {
 				continue;
 			}
-			$batch_result = $this->populate_batch( $questions, $target, $final_status );
+			$batch_result = $this->populate_batch( $questions, $target, $final_status, $on_item_success );
 			$successful_keys = array_merge( $successful_keys, $batch_result['successfulKeys'] );
 			$created         = array_merge( $created, $batch_result['created'] );
 			$failed          = array_merge( $failed, $batch_result['failed'] );
@@ -277,19 +318,8 @@ class Citex_Populator {
 			}
 		}
 
-		if ( ! empty( $successful_keys ) ) {
-			$pending = array_values(
-				array_filter(
-					Citex_Generator::get_pending_questions(),
-					function ( $question ) use ( $successful_keys ) {
-						return ! in_array( (string) ( $question['key'] ?? '' ), $successful_keys, true );
-					}
-				)
-			);
-			Citex_Generator::save_pending_questions( $pending );
-			foreach ( array_unique( $synced_targets ) as $target ) {
-				Citex_Scanner::sync_from_wordpress( $target );
-			}
+		foreach ( array_unique( $synced_targets ) as $target ) {
+			Citex_Scanner::sync_from_wordpress( $target );
 		}
 
 		return array(
@@ -355,7 +385,7 @@ class Citex_Populator {
 	 * @param string $target    'reference' or 'citations' (see Citex_Scanner::target_for_group()).
 	 * @return array{created: array[], failed: string[], successfulKeys: string[]}
 	 */
-	private function populate_batch( array $questions, $target, $final_status ) {
+	private function populate_batch( array $questions, $target, $final_status, callable $on_item_success = null ) {
 		$created         = array();
 		$failed          = array();
 		$successful_keys = array();
@@ -411,8 +441,12 @@ class Citex_Populator {
 				$failed[] = sprintf( '%s: %s', (string) ( $question['questionId'] ?? '?' ), $result->get_error_message() );
 				continue;
 			}
-			$successful_keys[] = (string) ( $question['key'] ?? '' );
+			$key = (string) ( $question['key'] ?? '' );
+			$successful_keys[] = $key;
 			$created[] = $result;
+			if ( $on_item_success ) {
+				$on_item_success( $key );
+			}
 		}
 
 		return array( 'created' => $created, 'failed' => $failed, 'successfulKeys' => $successful_keys );
