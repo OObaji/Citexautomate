@@ -269,24 +269,23 @@ class Citex_Generator {
 		// write every field, then read every one back to verify it
 		// persisted — see class-citex-populator.php's own docblock) in the
 		// SAME request — genuinely double the per-question work of plain
-		// "Generate", which only ever generates. This used to be capped
-		// well below the plain-Generate cap (20 MCQ / 10 DragDrop/Mixed)
-		// because a server-side timeout mid-request used to be
-		// catastrophic — either silently killing the whole request with no
-		// error, or (worse, before the Throwable-catch fix) crashing on an
-		// uncaught PHP Error with nothing saved at all.
+		// "Generate", which only ever generates, so it stays capped below
+		// plain Generate's own 100 to fit inside a realistic request
+		// budget. This was briefly raised all the way to 100 to match
+		// plain Generate, but a real reported timeout at that quantity
+		// showed the combined generate+populate work genuinely does need
+		// its own, lower ceiling — 100 was too high for this server. 50
+		// is the new cap for both MCQ and DragDrop/Mixed.
 		//
-		// Both of those are now fixed: every generated question and every
-		// populated question is saved/removed from Pending the moment it
-		// individually succeeds (see the $on_partial_result/$on_item_success
-		// callbacks threaded through generation and population), and
-		// populate_one() now catches Throwable, not just Exception, so a
-		// PHP Error can't crash the request unnoticed. A timeout partway
-		// through now just leaves the remainder for the next run instead of
-		// losing anything — so the cap matches plain Generate's own 100 for
-		// both MCQ and DragDrop/Mixed rather than being held artificially
-		// low.
-		$publish_cap = 100;
+		// A timeout partway through is no longer destructive either way:
+		// every generated question and every populated question is
+		// saved/removed from Pending the moment it individually succeeds
+		// (see the $on_partial_result/$on_item_success callbacks threaded
+		// through generation and population), and populate_one() catches
+		// Throwable, not just Exception, so a PHP Error can't crash the
+		// request unnoticed — a timeout just leaves the remainder for the
+		// next run instead of losing anything.
+		$publish_cap = 50;
 		$quantity    = max( 1, min( $publish_immediately ? $publish_cap : 100, $quantity ) );
 		$style_ok = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
 		// MLA and APA reference-list both now cover all 4 categories (Book,
