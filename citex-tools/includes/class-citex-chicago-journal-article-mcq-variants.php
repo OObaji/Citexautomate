@@ -208,7 +208,7 @@ class Citex_Chicago_Journal_Article_Mcq_Variants {
 		$authors = $fields['authors'];
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted Chicago (Author-Date) journal article reference?',
+			'stem'          => 'Which option is the correctly formatted journal article reference?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'author_not_full_given_name', $authors, $fields['year'], $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $fields['pages'] ),
 				self::broken_reference( 'article_title_not_quoted', $authors, $fields['year'], $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $fields['pages'] ),
@@ -244,7 +244,7 @@ class Citex_Chicago_Journal_Article_Mcq_Variants {
 		$second  = $authors[1];
 		$correct = Citex_Chicago_Reference_Rules::join_people( $authors );
 		return array(
-			'stem'          => 'Which option correctly joins two authors for the Chicago (Author-Date) reference list?',
+			'stem'          => 'Which option correctly joins two authors for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s, %s and %s, %s.', $first['surname'], $first['givenName'], $second['surname'], $second['givenName'] ),
 				sprintf( '%s, %s, & %s, %s.', $first['surname'], $first['givenName'], $second['surname'], $second['givenName'] ),
@@ -269,7 +269,7 @@ class Citex_Chicago_Journal_Article_Mcq_Variants {
 		}
 		$apa_style = implode( ', ', array_slice( $segments, 0, -1 ) ) . ', & ' . end( $segments ) . '.';
 		return array(
-			'stem'          => 'Which option correctly names three or more authors for the Chicago (Author-Date) reference list?',
+			'stem'          => 'Which option correctly names three or more authors for the reference list?',
 			'wrongOptions'  => array(
 				$harvard_style,
 				$mla_style,
@@ -295,7 +295,7 @@ class Citex_Chicago_Journal_Article_Mcq_Variants {
 	// -----------------------------------------------------------------
 	private static function build_reference_structure( array $fields ) {
 		return array(
-			'stem'          => 'Which option shows the correct order of the main Chicago (Author-Date) Journal Article reference elements?',
+			'stem'          => 'Which option shows the correct order of the main Journal Article reference elements?',
 			'wrongOptions'  => array(
 				'Author → Article title → Year → Journal title Volume (Issue): Pages',
 				'Year → Author → Article title → Journal title Volume (Issue): Pages',
@@ -314,7 +314,7 @@ class Citex_Chicago_Journal_Article_Mcq_Variants {
 		$author_segment  = Citex_Chicago_Reference_Rules::join_people( $fields['authors'] );
 		$formatted_pages = Citex_Chicago_Reference_Rules::format_page_range( $fields['pages'] );
 		return array(
-			'stem'          => 'Which option correctly shows the page range for the Chicago (Author-Date) reference list?',
+			'stem'          => 'Which option correctly shows the page range for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s %s. "%s." %s %s (%s): pp. %s.', $author_segment, $fields['year'], $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $formatted_pages ),
 				sprintf( '%s %s. "%s." %s %s (%s), %s.', $author_segment, $fields['year'], $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $formatted_pages ),
@@ -369,7 +369,7 @@ class Citex_Chicago_Journal_Article_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct Chicago (Author-Date) reference for a journal article?',
+			'stem'          => 'Which of the following is NOT a correct reference for a journal article?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

@@ -215,7 +215,7 @@ class Citex_APA_Edited_Book_Mcq_Variants {
 		$editors = $fields['editors'];
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted APA reference for an edited book?',
+			'stem'          => 'Which option is the correctly formatted reference for an edited book?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'editor_not_initials', $editors, $fields['title'], $fields['publisher'], $fields['year'] ),
 				self::broken_reference( 'wrong_designation', $editors, $fields['title'], $fields['publisher'], $fields['year'] ),
@@ -251,7 +251,7 @@ class Citex_APA_Edited_Book_Mcq_Variants {
 		$second  = $fields['editors'][1];
 		$correct = sprintf( '%s, %s, & %s, %s (Eds.)', $first['surname'], $first['initials'], $second['surname'], $second['initials'] );
 		return array(
-			'stem'          => 'Which option correctly joins two editors for the APA reference list?',
+			'stem'          => 'Which option correctly joins two editors for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s, %s and %s, %s (Eds.)', $first['surname'], $first['initials'], $second['surname'], $second['initials'] ),
 				sprintf( '%s, %s & %s, %s (Eds.)', $first['surname'], $first['initials'], $second['surname'], $second['initials'] ),
@@ -273,7 +273,7 @@ class Citex_APA_Edited_Book_Mcq_Variants {
 		$harvard_style = Citex_Reference_Rules::join_people( $editors );
 		$mla_style     = sprintf( '%s, %s, et al.', $first['surname'], $first['initials'] );
 		return array(
-			'stem'          => 'Which option correctly names three or more editors for the APA reference list?',
+			'stem'          => 'Which option correctly names three or more editors for the reference list?',
 			'wrongOptions'  => array(
 				$harvard_style,
 				$mla_style,
@@ -307,7 +307,7 @@ class Citex_APA_Edited_Book_Mcq_Variants {
 		$editor_segment = Citex_APA_Reference_Rules::join_people( $fields['editors'] );
 		$designation    = Citex_APA_Reference_Rules::designation_for_editor_count( count( $fields['editors'] ) );
 		return array(
-			'stem'          => 'Which option correctly punctuates the year for the APA reference list?',
+			'stem'          => 'Which option correctly punctuates the year for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s (%s). (%s) %s. %s.', $editor_segment, $designation, $fields['year'], $fields['title'], $fields['publisher'] ),
 				sprintf( '%s (%s). %s. %s. %s.', $editor_segment, $designation, $fields['year'], $fields['title'], $fields['publisher'] ),
@@ -362,7 +362,7 @@ class Citex_APA_Edited_Book_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct APA reference for an edited book?',
+			'stem'          => 'Which of the following is NOT a correct reference for an edited book?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

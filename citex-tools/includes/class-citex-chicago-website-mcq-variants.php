@@ -189,7 +189,7 @@ class Citex_Chicago_Website_Mcq_Variants {
 		$author  = self::author_display( $fields['author'] );
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted Chicago (Author-Date) reference for a webpage?',
+			'stem'          => 'Which option is the correctly formatted reference for a webpage?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'available_at_wrongly_used', $author, $fields['year'], $fields['title'], $fields['url'] ),
 				self::broken_reference( 'title_not_quoted', $author, $fields['year'], $fields['title'], $fields['url'] ),
@@ -214,7 +214,7 @@ class Citex_Chicago_Website_Mcq_Variants {
 			? array( '(n.d.)', '(n.d.).', 'n.d' )
 			: array( sprintf( '(%s)', $year ), $year, sprintf( '(%s).', $year ) );
 		return array(
-			'stem'          => 'Which option correctly shows the publication year for the Chicago (Author-Date) reference list?',
+			'stem'          => 'Which option correctly shows the publication year for the reference list?',
 			'wrongOptions'  => $wrong_options,
 			'correctAnswer' => $correct,
 		);
@@ -225,7 +225,7 @@ class Citex_Chicago_Website_Mcq_Variants {
 	// -----------------------------------------------------------------
 	private static function build_reference_structure( array $fields ) {
 		return array(
-			'stem'          => 'Which option shows the correct order of the main Chicago (Author-Date) Website reference elements?',
+			'stem'          => 'Which option shows the correct order of the main Website reference elements?',
 			'wrongOptions'  => array(
 				'Author → Title → Year → URL',
 				'Year → Author → Title → URL',
@@ -241,7 +241,7 @@ class Citex_Chicago_Website_Mcq_Variants {
 	private static function build_available_at_wrongly_used( array $fields ) {
 		$author = self::author_display( $fields['author'] );
 		return array(
-			'stem'          => 'Which option correctly presents the URL for the Chicago (Author-Date) reference list?',
+			'stem'          => 'Which option correctly presents the URL for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s %s "%s." Available at: %s.', $author, self::year_segment( $fields['year'] ), $fields['title'], $fields['url'] ),
 				sprintf( '%s %s "%s." Available from: %s.', $author, self::year_segment( $fields['year'] ), $fields['title'], $fields['url'] ),
@@ -257,7 +257,7 @@ class Citex_Chicago_Website_Mcq_Variants {
 	private static function build_accessed_date_wrongly_included( array $fields ) {
 		$author = self::author_display( $fields['author'] );
 		return array(
-			'stem'          => 'Which option correctly ends the Chicago (Author-Date) reference for this webpage?',
+			'stem'          => 'Which option correctly ends the reference for this webpage?',
 			'wrongOptions'  => array(
 				sprintf( '%s %s "%s." %s (Accessed: 12 March 2024).', $author, self::year_segment( $fields['year'] ), $fields['title'], $fields['url'] ),
 				sprintf( '%s %s "%s." %s. Retrieved March 12, 2024.', $author, self::year_segment( $fields['year'] ), $fields['title'], $fields['url'] ),
@@ -275,7 +275,7 @@ class Citex_Chicago_Website_Mcq_Variants {
 	private static function build_title_quoting( array $fields ) {
 		$title = (string) $fields['title'];
 		return array(
-			'stem'          => 'Which option correctly presents the page title for the Chicago (Author-Date) reference list?',
+			'stem'          => 'Which option correctly presents the page title for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s.', $title ),
 				sprintf( "'%s.'", $title ),
@@ -330,7 +330,7 @@ class Citex_Chicago_Website_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct Chicago (Author-Date) reference for a webpage?',
+			'stem'          => 'Which of the following is NOT a correct reference for a webpage?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

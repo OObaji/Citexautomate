@@ -111,10 +111,12 @@ check( 'id_prefix uses "AB" for APA Book', Citex_APA_Reference_Rules::id_prefix(
 check( 'Harvard\'s own Book id_prefix is unaffected ("BK")', Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ), 'BK' );
 
 // ---------------------------------------------------------------------
-// mcq_question_stem()/mcq_hint()/identify_error_hint() are APA-specific
-// wording, never silently reusing Harvard's or MLA's own text.
+// mcq_hint()/identify_error_hint() are APA-specific wording, never
+// silently reusing Harvard's or MLA's own text. mcq_question_stem()
+// deliberately never names the style at all — the student already knows
+// which style they selected before generating the question.
 // ---------------------------------------------------------------------
-check( 'mcq_question_stem mentions "APA"', false !== stripos( Citex_APA_Reference_Rules::mcq_question_stem( $BOOK ), 'APA' ), true );
+check( 'mcq_question_stem does not mention "APA"', false !== stripos( Citex_APA_Reference_Rules::mcq_question_stem( $BOOK ), 'APA' ), false );
 check( 'mcq_hint mentions "&"', false !== strpos( Citex_APA_Reference_Rules::mcq_hint( $BOOK ), '&' ), true );
 check( 'identify_error_hint mentions "initials"', false !== stripos( Citex_APA_Reference_Rules::identify_error_hint( $BOOK ), 'initials' ), true );
 

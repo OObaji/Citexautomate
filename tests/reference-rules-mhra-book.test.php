@@ -110,10 +110,12 @@ check( 'id_prefix uses "HB" for MHRA Book', Citex_MHRA_Reference_Rules::id_prefi
 check( 'Harvard\'s own Book id_prefix is unaffected ("BK")', Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ), 'BK' );
 
 // ---------------------------------------------------------------------
-// mcq_question_stem()/mcq_hint()/identify_error_hint() are MHRA-specific
-// wording, never silently reusing another style's own text.
+// mcq_hint()/identify_error_hint() are MHRA-specific wording, never
+// silently reusing another style's own text. mcq_question_stem()
+// deliberately never names the style at all — the student already knows
+// which style they selected before generating the question.
 // ---------------------------------------------------------------------
-check( 'mcq_question_stem mentions "MHRA"', false !== stripos( Citex_MHRA_Reference_Rules::mcq_question_stem( $BOOK ), 'MHRA' ), true );
+check( 'mcq_question_stem does not mention "MHRA"', false !== stripos( Citex_MHRA_Reference_Rules::mcq_question_stem( $BOOK ), 'MHRA' ), false );
 check( 'mcq_hint mentions "inverted"', false !== stripos( Citex_MHRA_Reference_Rules::mcq_hint( $BOOK ), 'inverted' ), true );
 check( 'identify_error_hint mentions "parentheses"', false !== stripos( Citex_MHRA_Reference_Rules::identify_error_hint( $BOOK ), 'parentheses' ), true );
 

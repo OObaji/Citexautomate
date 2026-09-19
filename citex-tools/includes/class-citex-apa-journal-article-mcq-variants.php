@@ -206,7 +206,7 @@ class Citex_APA_Journal_Article_Mcq_Variants {
 		$authors = $fields['authors'];
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted APA journal article reference?',
+			'stem'          => 'Which option is the correctly formatted journal article reference?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'author_not_initials', $authors, $fields['year'], $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $fields['pages'] ),
 				self::broken_reference( 'article_title_quoted', $authors, $fields['year'], $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $fields['pages'] ),
@@ -241,7 +241,7 @@ class Citex_APA_Journal_Article_Mcq_Variants {
 		$second  = $fields['authors'][1];
 		$correct = sprintf( '%s, %s, & %s, %s', $first['surname'], $first['initials'], $second['surname'], $second['initials'] );
 		return array(
-			'stem'          => 'Which option correctly joins two authors for the APA reference list?',
+			'stem'          => 'Which option correctly joins two authors for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s, %s and %s, %s', $first['surname'], $first['initials'], $second['surname'], $second['initials'] ),
 				sprintf( '%s, %s & %s, %s', $first['surname'], $first['initials'], $second['surname'], $second['initials'] ),
@@ -261,7 +261,7 @@ class Citex_APA_Journal_Article_Mcq_Variants {
 		$harvard_style = Citex_Reference_Rules::join_people( $authors );
 		$mla_style     = sprintf( '%s, %s, et al.', $first['surname'], $first['initials'] );
 		return array(
-			'stem'          => 'Which option correctly names three or more authors for the APA reference list?',
+			'stem'          => 'Which option correctly names three or more authors for the reference list?',
 			'wrongOptions'  => array(
 				$harvard_style,
 				$mla_style,
@@ -276,7 +276,7 @@ class Citex_APA_Journal_Article_Mcq_Variants {
 	// -----------------------------------------------------------------
 	private static function build_reference_structure( array $fields ) {
 		return array(
-			'stem'          => 'Which option shows the correct order of the main APA Journal Article reference elements?',
+			'stem'          => 'Which option shows the correct order of the main Journal Article reference elements?',
 			'wrongOptions'  => array(
 				'Author → Article title → Year → Journal title, Volume(Issue), Pages',
 				'Year → Author → Article title → Journal title, Volume(Issue), Pages',
@@ -294,7 +294,7 @@ class Citex_APA_Journal_Article_Mcq_Variants {
 		$author_segment = Citex_APA_Reference_Rules::join_people( $fields['authors'] );
 		$formatted_pages = Citex_APA_Reference_Rules::format_page_range( $fields['pages'] );
 		return array(
-			'stem'          => 'Which option correctly shows the page range for the APA reference list?',
+			'stem'          => 'Which option correctly shows the page range for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s (%s). %s. %s, %s(%s), pp. %s.', $author_segment, $fields['year'], $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $formatted_pages ),
 				sprintf( '%s (%s). %s. %s, %s(%s), p. %s.', $author_segment, $fields['year'], $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $formatted_pages ),
@@ -349,7 +349,7 @@ class Citex_APA_Journal_Article_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct APA reference for a journal article?',
+			'stem'          => 'Which of the following is NOT a correct reference for a journal article?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

@@ -178,7 +178,7 @@ class Citex_MLA_Website_Mcq_Variants {
 	private static function build_complete_reference( array $fields ) {
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted MLA reference for a webpage?',
+			'stem'          => 'Which option is the correctly formatted reference for a webpage?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'title_not_quoted', $fields ),
 				self::broken_reference( 'n_d_wrongly_shown', $fields ),
@@ -233,7 +233,7 @@ class Citex_MLA_Website_Mcq_Variants {
 	private static function build_undated_source( array $fields ) {
 		$author = Citex_MLA_Reference_Rules::format_website_author( $fields['author'] );
 		return array(
-			'stem'          => 'A webpage has no identifiable publication date. Which option correctly handles this in MLA style?',
+			'stem'          => 'A webpage has no identifiable publication date. Which option correctly handles this?',
 			'wrongOptions'  => array(
 				sprintf( '%s "%s." n.d., %s. Accessed %s.', $author, $fields['title'], $fields['url'], $fields['accessedDate'] ),
 				sprintf( '%s "%s." (n.d.) %s. Accessed %s.', $author, $fields['title'], $fields['url'], $fields['accessedDate'] ),
@@ -311,7 +311,7 @@ class Citex_MLA_Website_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct MLA reference for a webpage?',
+			'stem'          => 'Which of the following is NOT a correct reference for a webpage?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

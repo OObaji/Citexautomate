@@ -102,7 +102,7 @@ function mcq_question( $overrides = array() ) {
 			// Citex's own fixed, category-generic MCQ question stem — never a
 			// per-book scenario (Gemini is not even asked for one for MCQ
 			// any more; see schema_mcq()).
-			'scenario'               => 'Which of the following is the correct Harvard reference for a book?',
+			'scenario'               => 'Which of the following is the correct reference for a book?',
 			'options'                => $options,
 			'reconstructedReference' => $correct,
 			// A non-revealing hint — never names a letter or reproduces the

@@ -246,7 +246,7 @@ class Citex_APA_Intext_Mcq_Variants {
 		}
 
 		return array(
-			'stem'          => 'Which option correctly names the author(s) for this APA in-text citation?',
+			'stem'          => 'Which option correctly names the author(s) for this in-text citation?',
 			'wrongOptions'  => array_map(
 				function ( $who ) use ( $fields ) {
 					return self::full_sentence( array_merge( $fields, array( 'who' => $who ) ) );
@@ -321,7 +321,7 @@ class Citex_APA_Intext_Mcq_Variants {
 		}
 
 		return array(
-			'stem'          => sprintf( "Which option correctly identifies the error in this APA in-text citation?\n\n%s", $broken ),
+			'stem'          => sprintf( "Which option correctly identifies the error in this in-text citation?\n\n%s", $broken ),
 			'wrongOptions'  => array_slice( $wrong_statements, 0, 3 ),
 			'correctAnswer' => $correct_statement,
 		);

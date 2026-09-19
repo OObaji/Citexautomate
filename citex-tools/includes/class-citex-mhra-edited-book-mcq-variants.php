@@ -210,7 +210,7 @@ class Citex_MHRA_Edited_Book_Mcq_Variants {
 		$editors = $fields['editors'];
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted MHRA Bibliography reference for an edited book?',
+			'stem'          => 'Which option is the correctly formatted reference for an edited book?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'editor_not_full_given_name', $editors, $fields['title'], $fields['place'], $fields['publisher'], $fields['year'] ),
 				self::broken_reference( 'wrong_designation', $editors, $fields['title'], $fields['place'], $fields['publisher'], $fields['year'] ),
@@ -248,7 +248,7 @@ class Citex_MHRA_Edited_Book_Mcq_Variants {
 		$second  = $editors[1];
 		$correct = Citex_MHRA_Reference_Rules::join_people( $editors );
 		return array(
-			'stem'          => 'Which option correctly joins two editors for the MHRA Bibliography?',
+			'stem'          => 'Which option correctly joins two editors for this reference?',
 			'wrongOptions'  => array(
 				sprintf( '%s, %s and %s %s', $first['surname'], $first['givenName'], $second['givenName'], $second['surname'] ),
 				sprintf( '%s, %s, & %s %s', $first['surname'], $first['givenName'], $second['givenName'], $second['surname'] ),
@@ -290,7 +290,7 @@ class Citex_MHRA_Edited_Book_Mcq_Variants {
 		$no_oxford_comma .= ' and ' . $last_natural;
 
 		return array(
-			'stem'          => 'Which option correctly names three or more editors for the MHRA Bibliography?',
+			'stem'          => 'Which option correctly names three or more editors for this reference?',
 			'wrongOptions'  => array(
 				$mla_style,
 				$chicago_style,
@@ -310,7 +310,7 @@ class Citex_MHRA_Edited_Book_Mcq_Variants {
 			? array( 'eds', 'editor', '(ed.)' )
 			: array( 'ed.', 'editors', '(eds)' );
 		return array(
-			'stem'          => 'Which option shows the correct editor designation for this MHRA Bibliography reference?',
+			'stem'          => 'Which option shows the correct editor designation for this reference?',
 			'wrongOptions'  => $wrong_options,
 			'correctAnswer' => $correct,
 		);
@@ -325,7 +325,7 @@ class Citex_MHRA_Edited_Book_Mcq_Variants {
 		$editor_segment = Citex_MHRA_Reference_Rules::join_people( $fields['editors'] );
 		$designation    = Citex_Reference_Rules::designation_for_editor_count( count( $fields['editors'] ) );
 		return array(
-			'stem'          => 'Which option correctly places the year for the MHRA Bibliography?',
+			'stem'          => 'Which option correctly places the year for this reference?',
 			'wrongOptions'  => array(
 				sprintf( '%s, %s, %s (%s: %s). %s.', $editor_segment, $designation, $fields['title'], $fields['place'], $fields['publisher'], $fields['year'] ),
 				sprintf( '%s, %s, %s (%s: %s) (%s).', $editor_segment, $designation, $fields['title'], $fields['place'], $fields['publisher'], $fields['year'] ),
@@ -380,7 +380,7 @@ class Citex_MHRA_Edited_Book_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct MHRA Bibliography reference for an edited book?',
+			'stem'          => 'Which of the following is NOT a correct reference for an edited book?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

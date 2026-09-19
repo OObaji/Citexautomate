@@ -222,7 +222,7 @@ check( '[15] a correctly-built reference_structure variant question passes', $st
 $not_correct_built = Citex_Website_Mcq_Variants::build( 'not_a_correct_reference', $fields );
 $not_correct_result = Citex_Generated_Validator::validate( website_variant_question( $not_correct_built, $fields, array( 'websiteMcqVariant' => 'not_a_correct_reference' ) ) );
 check( '[16] a correctly-built not_a_correct_reference variant question passes', $not_correct_result['status'], 'passed' );
-check( '[16] its stem matches the requested wording', $not_correct_built['stem'], 'Which of the following is NOT a correct Harvard reference for a website?' );
+check( '[16] its stem matches the requested wording', $not_correct_built['stem'], 'Which of the following is NOT a correct reference for a website?' );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

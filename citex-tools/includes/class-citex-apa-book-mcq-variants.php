@@ -237,7 +237,7 @@ class Citex_APA_Book_Mcq_Variants {
 		$authors = $fields['authors'];
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted APA book reference?',
+			'stem'          => 'Which option is the correctly formatted book reference?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'author_not_initials', $authors, $fields['title'], $fields['publisher'], $fields['year'] ),
 				self::broken_reference( 'year_missing_period', $authors, $fields['title'], $fields['publisher'], $fields['year'] ),
@@ -276,7 +276,7 @@ class Citex_APA_Book_Mcq_Variants {
 		$second  = $fields['authors'][1];
 		$correct = sprintf( '%s, %s, & %s, %s', $first['surname'], $first['initials'], $second['surname'], $second['initials'] );
 		return array(
-			'stem'          => 'Which option correctly joins two authors for the APA reference list?',
+			'stem'          => 'Which option correctly joins two authors for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s, %s and %s, %s', $first['surname'], $first['initials'], $second['surname'], $second['initials'] ),
 				sprintf( '%s, %s & %s, %s', $first['surname'], $first['initials'], $second['surname'], $second['initials'] ),
@@ -305,7 +305,7 @@ class Citex_APA_Book_Mcq_Variants {
 		}
 		$all_ampersand = implode( ' & ', $segments );
 		return array(
-			'stem'          => 'Which option correctly names three or more authors for the APA reference list?',
+			'stem'          => 'Which option correctly names three or more authors for the reference list?',
 			'wrongOptions'  => array(
 				$harvard_style,
 				$mla_style,
@@ -321,7 +321,7 @@ class Citex_APA_Book_Mcq_Variants {
 	// -----------------------------------------------------------------
 	private static function build_reference_structure( array $fields ) {
 		return array(
-			'stem'          => 'Which option shows the correct order of the main APA Book reference elements?',
+			'stem'          => 'Which option shows the correct order of the main Book reference elements?',
 			'wrongOptions'  => array(
 				'Author → Title → Year → Publisher',
 				'Year → Author → Title → Publisher',
@@ -339,7 +339,7 @@ class Citex_APA_Book_Mcq_Variants {
 	private static function build_year_period_punctuation( array $fields ) {
 		$author_segment = Citex_APA_Reference_Rules::join_people( $fields['authors'] );
 		return array(
-			'stem'          => 'Which option correctly punctuates the year for the APA reference list?',
+			'stem'          => 'Which option correctly punctuates the year for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s (%s) %s. %s.', $author_segment, $fields['year'], $fields['title'], $fields['publisher'] ),
 				sprintf( '%s %s. %s. %s.', $author_segment, $fields['year'], $fields['title'], $fields['publisher'] ),
@@ -397,7 +397,7 @@ class Citex_APA_Book_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct APA reference for a book?',
+			'stem'          => 'Which of the following is NOT a correct reference for a book?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

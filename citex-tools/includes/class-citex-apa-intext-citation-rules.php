@@ -181,12 +181,12 @@ class Citex_APA_Intext_Citation_Rules {
 
 	public static function mcq_question_stem( $form ) {
 		if ( self::FORM_NARRATIVE === $form ) {
-			return 'Which of the following uses the correct APA format for a narrative in-text citation?';
+			return 'Which of the following uses the correct format for a narrative in-text citation?';
 		}
 		if ( self::FORM_PARENTHETICAL_QUOTE === $form ) {
-			return 'Which of the following uses the correct APA format for an in-text citation of a direct quotation?';
+			return 'Which of the following uses the correct format for an in-text citation of a direct quotation?';
 		}
-		return 'Which of the following uses the correct APA format for an in-text citation?';
+		return 'Which of the following uses the correct format for an in-text citation?';
 	}
 
 	public static function mcq_hint( $form ) {

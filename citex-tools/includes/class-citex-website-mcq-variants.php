@@ -197,7 +197,7 @@ class Citex_Website_Mcq_Variants {
 		$author = self::author_display( $fields['author'] );
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted Harvard website reference?',
+			'stem'          => 'Which option is the correctly formatted website reference?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'wrong_available_wording', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
 				self::broken_reference( 'missing_available_colon', $author, $fields['year'], $fields['title'], $fields['url'], $fields['accessedDate'] ),
@@ -348,7 +348,7 @@ class Citex_Website_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct Harvard reference for a website?',
+			'stem'          => 'Which of the following is NOT a correct reference for a website?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

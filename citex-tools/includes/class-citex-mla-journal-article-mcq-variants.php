@@ -183,7 +183,7 @@ class Citex_MLA_Journal_Article_Mcq_Variants {
 		$correct = self::correct_reference( $fields );
 		$args    = array( $authors, $fields['articleTitle'], $fields['journalTitle'], $fields['volume'], $fields['issue'], $fields['year'], $fields['pages'] );
 		return array(
-			'stem'          => 'Which option is the correctly formatted MLA reference for a journal article?',
+			'stem'          => 'Which option is the correctly formatted reference for a journal article?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'author_not_inverted', ...$args ),
 				self::broken_reference( 'title_not_quoted', ...$args ),
@@ -243,7 +243,7 @@ class Citex_MLA_Journal_Article_Mcq_Variants {
 			)
 		);
 		return array(
-			'stem'          => 'Which option correctly names the authors for an article with three or more authors in MLA style?',
+			'stem'          => 'Which option correctly names the authors for an article with three or more authors?',
 			'wrongOptions'  => array(
 				$harvard_style . '.',
 				sprintf( '%s, %s, et al', $first['surname'], $first['givenName'] ),
@@ -343,7 +343,7 @@ class Citex_MLA_Journal_Article_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct MLA reference for a journal article?',
+			'stem'          => 'Which of the following is NOT a correct reference for a journal article?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

@@ -284,15 +284,15 @@ class Citex_APA_Reference_Rules {
 	 */
 	public static function mcq_question_stem( $category ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
-			return 'Which of the following is the correct APA reference for an edited book?';
+			return 'Which of the following is the correct reference for an edited book?';
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
-			return 'Which of the following is the correct APA reference for a journal article?';
+			return 'Which of the following is the correct reference for a journal article?';
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
-			return 'Which of the following is the correct APA reference for a webpage?';
+			return 'Which of the following is the correct reference for a webpage?';
 		}
-		return 'Which of the following is the correct APA reference for a book?';
+		return 'Which of the following is the correct reference for a book?';
 	}
 
 	/**

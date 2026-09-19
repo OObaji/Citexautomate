@@ -195,7 +195,7 @@ class Citex_MHRA_Website_Mcq_Variants {
 		$author  = self::author_display( $fields['author'] );
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted MHRA Bibliography reference for a webpage?',
+			'stem'          => 'Which option is the correctly formatted reference for a webpage?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'url_missing_angle_brackets', $author, $fields['title'], $fields['url'], $fields['accessedDate'] ),
 				self::broken_reference( 'accessed_date_missing_square_brackets', $author, $fields['title'], $fields['url'], $fields['accessedDate'] ),
@@ -211,7 +211,7 @@ class Citex_MHRA_Website_Mcq_Variants {
 	private static function build_url_format( array $fields ) {
 		$author = self::author_display( $fields['author'] );
 		return array(
-			'stem'          => 'Which option correctly presents the URL for the MHRA Bibliography webpage reference?',
+			'stem'          => 'Which option correctly presents the URL for the webpage reference?',
 			'wrongOptions'  => array(
 				sprintf( "%s, '%s', %s [accessed %s].", $author, $fields['title'], $fields['url'], $fields['accessedDate'] ),
 				sprintf( "%s, '%s', (%s) [accessed %s].", $author, $fields['title'], $fields['url'], $fields['accessedDate'] ),
@@ -226,7 +226,7 @@ class Citex_MHRA_Website_Mcq_Variants {
 	// -----------------------------------------------------------------
 	private static function build_reference_structure( array $fields ) {
 		return array(
-			'stem'          => 'Which option shows the correct order of the main MHRA Bibliography Website reference elements?',
+			'stem'          => 'Which option shows the correct order of the main Website reference elements?',
 			'wrongOptions'  => array(
 				'Author → Accessed date → Title → URL',
 				'Title → Author → URL → Accessed date',
@@ -242,7 +242,7 @@ class Citex_MHRA_Website_Mcq_Variants {
 	private static function build_accessed_date_format( array $fields ) {
 		$author = self::author_display( $fields['author'] );
 		return array(
-			'stem'          => 'Which option correctly presents the accessed date for the MHRA Bibliography webpage reference?',
+			'stem'          => 'Which option correctly presents the accessed date for the webpage reference?',
 			'wrongOptions'  => array(
 				sprintf( "%s, '%s', <%s> accessed %s.", $author, $fields['title'], $fields['url'], $fields['accessedDate'] ),
 				sprintf( "%s, '%s', <%s> (accessed %s).", $author, $fields['title'], $fields['url'], $fields['accessedDate'] ),
@@ -259,7 +259,7 @@ class Citex_MHRA_Website_Mcq_Variants {
 	private static function build_title_quoting( array $fields ) {
 		$title = (string) $fields['title'];
 		return array(
-			'stem'          => 'Which option correctly presents the page title for the MHRA Bibliography?',
+			'stem'          => 'Which option correctly presents the page title for this reference?',
 			'wrongOptions'  => array(
 				sprintf( '%s,', $title ),
 				sprintf( '"%s",', $title ),
@@ -278,7 +278,7 @@ class Citex_MHRA_Website_Mcq_Variants {
 		$author = self::author_display( $fields['author'] );
 		$year   = self::fake_year_from_accessed_date( $fields['accessedDate'] );
 		return array(
-			'stem'          => 'Which option correctly presents this MHRA Bibliography webpage reference?',
+			'stem'          => 'Which option correctly presents this webpage reference?',
 			'wrongOptions'  => array(
 				sprintf( "%s (%s), '%s', <%s> [accessed %s].", $author, $year, $fields['title'], $fields['url'], $fields['accessedDate'] ),
 				sprintf( "%s, '%s', <%s> (%s) [accessed %s].", $author, $fields['title'], $fields['url'], $year, $fields['accessedDate'] ),
@@ -333,7 +333,7 @@ class Citex_MHRA_Website_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct MHRA Bibliography reference for a webpage?',
+			'stem'          => 'Which of the following is NOT a correct reference for a webpage?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

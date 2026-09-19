@@ -226,7 +226,7 @@ class Citex_MLA_Edited_Book_Mcq_Variants {
 		$editors = $fields['editors'];
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted MLA reference for an edited book?',
+			'stem'          => 'Which option is the correctly formatted reference for an edited book?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'editor_not_inverted', $editors, $fields['title'], $fields['publisher'], $fields['year'] ),
 				self::broken_reference( 'wrong_designation', $editors, $fields['title'], $fields['publisher'], $fields['year'] ),
@@ -287,7 +287,7 @@ class Citex_MLA_Edited_Book_Mcq_Variants {
 			)
 		);
 		return array(
-			'stem'          => 'Which option correctly names the editors for a book with three or more editors in MLA style?',
+			'stem'          => 'Which option correctly names the editors for a book with three or more editors?',
 			'wrongOptions'  => array(
 				rtrim( $harvard_style, '.' ) . ' (eds).',
 				sprintf( '%s, %s, et al editors.', $first['surname'], $first['givenName'] ),
@@ -381,7 +381,7 @@ class Citex_MLA_Edited_Book_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct MLA reference for an edited book?',
+			'stem'          => 'Which of the following is NOT a correct reference for an edited book?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

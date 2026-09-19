@@ -272,7 +272,7 @@ class Citex_Book_Mcq_Variants {
 		$correct = self::correct_reference( $fields );
 		$initials_first = self::join_formatted( array_map( function ( $p ) { return self::person_initials_surname( $p ); }, $authors ) );
 		return array(
-			'stem'          => 'Which option is the correctly formatted Harvard book reference?',
+			'stem'          => 'Which option is the correctly formatted book reference?',
 			'wrongOptions'  => array(
 				sprintf( '%s (%s) %s. %s: %s.', self::author_join( $authors ), $fields['year'], $fields['title'], $fields['publisher'], $fields['place'] ),
 				sprintf( '%s (%s) %s. %s: %s.', $initials_first, $fields['year'], $fields['title'], $fields['place'], $fields['publisher'] ),

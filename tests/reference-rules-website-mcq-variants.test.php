@@ -101,7 +101,7 @@ check( '[5] build() is deterministic for identical inputs', $a, $b );
 // ---------------------------------------------------------------------
 $complete = Citex_Website_Mcq_Variants::build( 'complete_reference', $fields_ind );
 check( '[6] complete_reference: correct answer', $complete['correctAnswer'], 'Ross, T. (2022) Study guide. Available at: https://www.sage.com (Accessed: 12 September 2026).' );
-check( '[6] complete_reference: stem', $complete['stem'], 'Which option is the correctly formatted Harvard website reference?' );
+check( '[6] complete_reference: stem', $complete['stem'], 'Which option is the correctly formatted website reference?' );
 
 // ---------------------------------------------------------------------
 // 7. reference_structure: fully static — identical output regardless of
@@ -134,7 +134,7 @@ check( '[8] the stem contains a broken reference for this record', false !== str
 // correctly-formatted reference).
 // ---------------------------------------------------------------------
 $not_correct = Citex_Website_Mcq_Variants::build( 'not_a_correct_reference', $fields_ind );
-check( '[9] stem matches the requested wording exactly', $not_correct['stem'], 'Which of the following is NOT a correct Harvard reference for a website?' );
+check( '[9] stem matches the requested wording exactly', $not_correct['stem'], 'Which of the following is NOT a correct reference for a website?' );
 check( '[9] the canonical record\'s own correct reference is never one of the "valid" options', in_array( Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_WEBSITE, $fields_ind ), $not_correct['wrongOptions'], true ), false );
 foreach ( $not_correct['wrongOptions'] as $index => $option ) {
 	check( "[9] valid option $index matches the full Harvard website format", 1 === preg_match( Citex_Reference_Rules::format_regex( Citex_Reference_Rules::CATEGORY_WEBSITE ), $option ), true );

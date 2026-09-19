@@ -113,10 +113,12 @@ check( 'id_prefix uses "CB" for Chicago Book', Citex_Chicago_Reference_Rules::id
 check( 'Harvard\'s own Book id_prefix is unaffected ("BK")', Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ), 'BK' );
 
 // ---------------------------------------------------------------------
-// mcq_question_stem()/mcq_hint()/identify_error_hint() are Chicago-specific
-// wording, never silently reusing Harvard's/MLA's/APA's own text.
+// mcq_hint()/identify_error_hint() are Chicago-specific wording, never
+// silently reusing Harvard's/MLA's/APA's own text. mcq_question_stem()
+// deliberately never names the style at all — the student already knows
+// which style they selected before generating the question.
 // ---------------------------------------------------------------------
-check( 'mcq_question_stem mentions "Chicago"', false !== stripos( Citex_Chicago_Reference_Rules::mcq_question_stem( $BOOK ), 'Chicago' ), true );
+check( 'mcq_question_stem does not mention "Chicago"', false !== stripos( Citex_Chicago_Reference_Rules::mcq_question_stem( $BOOK ), 'Chicago' ), false );
 check( 'mcq_hint mentions "and"', false !== stripos( Citex_Chicago_Reference_Rules::mcq_hint( $BOOK ), 'and' ), true );
 check( 'identify_error_hint mentions "given name"', false !== stripos( Citex_Chicago_Reference_Rules::identify_error_hint( $BOOK ), 'given name' ), true );
 

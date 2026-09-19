@@ -253,7 +253,7 @@ class Citex_MLA_Intext_Mcq_Variants {
 		}
 
 		return array(
-			'stem'          => 'Which option correctly names the author(s) for this MLA in-text citation?',
+			'stem'          => 'Which option correctly names the author(s) for this in-text citation?',
 			'wrongOptions'  => array_map(
 				function ( $who ) use ( $fields ) {
 					return self::full_sentence( array_merge( $fields, array( 'who' => $who ) ) );
@@ -274,7 +274,7 @@ class Citex_MLA_Intext_Mcq_Variants {
 		$page  = $fields['page'];
 		$quote = trim( (string) $fields['quote'] );
 		return array(
-			'stem'          => 'Which option correctly punctuates the page reference for this direct quotation in MLA style?',
+			'stem'          => 'Which option correctly punctuates the page reference for this direct quotation?',
 			'wrongOptions'  => array(
 				sprintf( '"%s" (%s, %s).', $quote, $who, $page ),   // comma wrongly inserted (the Harvard mistake)
 				sprintf( '"%s" (%s p. %s).', $quote, $who, $page ), // "p." wrongly added (the Harvard mistake)
@@ -317,7 +317,7 @@ class Citex_MLA_Intext_Mcq_Variants {
 		}
 
 		return array(
-			'stem'          => sprintf( "Which option correctly identifies the error in this MLA in-text citation?\n\n%s", $broken ),
+			'stem'          => sprintf( "Which option correctly identifies the error in this in-text citation?\n\n%s", $broken ),
 			'wrongOptions'  => $wrong_statements,
 			'correctAnswer' => $correct_statement,
 		);

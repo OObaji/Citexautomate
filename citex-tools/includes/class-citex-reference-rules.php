@@ -1158,16 +1158,16 @@ class Citex_Reference_Rules {
 	 */
 	public static function mcq_question_stem( $category, $design = null ) {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
-			return 'Which of the following is the correct Harvard reference for an edited book?';
+			return 'Which of the following is the correct reference for an edited book?';
 		}
 		if ( self::CATEGORY_JOURNAL_ARTICLE === $category ) {
 			$partial_stem = self::journal_article_partial_mcq_stem( $design );
-			return $partial_stem ?? 'Which of the following is the correct Harvard reference for a journal article?';
+			return $partial_stem ?? 'Which of the following is the correct reference for a journal article?';
 		}
 		if ( self::CATEGORY_WEBSITE === $category ) {
-			return 'Which of the following is the correct Harvard reference for a website?';
+			return 'Which of the following is the correct reference for a website?';
 		}
-		return 'Which of the following is the correct Harvard reference for a book?';
+		return 'Which of the following is the correct reference for a book?';
 	}
 
 	/**
@@ -1257,11 +1257,11 @@ class Citex_Reference_Rules {
 		if ( self::CATEGORY_EDITED_BOOK === $category ) {
 			$catalogue = array(
 				'two_editors'            => array(
-					'stem'             => 'Which of the following statements is correct about referencing a book edited by two people in the Harvard reference list?',
+					'stem'             => 'Which of the following statements is correct about referencing a book edited by two people in the reference list?',
 					'correctStatement' => 'Both editors are included, joined by "and", followed by the designation "(eds)".',
 				),
 				'three_or_more_editors'  => array(
-					'stem'             => 'Which of the following statements is correct about referencing a book edited by three or more people in the Harvard reference list?',
+					'stem'             => 'Which of the following statements is correct about referencing a book edited by three or more people in the reference list?',
 					'correctStatement' => 'All editors are included, separated by commas with "and" before the final editor, followed by the designation "(eds)".',
 				),
 			);
@@ -1269,15 +1269,15 @@ class Citex_Reference_Rules {
 		}
 		$catalogue = array(
 			'two_authors'            => array(
-				'stem'             => 'Which of the following statements is correct about referencing a book written by two authors in the Harvard reference list?',
+				'stem'             => 'Which of the following statements is correct about referencing a book written by two authors in the reference list?',
 				'correctStatement' => 'Both authors are included, joined by "and".',
 			),
 			'three_authors'          => array(
-				'stem'             => 'Which of the following statements is correct about referencing a book written by three authors in the Harvard reference list?',
+				'stem'             => 'Which of the following statements is correct about referencing a book written by three authors in the reference list?',
 				'correctStatement' => 'All three authors are included, separated by commas with "and" before the final author.',
 			),
 			'four_or_more_authors'   => array(
-				'stem'             => 'Which statement is correct about a book with four or more authors in the Harvard reference list?',
+				'stem'             => 'Which statement is correct about a book with four or more authors in the reference list?',
 				'correctStatement' => 'All authors should be included; et al. is not used in the reference list.',
 			),
 		);

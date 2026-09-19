@@ -238,7 +238,7 @@ class Citex_MLA_Book_Mcq_Variants {
 		$authors = $fields['authors'];
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted MLA book reference?',
+			'stem'          => 'Which option is the correctly formatted book reference?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'author_not_inverted', $authors, $fields['title'], $fields['publisher'], $fields['year'] ),
 				self::broken_reference( 'wrong_year_position', $authors, $fields['title'], $fields['publisher'], $fields['year'] ),
@@ -312,7 +312,7 @@ class Citex_MLA_Book_Mcq_Variants {
 			)
 		);
 		return array(
-			'stem'          => 'Which option correctly names the authors for a book with three or more authors in MLA style?',
+			'stem'          => 'Which option correctly names the authors for a book with three or more authors?',
 			'wrongOptions'  => array(
 				$harvard_style . '.',
 				sprintf( '%s, %s, et al', $first['surname'], $first['givenName'] ),
@@ -328,7 +328,7 @@ class Citex_MLA_Book_Mcq_Variants {
 	// -----------------------------------------------------------------
 	private static function build_reference_structure( array $fields ) {
 		return array(
-			'stem'          => 'Which option shows the correct order of the main MLA Book reference elements?',
+			'stem'          => 'Which option shows the correct order of the main Book reference elements?',
 			'wrongOptions'  => array(
 				'Author → Publisher → Title → Year',
 				'Year → Author → Title → Publisher',
@@ -403,7 +403,7 @@ class Citex_MLA_Book_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct MLA reference for a book?',
+			'stem'          => 'Which of the following is NOT a correct reference for a book?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);

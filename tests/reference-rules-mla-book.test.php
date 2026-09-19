@@ -103,10 +103,12 @@ check( 'id_prefix uses "MB" for MLA Book', Citex_MLA_Reference_Rules::id_prefix(
 check( 'Harvard\'s own Book id_prefix is unaffected ("BK")', Citex_Reference_Rules::id_prefix( Citex_Reference_Rules::CATEGORY_BOOK ), 'BK' );
 
 // ---------------------------------------------------------------------
-// mcq_question_stem()/mcq_hint()/identify_error_hint() are MLA-specific
-// wording, never silently reusing Harvard's own text.
+// mcq_hint()/identify_error_hint() are MLA-specific wording, never
+// silently reusing Harvard's own text. mcq_question_stem() deliberately
+// never names the style at all — the student already knows which style
+// they selected before generating the question.
 // ---------------------------------------------------------------------
-check( 'mcq_question_stem mentions "MLA"', false !== stripos( Citex_MLA_Reference_Rules::mcq_question_stem( $BOOK ), 'MLA' ), true );
+check( 'mcq_question_stem does not mention "MLA"', false !== stripos( Citex_MLA_Reference_Rules::mcq_question_stem( $BOOK ), 'MLA' ), false );
 check( 'mcq_hint mentions "et al."', false !== strpos( Citex_MLA_Reference_Rules::mcq_hint( $BOOK ), 'et al.' ), true );
 check( 'identify_error_hint mentions "first author"', false !== stripos( Citex_MLA_Reference_Rules::identify_error_hint( $BOOK ), 'first author' ), true );
 

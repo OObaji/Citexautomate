@@ -246,7 +246,7 @@ if ( null !== $not_correct_seed ) {
 	if ( ! is_wp_error( $nc_result ) ) {
 		$nc = $nc_result[0];
 		check( '[5] variant is indeed not_a_correct_reference', $nc['websiteMcqVariant'], 'not_a_correct_reference' );
-		check( '[5] stem matches the requested wording', $nc['scenario'], 'Which of the following is NOT a correct Harvard reference for a website?' );
+		check( '[5] stem matches the requested wording', $nc['scenario'], 'Which of the following is NOT a correct reference for a website?' );
 		$validated = Citex_Generated_Validator::validate( $nc );
 		check( '[5] the inverted-shape candidate still passes validation', $validated['status'], 'passed' );
 	}

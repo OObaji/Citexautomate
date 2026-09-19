@@ -243,7 +243,7 @@ class Citex_Chicago_Book_Mcq_Variants {
 		$authors = $fields['authors'];
 		$correct = self::correct_reference( $fields );
 		return array(
-			'stem'          => 'Which option is the correctly formatted Chicago (Author-Date) book reference?',
+			'stem'          => 'Which option is the correctly formatted book reference?',
 			'wrongOptions'  => array(
 				self::broken_reference( 'author_not_full_given_name', $authors, $fields['title'], $fields['place'], $fields['publisher'], $fields['year'] ),
 				self::broken_reference( 'year_wrongly_parenthesised', $authors, $fields['title'], $fields['place'], $fields['publisher'], $fields['year'] ),
@@ -284,7 +284,7 @@ class Citex_Chicago_Book_Mcq_Variants {
 		$second  = $authors[1];
 		$correct = Citex_Chicago_Reference_Rules::join_people( $authors );
 		return array(
-			'stem'          => 'Which option correctly joins two authors for the Chicago (Author-Date) reference list?',
+			'stem'          => 'Which option correctly joins two authors for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s, %s and %s, %s.', $first['surname'], $first['givenName'], $second['surname'], $second['givenName'] ),
 				sprintf( '%s, %s, & %s, %s.', $first['surname'], $first['givenName'], $second['surname'], $second['givenName'] ),
@@ -313,7 +313,7 @@ class Citex_Chicago_Book_Mcq_Variants {
 		}
 		$apa_style = implode( ', ', array_slice( $segments, 0, -1 ) ) . ', & ' . end( $segments ) . '.';
 		return array(
-			'stem'          => 'Which option correctly names three or more authors for the Chicago (Author-Date) reference list?',
+			'stem'          => 'Which option correctly names three or more authors for the reference list?',
 			'wrongOptions'  => array(
 				// Harvard's own join_people() already ends the last segment
 				// in its initial's own abbreviation period ("Lee, K.") — no
@@ -343,7 +343,7 @@ class Citex_Chicago_Book_Mcq_Variants {
 	// -----------------------------------------------------------------
 	private static function build_reference_structure( array $fields ) {
 		return array(
-			'stem'          => 'Which option shows the correct order of the main Chicago (Author-Date) Book reference elements?',
+			'stem'          => 'Which option shows the correct order of the main Book reference elements?',
 			'wrongOptions'  => array(
 				'Author → Title → Year → Place: Publisher',
 				'Year → Author → Title → Place: Publisher',
@@ -362,7 +362,7 @@ class Citex_Chicago_Book_Mcq_Variants {
 	private static function build_year_punctuation( array $fields ) {
 		$author_segment = Citex_Chicago_Reference_Rules::join_people( $fields['authors'] );
 		return array(
-			'stem'          => 'Which option correctly punctuates the year for the Chicago (Author-Date) reference list?',
+			'stem'          => 'Which option correctly punctuates the year for the reference list?',
 			'wrongOptions'  => array(
 				sprintf( '%s (%s). %s. %s: %s.', $author_segment, $fields['year'], $fields['title'], $fields['place'], $fields['publisher'] ),
 				sprintf( '%s %s, %s. %s: %s.', $author_segment, $fields['year'], $fields['title'], $fields['place'], $fields['publisher'] ),
@@ -420,7 +420,7 @@ class Citex_Chicago_Book_Mcq_Variants {
 		);
 
 		return array(
-			'stem'          => 'Which of the following is NOT a correct Chicago (Author-Date) reference for a book?',
+			'stem'          => 'Which of the following is NOT a correct reference for a book?',
 			'wrongOptions'  => array_slice( $pool, 0, 3 ),
 			'correctAnswer' => $broken,
 		);
