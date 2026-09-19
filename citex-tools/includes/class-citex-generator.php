@@ -39,6 +39,35 @@ class Citex_Generator {
 		$question_groups    = array( 'referencelist' => 'Reference List', 'intext' => 'In-Text Citation' );
 		$pending_questions  = self::get_pending_questions();
 		$ai_configured      = '' !== Citex_AI_V2::get_api_key();
+
+		// Published-question counts shown in brackets next to each
+		// Referencing Style/Category option (e.g. "Harvard (50)") — a real
+		// requested feature so the admin can see how much of each is
+		// already covered before generating more. Combined across BOTH
+		// real destinations, Reference List and Citations (see
+		// Citex_Scanner::target_for_group()'s own docblock), matching the
+		// Dashboard's own "combined" convention. Read from each target's
+		// last SCAN (Citex_Scanner::get_last_scan(), not a fresh
+		// sync_from_wordpress() query) since Generate is loaded far more
+		// often than a scan is refreshed — this shows the same cached
+		// numbers the Dashboard shows rather than re-querying WordPress on
+		// every page load; a style/category with no scan yet at all just
+		// shows (0).
+		$published_scan       = Citex_Scanner::merge_scans( array( Citex_Scanner::get_last_scan( 'reference' ), Citex_Scanner::get_last_scan( 'citations' ) ) );
+		$published_questions  = $published_scan['questions'] ?? array();
+		$style_counts         = array();
+		foreach ( $referencing_styles as $style_key => $style_label ) {
+			$style_counts[ $style_key ] = count( Citex_Scanner::filter_by_style( $published_questions, $style_label ) );
+		}
+		$category_counts_by_name = array();
+		foreach ( ( $published_scan['breakdowns']['categories'] ?? array() ) as $row ) {
+			$category_counts_by_name[ $row['name'] ?? '' ] = (int) ( $row['count'] ?? 0 );
+		}
+		$category_counts = array();
+		foreach ( $categories as $category_key => $category_label ) {
+			$category_counts[ $category_key ] = $category_counts_by_name[ $category_label ] ?? 0;
+		}
+
 		require CITEX_TOOLS_PATH . 'admin/views/generate.php';
 	}
 

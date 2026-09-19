@@ -77,14 +77,7 @@ class Citex_Dashboard {
 		// comparable.
 		$style_breakdowns = array();
 		foreach ( array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA', 'chicago' => 'Chicago', 'mhra' => 'MHRA' ) as $style_key => $style_label ) {
-			$style_questions = array_values(
-				array_filter(
-					$scan['questions'] ?? array(),
-					function ( $question ) use ( $style_label ) {
-						return false !== stripos( (string) ( $question['source'] ?? '' ), $style_label );
-					}
-				)
-			);
+			$style_questions = Citex_Scanner::filter_by_style( $scan['questions'] ?? array(), $style_label );
 			$style_breakdowns[ $style_key ] = array(
 				'label'      => $style_label,
 				'total'      => count( $style_questions ),

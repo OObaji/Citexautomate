@@ -317,6 +317,30 @@ class Citex_Scanner {
 	}
 
 	/**
+	 * The subset of $questions whose source label matches $style_label —
+	 * case-insensitive substring, since a source field can carry a longer
+	 * literal string (e.g. an older "Harvard 9th"). This is the one rule
+	 * every per-referencing-style count is built from (Citex_Dashboard's
+	 * own $style_breakdowns, and the Generate page's own published-count
+	 * labels), factored out here so they can't drift out of sync with
+	 * each other.
+	 *
+	 * @param array[] $questions
+	 * @param string  $style_label
+	 * @return array[]
+	 */
+	public static function filter_by_style( $questions, $style_label ) {
+		return array_values(
+			array_filter(
+				$questions,
+				function ( $question ) use ( $style_label ) {
+					return false !== stripos( (string) ( $question['source'] ?? '' ), $style_label );
+				}
+			)
+		);
+	}
+
+	/**
 	 * The Source/Group/Category/Type/PostStatus/Combination breakdown shape
 	 * shared by sync_from_wordpress() and merge_scans() (and, for a single
 	 * referencing style's own slice, Citex_Dashboard) — factored out so both
