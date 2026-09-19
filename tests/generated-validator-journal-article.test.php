@@ -322,6 +322,38 @@ check( '[18][23] a distractor that is itself a fully valid Harvard reference fai
 check( '[18][23] reports MCQ_DISTRACTOR_LOOKS_CORRECT', has_error_code( $mcq_distractor_looks_correct_r, 'mcq_distractor_looks_correct' ), true );
 
 // ---------------------------------------------------------------------
+// 25. AUTHOR_JOIN_MISMATCH: the same "&"-instead-of-"and" blind spot
+// reported for Edited Book's editor join (see
+// tests/generated-validator-edited-book.test.php's own [6e]) applies
+// identically to Journal Article's (and Book's) own multi-author join —
+// an explicitly catalogued distractor pattern (see
+// Citex_Reference_Rules::mcq_distractor_patterns()'s "joining them with
+// '&' instead of 'and'" entry) that the shape regex's leading `.+` cannot
+// see on its own. A 2-author distractor joined with "&" must not create
+// false ambiguity (PASSES), but the same wrong join used as the correct
+// answer must genuinely fail the check.
+// ---------------------------------------------------------------------
+$ja_ampersand_joined_distractor = journal_article_mcq_question( two_authors(), $canonical_fields, array(
+	'options' => array(
+		'Mitchell, S. & Evans, D. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp. 27-35.', // ampersand instead of "and"
+		'Mitchell, S. and Evans, D. (2010) A brief guide to Harvard referencing The British Journal of Referencing, 12(2), pp.27-35.', // missing full stop/comma after article title — genuinely malformed (same pattern as the default fixture's own known-malformed option)
+		'Mitchell, S. and Evans, D. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), p.27-35.', // "p." instead of "pp." — genuinely malformed (same pattern as the default fixture's own known-malformed option)
+		'',
+	),
+) );
+$ja_ampersand_joined_distractor_r = Citex_Generated_Validator::validate( $ja_ampersand_joined_distractor );
+check( '[25] an ampersand-joined-authors distractor no longer creates false ambiguity — the question PASSES', $ja_ampersand_joined_distractor_r['status'], 'passed' );
+check( '[25] no errors reported', $ja_ampersand_joined_distractor_r['errors'], array() );
+
+$ja_ampersand_joined_as_correct = journal_article_mcq_question( two_authors(), $canonical_fields, array(
+	'options'                => array( 'x', 'y', 'z', '' ),
+	'reconstructedReference' => 'Mitchell, S. & Evans, D. (2010) A brief guide to Harvard referencing. The British Journal of Referencing, 12(2), pp. 27-35.',
+) );
+$ja_ampersand_joined_as_correct_r = Citex_Generated_Validator::validate( $ja_ampersand_joined_as_correct );
+check( '[25] the same reference fails when it is the correct answer, proving the check genuinely fires', $ja_ampersand_joined_as_correct_r['status'], 'failed' );
+check( '[25] reports AUTHOR_JOIN_MISMATCH', has_error_code( $ja_ampersand_joined_as_correct_r, 'author_join_mismatch' ), true );
+
+// ---------------------------------------------------------------------
 // 21 & 24. Category assignment / the general dispatcher: a Journal Article
 // record with category "Journal Article" is routed to validate_dragdrop()/
 // validate_mcq() exactly like Book/Edited Book — validate() no longer

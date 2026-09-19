@@ -1016,7 +1016,7 @@ class Citex_Generated_Validator {
 
 		$reference = $reconstruction['reference'];
 		$style     = 'MLA' === $source ? 'mla' : ( 'APA' === $source ? 'apa' : ( 'Chicago' === $source ? 'chicago' : ( 'MHRA' === $source ? 'mhra' : 'harvard' ) ) );
-		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category, $question['place'] ?? null, $question['publisher'] ?? null, self::expected_designation_for( $question, $category ), self::expected_editor_join_for( $question, $category ), $exercise_design, $style ) );
+		$errors    = array_merge( $errors, self::validate_reference_format( $reference, $category, $question['place'] ?? null, $question['publisher'] ?? null, self::expected_designation_for( $question, $category ), self::expected_editor_join_for( $question, $category ), $exercise_design, $style, self::expected_author_join_for( $question, $category ) ) );
 
 		$correct_lower = array_map(
 			function ( $value ) {
@@ -1197,6 +1197,7 @@ class Citex_Generated_Validator {
 		$publisher    = $question['publisher'] ?? null;
 		$designation  = self::expected_designation_for( $question, $category );
 		$editor_join  = self::expected_editor_join_for( $question, $category );
+		$author_join  = self::expected_author_join_for( $question, $category );
 		// See validate_dragdrop()'s matching comment — null for every
 		// category except Journal Article.
 		$exercise_design = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category
@@ -1207,7 +1208,7 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
 			return self::result( 'failed', $errors, null );
 		}
-		$errors = array_merge( $errors, self::validate_reference_format( $reference, $category, $place, $publisher, $designation, $editor_join, $exercise_design ) );
+		$errors = array_merge( $errors, self::validate_reference_format( $reference, $category, $place, $publisher, $designation, $editor_join, $exercise_design, 'harvard', $author_join ) );
 
 		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $reference ) ) );
 		foreach ( $options as $index => $option ) {
@@ -1240,7 +1241,7 @@ class Citex_Generated_Validator {
 			// different value.
 			$skip_distractor_looks_correct = Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE === $category
 				&& 'full_reference' !== $exercise_design;
-			if ( ! $skip_distractor_looks_correct && empty( self::validate_reference_format( $option_text, $category, $place, $publisher, $designation, $editor_join, $exercise_design ) ) ) {
+			if ( ! $skip_distractor_looks_correct && empty( self::validate_reference_format( $option_text, $category, $place, $publisher, $designation, $editor_join, $exercise_design, 'harvard', $author_join ) ) ) {
 				$errors[] = self::error(
 					'MCQ_DISTRACTOR_LOOKS_CORRECT',
 					sprintf( 'Option %d passes every Harvard format rule too — this creates a second plausible answer.', $index + 1 )
@@ -1462,7 +1463,8 @@ class Citex_Generated_Validator {
 		$publisher   = $question['publisher'] ?? null;
 		$designation = self::expected_designation_for( $question, $category );
 		$editor_join = self::expected_editor_join_for( $question, $category );
-		if ( empty( self::validate_reference_format( $broken_reference, $category, $place, $publisher, $designation, $editor_join ) ) ) {
+		$author_join = self::expected_author_join_for( $question, $category );
+		if ( empty( self::validate_reference_format( $broken_reference, $category, $place, $publisher, $designation, $editor_join, null, 'harvard', $author_join ) ) ) {
 			$errors[] = self::error(
 				'IDENTIFY_ERROR_REFERENCE_NOT_BROKEN',
 				'The reference shown to the student passes every Harvard format rule — it must contain the one deliberate mistake named in the answer, or this is not a valid "identify the error" question.'
@@ -3867,6 +3869,65 @@ class Citex_Generated_Validator {
 	}
 
 	/**
+	 * The correctly-joined multi-author string ("Smith, J. and Jones, A.")
+	 * this question's real authors require — null for Website (which
+	 * always carries its own dedicated mcqPattern, routed elsewhere before
+	 * this generic path is ever reached), for Edited Book (covered by
+	 * expected_editor_join_for() instead), or for a Book/Journal Article
+	 * question with fewer than 2 authors. Mirrors expected_editor_join_for()
+	 * exactly, including its MLA/Chicago/MHRA guard — those 3 styles'
+	 * author records carry `givenName`, not Harvard's `initials`, and (like
+	 * APA, structurally unreachable here at all since every style with its
+	 * own dedicated Book/Journal Article MCQ variant class is routed there
+	 * before ever reaching this generic fallback) already has its own join
+	 * rule fully enforced elsewhere.
+	 */
+	private static function expected_author_join_for( $question, $category ) {
+		if ( ! in_array( $category, array( Citex_Reference_Rules::CATEGORY_BOOK, Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ), true )
+			|| in_array( (string) ( $question['source'] ?? '' ), array( 'MLA', 'Chicago', 'MHRA' ), true )
+		) {
+			return null;
+		}
+		$authors = is_array( $question['authors'] ?? null ) ? $question['authors'] : array();
+		if ( count( $authors ) < 2 ) {
+			return null;
+		}
+		return Citex_Reference_Rules::join_people( $authors );
+	}
+
+	/**
+	 * Whether $reference contains $correct_join's list of people ("Smith,
+	 * J. and Jones, A.") joined the WRONG way instead — a comma throughout
+	 * ("Smith, J., Jones, A.") or "&" ("Smith, J. & Jones, A.") — both
+	 * explicitly requested distractor patterns (see
+	 * Citex_Reference_Rules::mcq_distractor_patterns()). The shape regex in
+	 * validate_reference_format() cannot see this: its leading `.+`
+	 * swallows the whole person-list segment however it is punctuated, so
+	 * either wrong join is otherwise indistinguishable from correct — a
+	 * real reported bug ("Option 3 passes every Harvard format rule too")
+	 * where the "&" form specifically went undetected because only the
+	 * comma form was ever checked for.
+	 *
+	 * @return string|null 'comma', 'ampersand', or null if $reference
+	 *         contains the correct join (or neither wrong form at all).
+	 */
+	private static function find_wrong_person_list_join( $reference, $correct_join ) {
+		$correct_join = trim( (string) $correct_join );
+		if ( '' === $correct_join || false === strpos( $correct_join, ' and ' ) || self::text_contains( $reference, $correct_join ) ) {
+			return null;
+		}
+		$comma_joined = str_replace( ' and ', ', ', $correct_join );
+		if ( $comma_joined !== $correct_join && self::text_contains( $reference, $comma_joined ) ) {
+			return 'comma';
+		}
+		$ampersand_joined = str_replace( ' and ', ' & ', $correct_join );
+		if ( $ampersand_joined !== $correct_join && self::text_contains( $reference, $ampersand_joined ) ) {
+			return 'ampersand';
+		}
+		return null;
+	}
+
+	/**
 	 * The Harvard reference-format checks shared by DragDrop's reconstructed
 	 * reference and MCQ's correct option, for every category — punctuation
 	 * and spacing rules identical regardless of category. The one
@@ -3876,7 +3937,7 @@ class Citex_Generated_Validator {
 	 * categories provide instead of this method growing a new branch each
 	 * time.
 	 */
-	private static function validate_reference_format( $reference, $category = null, $place = null, $publisher = null, $expected_designation = null, $expected_editor_join = null, $exercise_design = null, $style = 'harvard' ) {
+	private static function validate_reference_format( $reference, $category = null, $place = null, $publisher = null, $expected_designation = null, $expected_editor_join = null, $exercise_design = null, $style = 'harvard', $expected_author_join = null ) {
 		$category = $category ?? Citex_Reference_Rules::CATEGORY_BOOK;
 		$errors   = array();
 
@@ -4049,22 +4110,46 @@ class Citex_Generated_Validator {
 		}
 
 		// Multi-editor joining — "Smith, J. and Jones, A.", never a comma
-		// throughout. Same blind spot again: the shape regex's leading `.+`
-		// swallows the whole editor-name segment however it is punctuated,
-		// so a distractor that replaces " and " with ", " is otherwise
-		// indistinguishable from correct. Only checked when we know the
-		// exact correct join AND the comma-joined variant would actually
-		// differ from it (i.e. there genuinely is an "and" to omit).
+		// throughout AND never "&" (a real reported bug: a Gemini-authored
+		// distractor using "Reid, L. & Bell, E." consistently slipped past
+		// this check while it only ever looked for the comma-joined wrong
+		// form — see find_wrong_person_list_join()'s own docblock. Both are
+		// explicitly requested distractor patterns — see
+		// Citex_Reference_Rules::mcq_distractor_patterns()'s "omitting 'and'
+		// ... or joining them with the wrong punctuation" entry). Same blind
+		// spot as the checks above: the shape regex's leading `.+` swallows
+		// the whole editor-name segment however it is punctuated, so either
+		// wrong join is otherwise indistinguishable from correct.
 		if ( Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category && null !== $expected_editor_join ) {
-			$correct_join = trim( (string) $expected_editor_join );
-			if ( '' !== $correct_join && false !== strpos( $correct_join, ' and ' ) ) {
-				$comma_joined = str_replace( ' and ', ', ', $correct_join );
-				if ( $comma_joined !== $correct_join && ! self::text_contains( $reference, $correct_join ) && self::text_contains( $reference, $comma_joined ) ) {
-					$errors[] = self::error(
-						'EDITED_BOOK_EDITOR_JOIN_MISMATCH',
-						'Two or more editors must be joined with "and" before the last name (e.g. "Smith, J. and Jones, A."), not a comma throughout.'
-					);
-				}
+			$wrong_join = self::find_wrong_person_list_join( $reference, $expected_editor_join );
+			if ( null !== $wrong_join ) {
+				$errors[] = self::error(
+					'EDITED_BOOK_EDITOR_JOIN_MISMATCH',
+					'comma' === $wrong_join
+						? 'Two or more editors must be joined with "and" before the last name (e.g. "Smith, J. and Jones, A."), not a comma throughout.'
+						: 'Two or more editors must be joined with "and" before the last name (e.g. "Smith, J. and Jones, A."), not "&".'
+				);
+			}
+		}
+
+		// Multi-author joining — the same check as above, for Book and
+		// Journal Article's own authors (Edited Book's own editors are
+		// covered above; Website MCQ always carries its own dedicated
+		// mcqPattern, routed to validate_website_mcq_variant() before ever
+		// reaching this generic path). Citex_Reference_Rules::mcq_distractor_patterns()
+		// explicitly requests this exact distractor for both categories
+		// too ("joining them with '&' instead of 'and'", "omitting 'and'
+		// ... and using a comma instead"), so this closes the identical gap
+		// there before it is independently reported.
+		if ( in_array( $category, array( Citex_Reference_Rules::CATEGORY_BOOK, Citex_Reference_Rules::CATEGORY_JOURNAL_ARTICLE ), true ) && null !== $expected_author_join ) {
+			$wrong_join = self::find_wrong_person_list_join( $reference, $expected_author_join );
+			if ( null !== $wrong_join ) {
+				$errors[] = self::error(
+					'AUTHOR_JOIN_MISMATCH',
+					'comma' === $wrong_join
+						? 'Two or more authors must be joined with "and" before the last name (e.g. "Smith, J. and Jones, A."), not a comma throughout.'
+						: 'Two or more authors must be joined with "and" before the last name (e.g. "Smith, J. and Jones, A."), not "&".'
+				);
 			}
 		}
 

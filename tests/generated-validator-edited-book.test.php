@@ -318,6 +318,44 @@ check( '[6d] the same reference fails when it is the correct answer, proving the
 check( '[6d] reports EDITED_BOOK_EDITOR_JOIN_MISMATCH', has_error_code( $eb_comma_joined_as_correct, 'edited_book_editor_join_mismatch' ), true );
 
 // ---------------------------------------------------------------------
+// 6e. Real reported bug: an ampersand-joined distractor ("Reid, L. & Bell,
+// E.") — the SAME blind spot as 6d's comma-joined one, and an explicitly
+// catalogued Edited Book distractor pattern ("joining them with the wrong
+// punctuation" — see mcq_distractor_patterns()) — went completely
+// undetected because the editor-join check used to look ONLY for the
+// comma-joined wrong form, never the ampersand one. Reported live: a
+// generated question's own distractor ("Reid, L. & Bell, E. (eds) (2019)
+// Global Media. New York: SAGE.") failed validation with "Option 3 passes
+// every Harvard format rule too — this creates a second plausible
+// answer," even though it plainly violates the "and" join rule.
+// ---------------------------------------------------------------------
+$eb_ampersand_joined_distractor = Citex_Generated_Validator::validate(
+	edited_book_mcq_question( array(
+		'editors' => two_editors(),
+		'options' => array(
+			'Smith, J. & Jones, A. (eds) (2022) Digital media and society. London: SAGE Publications.', // ampersand instead of "and"
+			'Smith, J. and Jones, A. (2022) Digital media and society. London: SAGE Publications.', // missing designation — genuinely malformed
+			'Smith, J. and Jones, A. (editors) (2022) Digital media and society. London: SAGE Publications.', // wrong word — genuinely malformed
+			'',
+		),
+		'reconstructedReference' => Citex_Reference_Rules::build_reference( Citex_Reference_Rules::CATEGORY_EDITED_BOOK, array( 'editors' => two_editors(), 'year' => '2022', 'title' => 'Digital media and society', 'place' => 'London', 'publisher' => 'SAGE Publications' ) ),
+	) )
+);
+check( '[6e] an ampersand-joined-editors distractor no longer creates false ambiguity — the question PASSES', $eb_ampersand_joined_distractor['status'], 'passed' );
+check( '[6e] no errors reported', $eb_ampersand_joined_distractor['errors'], array() );
+
+// Sanity check the rule actually fires.
+$eb_ampersand_joined_as_correct = Citex_Generated_Validator::validate(
+	edited_book_mcq_question( array(
+		'editors'                => two_editors(),
+		'options'                => array( 'x', 'y', 'z', '' ),
+		'reconstructedReference' => 'Smith, J. & Jones, A. (eds) (2022) Digital media and society. London: SAGE Publications.',
+	) )
+);
+check( '[6e] the same reference fails when it is the correct answer, proving the check genuinely fires', $eb_ampersand_joined_as_correct['status'], 'failed' );
+check( '[6e] reports EDITED_BOOK_EDITOR_JOIN_MISMATCH', has_error_code( $eb_ampersand_joined_as_correct, 'edited_book_editor_join_mismatch' ), true );
+
+// ---------------------------------------------------------------------
 // 7. Answer leakage: a scenario that already shows "(ed.)"/"(eds)" leaks
 // the designation answer directly.
 // ---------------------------------------------------------------------
