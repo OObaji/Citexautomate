@@ -51,14 +51,28 @@ class Citex_Generator {
 		// already covered before generating more. Combined across BOTH
 		// real destinations, Reference List and Citations (see
 		// Citex_Scanner::target_for_group()'s own docblock), matching the
-		// Dashboard's own "combined" convention. Read from each target's
-		// last SCAN (Citex_Scanner::get_last_scan(), not a fresh
-		// sync_from_wordpress() query) since Generate is loaded far more
-		// often than a scan is refreshed — this shows the same cached
-		// numbers the Dashboard shows rather than re-querying WordPress on
-		// every page load; a style/category with no scan yet at all just
-		// shows (0).
-		$published_scan       = Citex_Scanner::merge_scans( array( Citex_Scanner::get_last_scan( 'reference' ), Citex_Scanner::get_last_scan( 'citations' ) ) );
+		// Dashboard's own "combined" convention.
+		//
+		// A real reported bug: this used to read only each target's last
+		// SAVED scan (Citex_Scanner::get_last_scan()), which goes stale
+		// the moment a Generate & Publish/Populate run creates new posts
+		// after that scan was taken — exactly like the same staleness bug
+		// already fixed once for ID-collision avoidance (see
+		// collect_used_question_ids()'s own docblock). sync_from_wordpress()
+		// is a fast, LOCAL get_posts() query (never the old external
+		// browser-DOM scan this codebase also has), so there is no real
+		// cost to re-syncing fresh on every Generate page load — this
+		// mirrors collect_used_question_ids()'s own fall-back-to-cache
+		// pattern for when a target's URL isn't configured yet.
+		$reference_scan_fresh = Citex_Scanner::sync_from_wordpress( 'reference' );
+		if ( is_wp_error( $reference_scan_fresh ) ) {
+			$reference_scan_fresh = Citex_Scanner::get_last_scan( 'reference' );
+		}
+		$citations_scan_fresh = Citex_Scanner::sync_from_wordpress( 'citations' );
+		if ( is_wp_error( $citations_scan_fresh ) ) {
+			$citations_scan_fresh = Citex_Scanner::get_last_scan( 'citations' );
+		}
+		$published_scan       = Citex_Scanner::merge_scans( array( $reference_scan_fresh, $citations_scan_fresh ) );
 		$published_questions  = $published_scan['questions'] ?? array();
 		$style_counts         = array();
 		foreach ( $referencing_styles as $style_key => $style_label ) {
@@ -80,8 +94,8 @@ class Citex_Generator {
 		// how many already exist for that specific combination, not a
 		// style-only/category-only total that mixes in every other one).
 		// Computed the same way $style_counts is, then broken down by
-		// category on top — still driven off the same last-scan snapshot,
-		// not a live query.
+		// category on top — from the same freshly-synced $published_questions
+		// above.
 		$combined_counts = array();
 		foreach ( $referencing_styles as $style_key => $style_label ) {
 			$style_questions = Citex_Scanner::filter_by_style( $published_questions, $style_label );

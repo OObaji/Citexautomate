@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<?php esc_html_e( 'Question Type (DragDrop/MCQ), Citation Form (for In-Text Citation) and Author Count are no longer chosen here — every batch is automatically split evenly across DragDrop and MCQ, evenly across every Citation Form, and equally across every Author Count scenario, so a batch never lands lopsided. Question IDs are always freshly auto-numbered.', 'citex-tools' ); ?>
 	</p>
 	<p class="description">
-		<?php esc_html_e( 'The number in brackets next to each Referencing Style option is how many of that style are already published, across every category (Reference List + Citations combined), as of the last scan — see the Dashboard to refresh it. The Category dropdown\'s own counts are scoped to whichever Referencing Style is currently selected — e.g. selecting MLA shows MLA\'s own Book/Edited Book/Journal Article/Website counts, not every style\'s combined.', 'citex-tools' ); ?>
+		<?php esc_html_e( 'The number in brackets next to each Referencing Style option is how many of that style are already published right now, across every category (Reference List + Citations combined). The Category dropdown\'s own counts are scoped to whichever Referencing Style is currently selected — e.g. selecting MLA shows MLA\'s own Book/Edited Book/Journal Article/Website counts, not every style\'s combined.', 'citex-tools' ); ?>
 	</p>
 
 	<form method="post" class="citex-form">

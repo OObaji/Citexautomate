@@ -155,7 +155,17 @@ check(
 );
 check(
 	'[5] render() combines both destinations via Citex_Scanner::merge_scans()',
-	false !== strpos( $generator_source, "Citex_Scanner::merge_scans( array( Citex_Scanner::get_last_scan( 'reference' ), Citex_Scanner::get_last_scan( 'citations' ) ) )" ),
+	false !== strpos( $generator_source, 'Citex_Scanner::merge_scans( array( $reference_scan_fresh, $citations_scan_fresh ) )' ),
+	true
+);
+check(
+	'[5] render() syncs each target FRESH (never a stale cached scan) — a real reported bug: counts did not update after generating/publishing',
+	false !== strpos( $generator_source, "Citex_Scanner::sync_from_wordpress( 'reference' )" ) && false !== strpos( $generator_source, "Citex_Scanner::sync_from_wordpress( 'citations' )" ),
+	true
+);
+check(
+	'[5] render() falls back to the cached last scan only when a fresh sync cannot run',
+	false !== strpos( $generator_source, 'if ( is_wp_error( $reference_scan_fresh ) ) {' ) && false !== strpos( $generator_source, "Citex_Scanner::get_last_scan( 'reference' );" ),
 	true
 );
 check(
