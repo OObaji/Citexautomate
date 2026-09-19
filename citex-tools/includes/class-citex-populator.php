@@ -594,7 +594,21 @@ class Citex_Populator {
 			}
 
 			$diagnostics['saveLifecycleCompleted'] = true;
-		} catch ( Exception $e ) {
+		} catch ( Throwable $e ) {
+			// Throwable, not just Exception: a PHP Error (TypeError,
+			// ArgumentCountError, etc.) is NOT an Exception in PHP 7+ and
+			// would otherwise not be caught here at all — it would crash
+			// the whole request with no WP_Error, no notice, and no
+			// redirect, which is exactly what a real reported bug looked
+			// like ("Generate & Publish" — or plain Populate — silently
+			// does nothing for DragDrop, no error message at all). DragDrop's
+			// own write/verify path (write_dragdrop_acf_values()/
+			// verify_dragdrop_acf_values(), see their own docblocks) has far
+			// more surface area for this than MCQ's plain scalar field
+			// writes, since it introspects each repeater row's real ACF
+			// shape dynamically rather than assuming one. Catching
+			// Throwable turns that silent crash into a normal, diagnosable
+			// WP_Error message instead.
 			wp_delete_post( $new_id, true );
 			return new WP_Error( 'citex_population_failed', $e->getMessage() );
 		}
