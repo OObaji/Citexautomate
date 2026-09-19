@@ -14,11 +14,10 @@ class Citex_Generator {
 
 	/**
 	 * Scenario-group-level generation failures collected during the
-	 * current handle_mixed_generation()/handle_bulk_generation() call —
-	 * see generate_via_scenarios()'s own docblock for why these no longer
-	 * abort the whole request. Reset at the start of each of those two
-	 * methods, read back afterwards to append a short summary to the
-	 * admin notice.
+	 * current handle_mixed_generation() call — see generate_via_scenarios()'s
+	 * own docblock for why these no longer abort the whole request. Reset
+	 * at the start of that method, read back afterwards to append a short
+	 * summary to the admin notice.
 	 *
 	 * @var string[]
 	 */
@@ -41,190 +40,6 @@ class Citex_Generator {
 		$pending_questions  = self::get_pending_questions();
 		$ai_configured      = '' !== Citex_AI_V2::get_api_key();
 		require CITEX_TOOLS_PATH . 'admin/views/generate.php';
-	}
-
-	/**
-	 * "Bulk Generate": one total quantity for one Referencing Style,
-	 * spread automatically across every Question Focus (Reference List +
-	 * In-Text Citation) and Category (Book/Edited Book/Journal Article/
-	 * Website) combination that style supports — e.g. "Harvard, 500"
-	 * generates Reference List AND In-Text Citation questions, across all
-	 * 4 categories, in DragDrop and MCQ, evenly, without picking each
-	 * combination one at a time on the plain Generate form. See
-	 * handle_bulk_generation() for exactly how the total is split.
-	 */
-	public function render_bulk() {
-		$this->maybe_handle_bulk_submit();
-
-		$referencing_styles = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)', 'mhra' => 'MHRA' );
-		$difficulties        = array( 'easy' => 'Easy', 'medium' => 'Medium', 'hard' => 'Hard' );
-		$pending_questions   = self::get_pending_questions();
-		$ai_configured       = '' !== Citex_AI_V2::get_api_key();
-		require CITEX_TOOLS_PATH . 'admin/views/bulk-generate.php';
-	}
-
-	/**
-	 * Called on admin_init (before any output) as well as at the top of
-	 * render_bulk(), matching maybe_handle_submit()'s own pattern.
-	 */
-	public function maybe_handle_bulk_submit() {
-		if ( empty( $_POST['citex_bulk_generate_submit'] ) ) {
-			return;
-		}
-
-		check_admin_referer( self::NONCE_ACTION, 'citex_generate_nonce' );
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to do this.', 'citex-tools' ) );
-		}
-
-		$this->handle_bulk_generation();
-	}
-
-	/**
-	 * Splits one total quantity for one Referencing Style evenly (via
-	 * split_evenly()) across every Question Focus x Category combination
-	 * that style supports — 8 combinations (2 Question Focus x 4
-	 * Category) for Harvard/MLA/APA, or 4 (Reference List only x 4
-	 * Category) for Chicago/MHRA, which are still Reference-List-only —
-	 * then runs generate_mixed_batch() (the exact same DragDrop/MCQ/
-	 * Citation Form even-split core the plain Generate form uses) once
-	 * per combination, in a stable, deterministic order (Reference List
-	 * before In-Text Citation; Book, Edited Book, Journal Article, Website
-	 * within each).
-	 *
-	 * Resilient, not atomic, unlike a single-combination batch: if one
-	 * combination's generation request fails (e.g. a transient Gemini
-	 * error), that combination is skipped and reported, but every other
-	 * combination's successfully generated questions are still saved —
-	 * losing an entire large bulk run over one combination's failure
-	 * would be far more costly than a single-category batch's own
-	 * all-or-nothing contract (see generate_via_scenarios()'s own
-	 * docblock).
-	 *
-	 * Always redirects (and exits).
-	 */
-	private function handle_bulk_generation() {
-		$style      = isset( $_POST['citex_bulk_style'] ) ? sanitize_key( wp_unslash( $_POST['citex_bulk_style'] ) ) : '';
-		$difficulty = isset( $_POST['citex_bulk_difficulty'] ) ? sanitize_key( wp_unslash( $_POST['citex_bulk_difficulty'] ) ) : 'hard';
-		$quantity   = isset( $_POST['citex_bulk_quantity'] ) ? absint( $_POST['citex_bulk_quantity'] ) : 0;
-
-		if ( ! in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true ) ) {
-			Citex_Admin::set_notice( __( 'Choose a Referencing Style to bulk generate.', 'citex-tools' ), 'error' );
-			$this->redirect_bulk_back();
-		}
-		if ( ! in_array( $difficulty, array( 'easy', 'medium', 'hard' ), true ) ) {
-			$difficulty = 'hard';
-		}
-		// Capped well below PHP's typical admin request execution time
-		// limit: each combination issues its own Gemini request(s), so a
-		// very large total can still take a long time even split evenly —
-		// large runs are expected to be submitted a few hundred at a time,
-		// repeated, rather than as one single enormous request.
-		$quantity = max( 1, min( 2000, $quantity ) );
-
-		// Best-effort: removes PHP's own default execution-time cap as a
-		// likely cause of a hard mid-run kill for a large total (dozens of
-		// synchronous Gemini requests in one submission can easily exceed
-		// the common 30s default). Some hosts disable set_time_limit() or
-		// still enforce their own hard cap (e.g. a reverse proxy's read
-		// timeout) regardless — this cannot guarantee the whole request
-		// completes, which is exactly why saving happens after EVERY
-		// combination below, not once at the end.
-		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 0 );
-		}
-
-		$this->generation_warnings = array();
-
-		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
-		$groups           = in_array( $style, array( 'chicago', 'mhra' ), true ) ? array( 'referencelist' ) : array( 'referencelist', 'intext' );
-
-		$combinations = array();
-		foreach ( $groups as $group ) {
-			foreach ( $category_labels as $category => $category_label ) {
-				$combinations[] = array( 'group' => $group, 'category' => $category, 'categoryLabel' => $category_label );
-			}
-		}
-
-		$buckets     = self::split_evenly( $quantity, count( $combinations ) );
-		$web_verify  = Citex_AI_V2::web_verification_enabled();
-
-		$pending  = self::get_pending_questions();
-		$used_ids = $this->collect_used_question_ids( $pending );
-
-		$all_results = array();
-		$failures    = array();
-
-		// Saved as soon as each DragDrop/MCQ (and, for In-Text Citation,
-		// each individual Citation Form) sub-batch completes — not only
-		// once per whole combination, and never only once at the very end.
-		// A large bulk run doing dozens of combinations' worth of
-		// synchronous Gemini requests in one PHP process can still be
-		// killed outright by a server-side timeout despite set_time_limit(0)
-		// above (a host that disables it, or a reverse proxy's own hard
-		// cap) — if that happens mid-run, whatever sub-batches already
-		// completed must already be on disk, not sitting in a local
-		// variable that dies with the process. $pending is kept in sync
-		// locally so each save only adds its own new results, never
-		// re-writes (or drops) an earlier one's.
-		$on_partial_result = function ( array $partial ) use ( &$pending ) {
-			if ( empty( $partial ) ) {
-				return;
-			}
-			$pending = array_merge( $pending, $partial );
-			self::save_pending_questions( $pending );
-		};
-
-		foreach ( $combinations as $index => $combo ) {
-			$combo_quantity = $buckets[ $index ];
-			if ( $combo_quantity < 1 ) {
-				continue;
-			}
-			$combo_result = $this->generate_mixed_batch( $combo['categoryLabel'], $combo['category'], $combo_quantity, $difficulty, $web_verify, $style, $combo['group'], $used_ids, $pending, $on_partial_result );
-			if ( is_wp_error( $combo_result ) ) {
-				$failures[] = sprintf(
-					'%1$s / %2$s: %3$s',
-					'intext' === $combo['group'] ? __( 'In-Text Citation', 'citex-tools' ) : __( 'Reference List', 'citex-tools' ),
-					$combo['categoryLabel'],
-					$combo_result->get_error_message()
-				);
-				continue;
-			}
-			foreach ( $combo_result as $candidate ) {
-				$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
-				if ( '' !== $id ) {
-					$used_ids[ $id ] = true;
-				}
-			}
-			$all_results = array_merge( $all_results, $combo_result );
-		}
-
-		$referencing_style_labels = array( 'harvard' => 'Harvard', 'mla' => 'MLA', 'apa' => 'APA 7th', 'chicago' => 'Chicago (Author-Date)', 'mhra' => 'MHRA' );
-		list( $dragdrop_total, $mcq_total ) = self::count_by_type( $all_results );
-		$message = sprintf(
-			__( 'Bulk generate for %1$s complete: %2$d/%3$d requested questions generated and saved to Pending (%4$d DragDrop, %5$d MCQ) across %6$d/%7$d Question Focus x Category combinations.', 'citex-tools' ),
-			$referencing_style_labels[ $style ] ?? $style,
-			count( $all_results ),
-			$quantity,
-			$dragdrop_total,
-			$mcq_total,
-			count( $combinations ) - count( $failures ),
-			count( $combinations )
-		);
-		if ( ! empty( $failures ) ) {
-			$message .= ' ' . __( 'Failed combinations:', 'citex-tools' ) . ' ' . implode( ' | ', array_slice( $failures, 0, 5 ) );
-		}
-		if ( ! empty( $this->generation_warnings ) ) {
-			$message .= ' ' . __( 'Some scenario batches within otherwise-successful combinations were skipped after retrying:', 'citex-tools' ) . ' ' . implode( ' | ', array_slice( $this->generation_warnings, 0, 3 ) );
-		}
-		$message .= ' ' . __( 'Validate them when ready, then populate in manageable chunks from the Populate screen.', 'citex-tools' );
-		Citex_Admin::set_notice( $message, empty( $failures ) ? 'success' : 'warning' );
-		$this->redirect_bulk_back();
-	}
-
-	private function redirect_bulk_back() {
-		wp_safe_redirect( admin_url( 'admin.php?page=citex-bulk-generate' ) );
-		exit;
 	}
 
 	/**
@@ -710,11 +525,8 @@ class Citex_Generator {
 	/**
 	 * The actual DragDrop+MCQ even split (and, via generate_for_type(),
 	 * the further Citation Form split for In-Text Citation) for ONE
-	 * category/group/style — no notice, no redirect, so both
-	 * handle_mixed_generation() (one category/style/group batch, from the
-	 * plain Generate form) and handle_bulk_generation() (every category/
-	 * group combination for one style, from one total quantity — the
-	 * Bulk Generate form) share exactly the same core logic.
+	 * category/group/style batch (from the plain Generate form) — no
+	 * notice, no redirect.
 	 *
 	 * $on_partial_result, when given, is called with each successfully
 	 * generated sub-batch (DragDrop's own result, then MCQ's own, further
@@ -725,8 +537,7 @@ class Citex_Generator {
 	 * requests in one submission; a server-side execution-time kill
 	 * partway through must never lose work that has already genuinely
 	 * succeeded — a real reported bug when this only saved once at the
-	 * end (or, for Bulk Generate, once per whole category/group
-	 * combination instead of this finer per-type/per-form granularity).
+	 * very end.
 	 *
 	 * @return array|WP_Error
 	 */

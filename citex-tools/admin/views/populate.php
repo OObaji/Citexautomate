@@ -6,7 +6,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 <div class="wrap citex-wrap">
 	<h1 class="citex-page-title"><?php esc_html_e( 'Populate Questions', 'citex-tools' ); ?></h1>
 	<p class="description"><?php esc_html_e( 'Only pending questions that have passed Citex validation are eligible — whether they were generated inside Citex or imported from CSV/JSON. Passed records are created in the real Reference List and then synced back into the Citex Question Bank.', 'citex-tools' ); ?></p>
-	<p class="description"><?php esc_html_e( 'With a large pending queue (e.g. from Bulk Generate), use "First N passed questions (chunk)" to publish a manageable batch at a time — e.g. 100 — instead of everything in one request; repeat the same action to work through the rest.', 'citex-tools' ); ?></p>
+	<p class="description"><?php esc_html_e( 'With a large pending queue, use "First N passed questions (chunk)" to publish a manageable batch at a time — e.g. 100 — instead of everything in one request; repeat the same action to work through the rest.', 'citex-tools' ); ?></p>
 
 	<div class="citex-stat-cards citex-stat-cards-compact">
 		<div class="citex-card"><span class="citex-card-label"><?php esc_html_e( 'Ready to populate', 'citex-tools' ); ?></span><span class="citex-card-value"><?php echo esc_html( $status['ready'] ); ?></span></div>

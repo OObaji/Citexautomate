@@ -2,12 +2,8 @@
 /**
  * Regression tests for Citex_Generator::split_evenly() — the shared
  * near-equal integer split used by every even-split feature in the
- * generator: DragDrop/MCQ (generate_mixed_batch()), Citation Form
- * (generate_for_type()), and Question Focus x Category (
- * handle_bulk_generation(), the "Bulk Generate" feature — a reported
- * request: "Harvard, 500" should generate roughly equal shares of
- * Reference List/In-Text Citation x Book/Edited Book/Journal Article/
- * Website, not 500 of any single combination).
+ * generator: DragDrop/MCQ (generate_mixed_batch()) and Citation Form
+ * (generate_for_type()).
  *
  * Repo-level only, run with plain
  * `php tests/generator-split-evenly.test.php` — not shipped in
@@ -54,8 +50,8 @@ check( 'a total that divides evenly by 4 splits exactly', Citex_Generator::split
 // ---------------------------------------------------------------------
 check( 'an odd total of 11 across 2 buckets gives the first bucket the extra one', Citex_Generator::split_evenly( 11, 2 ), array( 6, 5 ) );
 check( 'a total of 10 across 3 buckets (Citation Form) gives the first bucket the extra one', Citex_Generator::split_evenly( 10, 3 ), array( 4, 3, 3 ) );
-check( 'a total of 500 across 8 buckets (Bulk Generate: 2 Question Focus x 4 Category)', Citex_Generator::split_evenly( 500, 8 ), array( 63, 63, 63, 63, 62, 62, 62, 62 ) );
-check( 'a total of 500 across 4 buckets (Bulk Generate, Chicago/MHRA: Reference List only)', Citex_Generator::split_evenly( 500, 4 ), array( 125, 125, 125, 125 ) );
+check( 'a total of 500 across 8 buckets splits near-equally', Citex_Generator::split_evenly( 500, 8 ), array( 63, 63, 63, 63, 62, 62, 62, 62 ) );
+check( 'a total of 500 across 4 buckets splits exactly', Citex_Generator::split_evenly( 500, 4 ), array( 125, 125, 125, 125 ) );
 
 // ---------------------------------------------------------------------
 // Edge cases.
