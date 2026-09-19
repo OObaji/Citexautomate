@@ -271,11 +271,10 @@ class Citex_Generator {
 		// SAME request — genuinely double the per-question work of plain
 		// "Generate", which only ever generates, so it stays capped below
 		// plain Generate's own 100 to fit inside a realistic request
-		// budget. This was briefly raised all the way to 100 to match
-		// plain Generate, but a real reported timeout at that quantity
-		// showed the combined generate+populate work genuinely does need
-		// its own, lower ceiling — 100 was too high for this server. 50
-		// is the new cap for both MCQ and DragDrop/Mixed.
+		// budget. This has been walked down on real reported timeouts on
+		// this server: 100 timed out, then 50 also timed out — this
+		// server's request budget is genuinely tighter than either of
+		// those. 20 is the current cap for both MCQ and DragDrop/Mixed.
 		//
 		// A timeout partway through is no longer destructive either way:
 		// every generated question and every populated question is
@@ -285,7 +284,7 @@ class Citex_Generator {
 		// Throwable, not just Exception, so a PHP Error can't crash the
 		// request unnoticed — a timeout just leaves the remainder for the
 		// next run instead of losing anything.
-		$publish_cap = 50;
+		$publish_cap = 20;
 		$quantity    = max( 1, min( $publish_immediately ? $publish_cap : 100, $quantity ) );
 		$style_ok = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
 		// MLA and APA reference-list both now cover all 4 categories (Book,
