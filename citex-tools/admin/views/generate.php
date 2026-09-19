@@ -27,7 +27,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<tr><th scope="row"><label for="citex_referencing_style"><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></label></th><td><select id="citex_referencing_style" name="citex_referencing_style"><?php foreach ( $referencing_styles as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p id="citex_chicago_scope_note" class="description citex-chicago-scope-note" style="display:none;"><?php esc_html_e( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p><p id="citex_mhra_scope_note" class="description citex-mhra-scope-note" style="display:none;"><?php esc_html_e( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'hard', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_quantity"><?php esc_html_e( 'Quantity', 'citex-tools' ); ?></label></th><td><input type="number" id="citex_quantity" name="citex_quantity" value="20" min="1" max="100" class="small-text" /><p class="description"><?php esc_html_e( 'Generate up to 100 questions in one batch, split evenly across DragDrop/MCQ (and Citation Form, for In-Text Citation).', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_quantity"><?php esc_html_e( 'Quantity', 'citex-tools' ); ?></label></th><td><input type="number" id="citex_quantity" name="citex_quantity" value="20" min="1" max="100" class="small-text" /><p class="description"><?php esc_html_e( 'Generate up to 100 questions in one batch, split evenly across DragDrop/MCQ (and Citation Form, for In-Text Citation). "Generate & Publish" also populates every question that passes in the same request, so it is capped lower, at 20, to avoid timing out — "Generate Real Questions with Gemini" alone still allows the full 100.', 'citex-tools' ); ?></p></td></tr>
 		</table>
 		<p class="submit">
 			<button type="submit" name="citex_generate_submit" value="1" class="button button-primary" <?php disabled( ! $ai_configured ); ?>><?php esc_html_e( 'Generate Real Questions with Gemini', 'citex-tools' ); ?></button>
@@ -38,6 +38,36 @@ if ( ! defined( 'ABSPATH' ) ) {
 	</form>
 	<script>
 	( function () {
+		// "Generate & Publish" is capped lower server-side than plain
+		// "Generate" (20 vs 100 — see handle_generation()'s own docblock:
+		// it does full generation AND full synchronous population in one
+		// request, genuinely double the per-question work, and a large
+		// Quantity reliably timed out under that combined load). The
+		// Quantity field is shared by both buttons and its own max="100"
+		// only reflects plain Generate's cap, so a value above 20 would
+		// otherwise be silently clamped down to 20 server-side with no
+		// explanation — this asks first and lets the admin choose to
+		// proceed at 20 or go back and lower Quantity themselves.
+		var publishButton = document.querySelector( 'button[name="citex_generate_and_populate_submit"]' );
+		var quantityInput  = document.getElementById( 'citex_quantity' );
+		var PUBLISH_QUANTITY_CAP = 20;
+		if ( publishButton && quantityInput ) {
+			publishButton.addEventListener( 'click', function ( event ) {
+				var requested = parseInt( quantityInput.value, 10 ) || 0;
+				if ( requested <= PUBLISH_QUANTITY_CAP ) {
+					return;
+				}
+				var proceed = confirm(
+					'Generate & Publish generates AND publishes every question in the same request, so it is capped at ' + PUBLISH_QUANTITY_CAP + ' at a time to avoid timing out. Continue with ' + PUBLISH_QUANTITY_CAP + ' instead of ' + requested + '?'
+				);
+				if ( ! proceed ) {
+					event.preventDefault();
+					return;
+				}
+				quantityInput.value = PUBLISH_QUANTITY_CAP;
+			} );
+		}
+
 		var styleSelect = document.getElementById( 'citex_referencing_style' );
 		var groupSelect  = document.getElementById( 'citex_question_group' );
 

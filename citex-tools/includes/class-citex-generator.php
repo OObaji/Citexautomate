@@ -432,7 +432,17 @@ class Citex_Generator {
 
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 
-		$quantity = max( 1, min( 100, $quantity ) );
+		// "Generate & Publish" does full generation AND, for every question
+		// that passes, a full synchronous population (create the post,
+		// write every field, then read every one back to verify it
+		// persisted — see class-citex-populator.php's own docblock) in the
+		// SAME request — genuinely double the per-question work of plain
+		// "Generate", which only ever generates. A real reported bug: even
+		// 100 questions (already the plain-Generate cap) reliably timed out
+		// under the combined load, showing a raw server error page after a
+		// long wait. Capped lower here so the combined action stays inside
+		// a realistic request budget; plain "Generate" keeps the full 100.
+		$quantity = max( 1, min( $publish_immediately ? 20 : 100, $quantity ) );
 		$style_ok = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
 		// MLA and APA reference-list both now cover all 4 categories (Book,
 		// Edited Book, Journal Article, Website) — the same shared-structure
