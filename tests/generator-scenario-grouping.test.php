@@ -149,6 +149,18 @@ function invoke_generate_via_scenarios( $category_label, $category_key, $type_la
 	return $reflection->invoke( $generator, $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending );
 }
 
+function invoke_generate_via_scenarios_on( $generator, $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending ) {
+	$reflection = new ReflectionMethod( 'Citex_Generator', 'generate_via_scenarios' );
+	$reflection->setAccessible( true );
+	return $reflection->invoke( $generator, $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending );
+}
+
+function get_generation_warnings( $generator ) {
+	$reflection = new ReflectionProperty( 'Citex_Generator', 'generation_warnings' );
+	$reflection->setAccessible( true );
+	return $reflection->getValue( $generator );
+}
+
 // ---------------------------------------------------------------------
 // 1. A 4-question batch (matching Book's 4 scenarios exactly) issues one
 // request per scenario, each producing exactly 1 question, and IDs are
@@ -172,9 +184,17 @@ if ( ! is_wp_error( $result ) ) {
 }
 
 // ---------------------------------------------------------------------
-// 2. Atomicity: if a LATER group's request ultimately fails, the whole
-// call returns that WP_Error — the caller (handle_generation()) never
-// sees a partial result to accidentally save.
+// 2. Resilience (not atomicity — see generate_via_scenarios()'s own
+// docblock): if a LATER group's request ultimately fails, the call no
+// longer aborts and discards the earlier group's already-successful
+// result. This is the direct fix for a real reported bug: "Citex: Gemini
+// could not produce a usable batch after 2 attempt(s). Nothing was
+// added" even though most of a 100-question request had already
+// genuinely succeeded — a single flaky scenario group among several used
+// to throw away every other one. The failure is instead recorded in
+// $generation_warnings for the caller to surface, and only when EVERY
+// group fails does this still return a WP_Error (see check [3] below is
+// no longer that case either — only a fully-empty result would be).
 // ---------------------------------------------------------------------
 reset_environment();
 queue_response( array( book_mcq_question( 'BK01', array( 'John Smith' ), 'Book One' ) ) );
@@ -184,13 +204,21 @@ $GLOBALS['__response_queue'][] = array( 'response' => array( 'code' => 200 ), 'b
 $GLOBALS['__response_queue'][] = array( 'response' => array( 'code' => 200 ), 'body' => wp_json_encode( array( 'output_text' => wp_json_encode( array( 'questions' => array() ) ) ) ) );
 $GLOBALS['__response_queue'][] = array( 'response' => array( 'code' => 200 ), 'body' => wp_json_encode( array( 'output_text' => wp_json_encode( array( 'questions' => array() ) ) ) ) );
 
-$atomic_result = invoke_generate_via_scenarios( 'Book', 'book', 'MCQ', 'mcq', 2, 'BK01', 'medium', false, array(), array() );
-check( '[2] a later group\'s failure fails the whole call', is_wp_error( $atomic_result ), true );
+$resilient_generator = new Citex_Generator();
+$resilient_result     = invoke_generate_via_scenarios_on( $resilient_generator, 'Book', 'book', 'MCQ', 'mcq', 2, 'BK01', 'medium', false, array(), array() );
+check( '[2] a later group\'s failure no longer fails the whole call', is_wp_error( $resilient_result ), false );
+if ( ! is_wp_error( $resilient_result ) ) {
+	check( '[2] the earlier group\'s already-successful question is still returned, not discarded', count( $resilient_result ), 1 );
+	check( '[2] the failing group\'s failure is recorded as a warning instead of being silently lost', count( get_generation_warnings( $resilient_generator ) ) > 0, true );
+}
 
 // ---------------------------------------------------------------------
 // 3. Cross-group duplicate guard: group 2 must not regenerate the exact
 // same book group 1 just produced — existing_references grows as each
-// group succeeds.
+// group succeeds. With resilience (see check [2] above), group 2
+// exhausting its retries on the duplicate no longer discards group 1's
+// already-successful question — it is still returned, with group 2's
+// failure recorded as a warning instead.
 // ---------------------------------------------------------------------
 reset_environment();
 queue_response( array( book_mcq_question( 'BK01', array( 'John Smith' ), 'Repeated Book' ) ) );
@@ -219,8 +247,13 @@ queue_response( array( book_mcq_question( 'BK02', array( 'John Smith', 'Amy Jone
 queue_response( array( book_mcq_question( 'BK02', array( 'John Smith', 'Amy Jones' ), 'Repeated Book' ) ) );
 queue_response( array( book_mcq_question( 'BK02', array( 'John Smith', 'Amy Jones' ), 'Repeated Book' ) ) );
 
-$duplicate_result = invoke_generate_via_scenarios( 'Book', 'book', 'MCQ', 'mcq', 2, 'BK01', 'medium', false, array(), $existing_pending );
-check( '[3] a group that would duplicate an existing pending reference fails', is_wp_error( $duplicate_result ), true );
+$duplicate_generator = new Citex_Generator();
+$duplicate_result     = invoke_generate_via_scenarios_on( $duplicate_generator, 'Book', 'book', 'MCQ', 'mcq', 2, 'BK01', 'medium', false, array(), $existing_pending );
+check( '[3] a group that would duplicate an existing pending reference no longer fails the whole call', is_wp_error( $duplicate_result ), false );
+if ( ! is_wp_error( $duplicate_result ) ) {
+	check( '[3] the non-duplicate group\'s question is still returned', count( $duplicate_result ), 1 );
+	check( '[3] the duplicate group\'s failure is recorded as a warning', count( get_generation_warnings( $duplicate_generator ) ) > 0, true );
+}
 
 // ---------------------------------------------------------------------
 // 4. Regression for a real reported bug: collect_existing_references()
@@ -249,6 +282,20 @@ check(
 	invoke_collect_existing_references( $mixed_pending, 'Book' ),
 	array( 'Cottrell, S. (2019) Critical Thinking Skills. London: Red Globe Press.' )
 );
+
+// ---------------------------------------------------------------------
+// 5. The one case that still legitimately fails the whole call: EVERY
+// group's request ultimately fails, so there is truly nothing to return
+// — the pre-existing "Gemini could not produce a usable batch..."
+// behaviour for a genuinely total failure (e.g. an invalid API key, or
+// Gemini down entirely) is unchanged.
+// ---------------------------------------------------------------------
+reset_environment();
+for ( $i = 0; $i < 6; $i++ ) {
+	$GLOBALS['__response_queue'][] = array( 'response' => array( 'code' => 200 ), 'body' => wp_json_encode( array( 'output_text' => wp_json_encode( array( 'questions' => array() ) ) ) ) );
+}
+$total_failure_result = invoke_generate_via_scenarios( 'Book', 'book', 'MCQ', 'mcq', 2, 'BK01', 'medium', false, array(), array() );
+check( '[5] a call where EVERY group fails still returns a WP_Error (nothing at all to return)', is_wp_error( $total_failure_result ), true );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

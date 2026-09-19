@@ -12,6 +12,18 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class Citex_Generator {
 
+	/**
+	 * Scenario-group-level generation failures collected during the
+	 * current handle_mixed_generation()/handle_bulk_generation() call —
+	 * see generate_via_scenarios()'s own docblock for why these no longer
+	 * abort the whole request. Reset at the start of each of those two
+	 * methods, read back afterwards to append a short summary to the
+	 * admin notice.
+	 *
+	 * @var string[]
+	 */
+	private $generation_warnings = array();
+
 	const NONCE_ACTION   = 'citex_generate_questions';
 	const OPTION_PENDING = 'citex_pending_questions';
 
@@ -122,6 +134,8 @@ class Citex_Generator {
 			@set_time_limit( 0 );
 		}
 
+		$this->generation_warnings = array();
+
 		$category_labels = array( 'book' => 'Book', 'edited_book' => 'Edited Book', 'journal_article' => 'Journal Article', 'website' => 'Website' );
 		$groups           = in_array( $style, array( 'chicago', 'mhra' ), true ) ? array( 'referencelist' ) : array( 'referencelist', 'intext' );
 
@@ -199,6 +213,9 @@ class Citex_Generator {
 		);
 		if ( ! empty( $failures ) ) {
 			$message .= ' ' . __( 'Failed combinations:', 'citex-tools' ) . ' ' . implode( ' | ', array_slice( $failures, 0, 5 ) );
+		}
+		if ( ! empty( $this->generation_warnings ) ) {
+			$message .= ' ' . __( 'Some scenario batches within otherwise-successful combinations were skipped after retrying:', 'citex-tools' ) . ' ' . implode( ' | ', array_slice( $this->generation_warnings, 0, 3 ) );
 		}
 		$message .= ' ' . __( 'Validate them when ready, then populate in manageable chunks from the Populate screen.', 'citex-tools' );
 		Citex_Admin::set_notice( $message, empty( $failures ) ? 'success' : 'warning' );
@@ -503,6 +520,8 @@ class Citex_Generator {
 			@set_time_limit( 0 );
 		}
 
+		$this->generation_warnings = array();
+
 		$pending  = self::get_pending_questions();
 		$used_ids = $this->collect_used_question_ids( $pending );
 
@@ -539,6 +558,16 @@ class Citex_Generator {
 			$dragdrop_quantity,
 			$mcq_quantity
 		);
+		if ( count( $result ) < $quantity ) {
+			$message .= ' ' . sprintf(
+				__( 'Requested %1$d — %2$d could not be generated after retrying and were skipped (nothing else was lost).', 'citex-tools' ),
+				$quantity,
+				$quantity - count( $result )
+			);
+		}
+		if ( ! empty( $this->generation_warnings ) ) {
+			$message .= ' ' . __( 'Skipped:', 'citex-tools' ) . ' ' . implode( ' | ', array_slice( $this->generation_warnings, 0, 3 ) );
+		}
 		$message .= ' ' . sprintf(
 			__( '%1$s exercise coverage: DragDrop %2$d/5, MCQ %3$d/5 exercises now have at least one question.', 'citex-tools' ),
 			$category_label,
@@ -640,26 +669,34 @@ class Citex_Generator {
 
 		$result = array();
 
+		// DragDrop and MCQ are likewise resilient, not atomic: if one type
+		// comes back entirely empty (every scenario group/form it tried
+		// ultimately failed — see generate_via_scenarios()'s own docblock),
+		// the other type is still attempted rather than the whole request
+		// aborting. Only when BOTH end up empty does this return a
+		// WP_Error, below.
 		if ( $dragdrop_quantity > 0 ) {
 			$dragdrop_result = $this->generate_for_type( $category_label, $category, 'DragDrop', 'dragdrop', $dragdrop_quantity, $dragdrop_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, $on_partial_result );
-			if ( is_wp_error( $dragdrop_result ) ) {
-				return $dragdrop_result;
-			}
-			foreach ( $dragdrop_result as $candidate ) {
-				$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
-				if ( '' !== $id ) {
-					$used_ids[ $id ] = true;
+			if ( ! is_wp_error( $dragdrop_result ) ) {
+				foreach ( $dragdrop_result as $candidate ) {
+					$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
+					if ( '' !== $id ) {
+						$used_ids[ $id ] = true;
+					}
 				}
+				$result = array_merge( $result, $dragdrop_result );
 			}
-			$result = array_merge( $result, $dragdrop_result );
 		}
 
 		if ( $mcq_quantity > 0 ) {
 			$mcq_result = $this->generate_for_type( $category_label, $category, 'MCQ', 'mcq', $mcq_quantity, $mcq_starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, $on_partial_result );
-			if ( is_wp_error( $mcq_result ) ) {
-				return $mcq_result;
+			if ( ! is_wp_error( $mcq_result ) ) {
+				$result = array_merge( $result, $mcq_result );
 			}
-			$result = array_merge( $result, $mcq_result );
+		}
+
+		if ( empty( $result ) && ! empty( $this->generation_warnings ) ) {
+			return new WP_Error( 'citex_ai_generation_failed', implode( ' | ', array_slice( $this->generation_warnings, -3 ) ) );
 		}
 
 		return $result;
@@ -705,13 +742,20 @@ class Citex_Generator {
 	 */
 	private function generate_for_type( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, callable $on_partial_result = null ) {
 		if ( 'intext' !== $group ) {
-			$result = $this->generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, 'narrative', 'auto' );
-			if ( ! is_wp_error( $result ) && $on_partial_result ) {
-				$on_partial_result( $result );
-			}
-			return $result;
+			// $on_partial_result is passed straight through to
+			// generate_via_scenarios(), which already calls it per scenario
+			// group — the finest granularity available. It must never also
+			// be called again here with the same (whole-type) result, or
+			// every question in it would be merged into Pending twice.
+			return $this->generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, 'narrative', 'auto', $on_partial_result );
 		}
 
+		// Citation Forms are likewise resilient, not atomic: if one form's
+		// call returns a WP_Error (meaning every one of ITS scenario groups
+		// ultimately failed — see generate_via_scenarios()'s own docblock),
+		// the other forms are still attempted rather than the whole type
+		// aborting. Only when every form fails does this return a WP_Error
+		// itself, below.
 		$forms       = array( 'narrative', 'parenthetical', 'parenthetical_quote' );
 		$buckets     = self::split_evenly( $quantity, count( $forms ) );
 		$all_results = array();
@@ -720,9 +764,12 @@ class Citex_Generator {
 			if ( $form_quantity < 1 ) {
 				continue;
 			}
-			$form_result = $this->generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $form_quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, $form, 'auto' );
+			// $on_partial_result is passed straight through here too — see
+			// the non-intext branch's own comment above for why this
+			// method never also calls it itself.
+			$form_result = $this->generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $form_quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style, $group, $form, 'auto', $on_partial_result );
 			if ( is_wp_error( $form_result ) ) {
-				return $form_result;
+				continue;
 			}
 			foreach ( $form_result as $candidate ) {
 				$id = strtoupper( trim( (string) ( $candidate['questionId'] ?? '' ) ) );
@@ -730,10 +777,11 @@ class Citex_Generator {
 					$used_ids[ $id ] = true;
 				}
 			}
-			if ( $on_partial_result ) {
-				$on_partial_result( $form_result );
-			}
 			$all_results = array_merge( $all_results, $form_result );
+		}
+
+		if ( empty( $all_results ) && ! empty( $this->generation_warnings ) ) {
+			return new WP_Error( 'citex_ai_generation_failed', implode( ' | ', array_slice( $this->generation_warnings, -3 ) ) );
 		}
 		return $all_results;
 	}
@@ -769,18 +817,39 @@ class Citex_Generator {
 	 * unaffected: still computed once for the whole batch, by slot index,
 	 * and sliced per scenario group below.
 	 *
-	 * Groups are generated in first-seen order and the whole submission
-	 * stays atomic — if any group's request ultimately fails (after its own
-	 * internal quality-retry attempts), this returns that WP_Error
-	 * immediately and nothing from any group is saved, matching the
-	 * pre-framework single-request contract exactly. IDs are never reused
-	 * across groups within one submission: each successful group's own
-	 * questionIds are folded into the running $used_ids set before the next
-	 * group's request, on top of the pre-existing pending/scanned IDs.
+	 * Groups are generated in first-seen order and are RESILIENT, not
+	 * atomic: if one group's request ultimately fails (after its own
+	 * internal quality-retry attempts), that failure is recorded in
+	 * $this->generation_warnings and the remaining groups are still
+	 * attempted — a genuinely reported bug ("Citex: Gemini could not
+	 * produce a usable batch after 2 attempt(s). Nothing was added.")
+	 * where a single flaky Gemini call among many (a batch of "100
+	 * questions" easily means half a dozen or more separate scenario-group
+	 * requests once split across DragDrop/MCQ and, for In-Text Citation,
+	 * Citation Form) discarded every OTHER group's already-successfully-
+	 * generated questions too, aborting the entire submission with nothing
+	 * saved even though most of it had already genuinely succeeded. Only
+	 * when EVERY group in this call fails does this return a WP_Error (see
+	 * the end of this method) — the same "truly nothing generated" case the
+	 * old all-or-nothing behaviour was meant for.
+	 *
+	 * $on_partial_result, when given, is called with each successful
+	 * group's own result as soon as it completes — the finest granularity
+	 * of the incremental-save mechanism threaded through
+	 * handle_mixed_generation()/generate_mixed_batch()/generate_for_type()
+	 * (see their own docblocks): a scenario group is the smallest unit of
+	 * work Gemini is ever asked to do in one request, so saving at this
+	 * level means a mid-run timeout (or another group's later failure)
+	 * can never lose a group that already, genuinely, succeeded.
+	 *
+	 * IDs are never reused across groups within one submission: each
+	 * successful group's own questionIds are folded into the running
+	 * $used_ids set before the next group's request, on top of the
+	 * pre-existing pending/scanned IDs.
 	 *
 	 * @return array|WP_Error
 	 */
-	private function generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style = 'harvard', $group = 'referencelist', $citation_form = 'narrative', $forced_scenario_id = 'auto' ) {
+	private function generate_via_scenarios( $category_label, $category_key, $type_label, $type_key, $quantity, $starting_id, $difficulty, $web_verify, $used_ids, $pending, $style = 'harvard', $group = 'referencelist', $citation_form = 'narrative', $forced_scenario_id = 'auto', callable $on_partial_result = null ) {
 		// Citex — not Gemini — assigns each slot's Exercise and scenario,
 		// deterministically, before generation even starts. Gemini's
 		// response schema carries no exercise field, and is never trusted
@@ -845,7 +914,15 @@ class Citex_Generator {
 			);
 
 			if ( is_wp_error( $result ) ) {
-				return $result;
+				$this->generation_warnings[] = sprintf(
+					'%1$s / %2$s (scenario "%3$s", %4$d question(s)): %5$s',
+					$category_label,
+					$type_label,
+					$scenario_id,
+					count( $indices ),
+					$result->get_error_message()
+				);
+				continue;
 			}
 
 			foreach ( $result as $candidate ) {
@@ -859,6 +936,14 @@ class Citex_Generator {
 				}
 				$all_results[] = $candidate;
 			}
+
+			if ( $on_partial_result ) {
+				$on_partial_result( $result );
+			}
+		}
+
+		if ( empty( $all_results ) && ! empty( $this->generation_warnings ) ) {
+			return new WP_Error( 'citex_ai_generation_failed', implode( ' | ', array_slice( $this->generation_warnings, -3 ) ) );
 		}
 
 		return $all_results;
