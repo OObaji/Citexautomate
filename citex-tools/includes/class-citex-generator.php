@@ -269,25 +269,24 @@ class Citex_Generator {
 		// write every field, then read every one back to verify it
 		// persisted — see class-citex-populator.php's own docblock) in the
 		// SAME request — genuinely double the per-question work of plain
-		// "Generate", which only ever generates. A real reported bug: even
-		// 100 questions (already the plain-Generate cap) reliably timed out
-		// under the combined load, showing a raw server error page after a
-		// long wait. Capped lower here so the combined action stays inside
-		// a realistic request budget; plain "Generate" keeps the full 100.
+		// "Generate", which only ever generates. This used to be capped
+		// well below the plain-Generate cap (20 MCQ / 10 DragDrop/Mixed)
+		// because a server-side timeout mid-request used to be
+		// catastrophic — either silently killing the whole request with no
+		// error, or (worse, before the Throwable-catch fix) crashing on an
+		// uncaught PHP Error with nothing saved at all.
 		//
-		// The cap is further split by type: DragDrop's own population is
-		// genuinely heavier than MCQ's — two ACF repeater fields (Question
-		// Parts, Confusing Words), each written row-by-row with its real
-		// discovered shape and then read back row-by-row to verify, on top
-		// of Fixed Text/Scenario/Question Class — versus MCQ's handful of
-		// plain text field writes. A real reported bug: "Generate &
-		// Publish" with DragDrop-only (or Mixed, which is half DragDrop)
-		// silently did nothing at the same quantity that worked fine for
-		// MCQ-only — no error at all, because the request was killed by a
-		// server-side timeout before it ever got back far enough to show
-		// one. MCQ-only keeps the full 20; anything that includes DragDrop
-		// gets a lower cap to stay inside a realistic request budget too.
-		$publish_cap = 'mcq' === $type_filter ? 20 : 10;
+		// Both of those are now fixed: every generated question and every
+		// populated question is saved/removed from Pending the moment it
+		// individually succeeds (see the $on_partial_result/$on_item_success
+		// callbacks threaded through generation and population), and
+		// populate_one() now catches Throwable, not just Exception, so a
+		// PHP Error can't crash the request unnoticed. A timeout partway
+		// through now just leaves the remainder for the next run instead of
+		// losing anything — so the cap matches plain Generate's own 100 for
+		// both MCQ and DragDrop/Mixed rather than being held artificially
+		// low.
+		$publish_cap = 100;
 		$quantity    = max( 1, min( $publish_immediately ? $publish_cap : 100, $quantity ) );
 		$style_ok = in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true );
 		// MLA and APA reference-list both now cover all 4 categories (Book,
