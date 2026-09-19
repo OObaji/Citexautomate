@@ -153,7 +153,27 @@ check( '[2] a pending question ID is still included', isset( $used_with_pending[
 check( '[2] the freshly-synced live post ID is still included alongside it', isset( $used_with_pending['WR01'] ), true );
 
 // ---------------------------------------------------------------------
-// 4. When a fresh sync cannot run at all (e.g. no Reference List URL
+// 4. CRITICAL — a real reported bug: a TRASHED post's questionId must
+// still count as "used", even though sync_from_wordpress() deliberately
+// excludes trashed posts from its own $questions array (correct — trash
+// shouldn't count toward Dashboard totals/coverage). Without this, a
+// trashed post's ID looked "free" to the generator, got reused for a
+// fresh batch, and every one of those new questions then failed to
+// populate with "A record with this exact title already exists in this
+// post type" (Citex_Populator::populate_one()'s duplicate-title check
+// DOES still see trashed posts) — exactly the BK06/BK07/BK08 failure
+// reported after a trash-and-regenerate cycle.
+// ---------------------------------------------------------------------
+$GLOBALS['__posts'][502] = array(
+	'post_type'   => 'question',
+	'post_status' => 'trash',
+	'post_title'  => 'Harvard | ReferenceList | Book | DragDrop | BK06',
+);
+$used_with_trash = invoke_collect_used_question_ids( array() );
+check( '[4] CRITICAL — a trashed post\'s questionId is still treated as used, never reused for a fresh batch', isset( $used_with_trash['BK06'] ), true );
+
+// ---------------------------------------------------------------------
+// 5. When a fresh sync cannot run at all (e.g. no Reference List URL
 // configured), the cached scan is still used as a fallback rather than
 // silently returning nothing.
 // ---------------------------------------------------------------------
@@ -167,7 +187,7 @@ update_option(
 	false
 );
 $used_fallback = invoke_collect_used_question_ids( array() );
-check( '[3] falls back to the cached scan when a fresh sync cannot run', isset( $used_fallback['WR09'] ), true );
+check( '[5] falls back to the cached scan when a fresh sync cannot run', isset( $used_fallback['WR09'] ), true );
 
 echo "\n" . ( 0 === $failures ? 'All checks passed.' : $failures . ' check(s) failed.' ) . "\n";
 exit( 0 === $failures ? 0 : 1 );

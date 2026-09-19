@@ -195,6 +195,63 @@ class Citex_Scanner {
 	}
 
 	/**
+	 * Every questionId parsed from this target's TRASHED posts' titles.
+	 * Deliberately not part of sync_from_wordpress()'s own $questions array
+	 * (see its "if ( 'trash' === $status ) { continue; }" — trash correctly
+	 * never counts toward Dashboard totals/coverage), but a trashed post's
+	 * row, and its title, still genuinely exist: Citex_Populator::populate_one()'s
+	 * own duplicate-title check queries 'trash' among its statuses and DOES
+	 * still block creating a new post with that same title.
+	 *
+	 * A real reported bug: Citex_Generator::collect_used_question_ids() only
+	 * ever read sync_from_wordpress()'s own $questions array, so a trashed
+	 * post's ID looked "free" to the generator, which reused it for a fresh
+	 * batch — every one of which then failed to populate with "A record
+	 * with this exact title already exists in this post type," 0 created,
+	 * because the trashed post was still there the whole time. This gives
+	 * collect_used_question_ids() the missing half of the picture without
+	 * changing sync_from_wordpress()'s own, correct, trash-excluding
+	 * behaviour for every other caller (Dashboard totals/coverage).
+	 *
+	 * @return string[] Every used questionId, uppercased.
+	 */
+	public static function trashed_question_ids( $target = 'reference' ) {
+		$target = self::normalise_target( $target );
+		$url    = self::get_question_list_url( $target );
+		if ( ! $url ) {
+			return array();
+		}
+		$post_type = self::post_type_from_url( $url );
+		if ( ! $post_type || ! post_type_exists( $post_type ) ) {
+			return array();
+		}
+
+		$posts = get_posts(
+			array(
+				'post_type'              => $post_type,
+				'post_status'            => 'trash',
+				'posts_per_page'         => -1,
+				'orderby'                => 'ID',
+				'order'                  => 'ASC',
+				'no_found_rows'          => true,
+				'suppress_filters'       => false,
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+			)
+		);
+
+		$ids = array();
+		foreach ( $posts as $post ) {
+			$parsed = self::parse_title( get_the_title( $post ) );
+			$id     = strtoupper( trim( (string) ( $parsed['questionId'] ?? '' ) ) );
+			if ( '' !== $id ) {
+				$ids[] = $id;
+			}
+		}
+		return $ids;
+	}
+
+	/**
 	 * Combines any number of per-target scans (Reference List, Citations —
 	 * see target_for_group()'s own docblock) into ONE scan-shaped array,
 	 * for callers that need a single combined view (the Dashboard's own

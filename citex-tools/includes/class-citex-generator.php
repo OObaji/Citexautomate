@@ -982,6 +982,22 @@ class Citex_Generator {
 				$id = strtoupper( trim( (string) ( $question['questionId'] ?? '' ) ) );
 				if ( '' !== $id ) { $used[ $id ] = true; }
 			}
+			// sync_from_wordpress() deliberately SKIPS trashed posts when
+			// building $questions above (correct for Dashboard coverage —
+			// a trashed post shouldn't count as "live" question bank
+			// content). But that post row still physically exists, and
+			// Citex_Populator::populate_one()'s own duplicate-title check
+			// DOES look at trashed posts. Without this, a trashed post's ID
+			// looked "free" here, got reused for a new batch, and every one
+			// of those new questions then failed at population time with
+			// "a record with this exact title already exists" — the real
+			// reported bug (BK06/BK07/BK08 all failing after a trash-and-
+			// regenerate). Merge trashed IDs in separately so they stay
+			// excluded from reuse without changing sync_from_wordpress()'s
+			// own correct behaviour.
+			foreach ( Citex_Scanner::trashed_question_ids( $target ) as $id ) {
+				$used[ $id ] = true;
+			}
 		}
 		return $used;
 	}
