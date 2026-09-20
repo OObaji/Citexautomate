@@ -41,6 +41,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<p class="description"><?php esc_html_e( '"Generate & Publish" also validates this batch and immediately populates whichever questions pass straight into the real Reference List/Citations as Published — skipping the separate Validate and Populate steps for this batch. Anything that fails validation stays in Pending below for review.', 'citex-tools' ); ?></p>
 	</form>
 
+	<div id="citex-auto-force-update" data-post-ids="<?php echo esc_attr( wp_json_encode( $auto_force_update_post_ids ) ); ?>" style="display:none;"></div>
+	<p id="citex-auto-force-update-status" class="description"></p>
+
 	<hr />
 	<div class="citex-auto-generate" data-published-counts="<?php echo esc_attr( wp_json_encode( $combined_counts ) ); ?>">
 		<h2><?php esc_html_e( 'Auto-Generate', 'citex-tools' ); ?></h2>

@@ -20,6 +20,7 @@
 		playActionToneIfNeeded();
 		wireCategoryStyleCounts();
 		wireAutoGenerate();
+		wireAutoForceUpdate();
 	} );
 
 	/**
@@ -602,7 +603,7 @@
 				citex_question_type: typeSelect ? typeSelect.value : 'mixed',
 				citex_quantity: batchQuantity,
 			} )
-				.then( function ( result ) {
+				.then( async function ( result ) {
 					if ( ! running ) {
 						return;
 					}
@@ -620,6 +621,24 @@
 							.replace( '{total}', baseline + createdTotal )
 							.replace( '{target}', target )
 					);
+
+					// A real requested feature: DragDrop questions from
+					// THIS batch are automatically force-updated (a real
+					// Update click — see admin/js/citex-force-update.js's
+					// own docblock) the instant they're published, without
+					// visiting the Questions page — never MCQ. Runs before
+					// the next batch starts (sequential, like everything
+					// else in this loop), so the log stays in the actual
+					// order things happened.
+					var dragdropIds = data.dragdropCreatedPostIds || [];
+					if ( dragdropIds.length && window.CitexForceUpdate ) {
+						logLine( 'Force-updating ' + dragdropIds.length + ' DragDrop question(s) from this batch…' );
+						var forceSummary = await CitexForceUpdate.forceRealUpdateBatch( dragdropIds, function () {} );
+						logLine(
+							'Force-updated ' + forceSummary.succeeded + '/' + dragdropIds.length + ' DragDrop question(s).' +
+							( forceSummary.failed.length ? ' Failed: ' + forceSummary.failed.length + '.' : '' )
+						);
+					}
 
 					noProgressStreak = created > 0 ? 0 : noProgressStreak + 1;
 					if ( noProgressStreak >= 3 ) {
@@ -659,6 +678,55 @@
 
 		stopButton.addEventListener( 'click', function () {
 			finish( citexTools.generator.strings.stopped.replace( '{total}', baseline + createdTotal ).replace( '{target}', target ) );
+		} );
+	}
+
+	/**
+	 * A real requested feature: after a plain "Generate & Publish" form
+	 * submission (as opposed to Auto-Generate's own AJAX loop, handled
+	 * inside wireAutoGenerate() above), any DragDrop questions it just
+	 * published should be automatically force-updated (a real Update
+	 * click — see admin/js/citex-force-update.js's own docblock) without
+	 * the admin visiting the Questions page — never MCQ.
+	 *
+	 * The post IDs are queued server-side by Citex_Generator::
+	 * handle_mixed_generation() (Citex_Admin::set_pending_force_update_ids())
+	 * and survive the redirect back to this page via a short-lived
+	 * transient, read once by Citex_Generator::render() and printed onto
+	 * #citex-auto-force-update's own data-post-ids attribute — empty on
+	 * every page load except the one right after a Generate & Publish
+	 * submission that created at least one DragDrop question.
+	 */
+	function wireAutoForceUpdate() {
+		var container = document.getElementById( 'citex-auto-force-update' );
+		var status    = document.getElementById( 'citex-auto-force-update-status' );
+		if ( ! container || ! window.CitexForceUpdate ) {
+			return;
+		}
+
+		var postIds = [];
+		try {
+			postIds = JSON.parse( container.getAttribute( 'data-post-ids' ) || '[]' );
+		} catch ( e ) {
+			postIds = [];
+		}
+		if ( ! postIds.length ) {
+			return;
+		}
+
+		setText( status, 'Force-updating ' + postIds.length + ' newly published DragDrop question(s) so they show up in the app…' );
+
+		CitexForceUpdate.forceRealUpdateBatch( postIds, function ( index, total ) {
+			setText( status, 'Force-updating ' + ( index + 1 ) + ' of ' + total + ' newly published DragDrop question(s)…' );
+		} ).then( function ( summary ) {
+			if ( summary.failed.length ) {
+				var sample = summary.failed.slice( 0, 3 ).map( function ( item ) {
+					return '#' + item.postId + ': ' + item.reason;
+				} ).join( ' | ' );
+				setText( status, 'Force-updated ' + summary.succeeded + ' of ' + postIds.length + ' newly published DragDrop question(s). Failed: ' + summary.failed.length + '. ' + sample );
+			} else {
+				setText( status, 'Force-updated ' + summary.succeeded + ' of ' + postIds.length + ' newly published DragDrop question(s).' );
+			}
 		} );
 	}
 } )();

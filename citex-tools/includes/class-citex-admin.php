@@ -6,6 +6,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Citex_Admin {
 
 	const NOTICE_TRANSIENT_PREFIX = 'citex_notice_';
+	const FORCE_UPDATE_IDS_TRANSIENT_PREFIX = 'citex_force_update_ids_';
 
 	private $dashboard;
 	private $generator;
@@ -108,8 +109,14 @@ class Citex_Admin {
 		wp_enqueue_script( 'citex-scanner', CITEX_TOOLS_URL . 'admin/js/citex-scanner.js', array(), self::asset_version( 'admin/js/citex-scanner.js' ), true );
 		wp_enqueue_script( 'citex-validator', CITEX_TOOLS_URL . 'admin/js/citex-validator.js', array(), self::asset_version( 'admin/js/citex-validator.js' ), true );
 		wp_enqueue_script( 'citex-validator-site-adapter', CITEX_TOOLS_URL . 'admin/js/citex-validator-site-adapter.js', array( 'citex-validator' ), self::asset_version( 'admin/js/citex-validator-site-adapter.js' ), true );
-		wp_enqueue_script( 'citex-admin', CITEX_TOOLS_URL . 'admin/js/citex-admin.js', array( 'citex-scanner', 'citex-validator-site-adapter' ), self::asset_version( 'admin/js/citex-admin.js' ), true );
-		wp_enqueue_script( 'citex-bulk-edit', CITEX_TOOLS_URL . 'admin/js/citex-bulk-edit.js', array( 'citex-admin' ), self::asset_version( 'admin/js/citex-bulk-edit.js' ), true );
+		// Shared "click the real Update button in the background" helper
+		// (see its own file docblock) — loaded before citex-admin.js/
+		// citex-bulk-edit.js so both the Generate page's own automatic
+		// after-publish trigger and the Questions page's own bulk panel can
+		// call window.CitexForceUpdate without duplicating this logic.
+		wp_enqueue_script( 'citex-force-update', CITEX_TOOLS_URL . 'admin/js/citex-force-update.js', array(), self::asset_version( 'admin/js/citex-force-update.js' ), true );
+		wp_enqueue_script( 'citex-admin', CITEX_TOOLS_URL . 'admin/js/citex-admin.js', array( 'citex-scanner', 'citex-validator-site-adapter', 'citex-force-update' ), self::asset_version( 'admin/js/citex-admin.js' ), true );
+		wp_enqueue_script( 'citex-bulk-edit', CITEX_TOOLS_URL . 'admin/js/citex-bulk-edit.js', array( 'citex-admin', 'citex-force-update' ), self::asset_version( 'admin/js/citex-bulk-edit.js' ), true );
 
 		wp_localize_script( 'citex-admin', 'citexTools', array(
 			'ajaxUrl'            => admin_url( 'admin-ajax.php' ),
@@ -196,6 +203,44 @@ class Citex_Admin {
 		delete_transient( $key );
 		$type = isset( $notice['type'] ) && in_array( $notice['type'], array( 'success', 'error', 'warning', 'info' ), true ) ? $notice['type'] : 'info';
 		echo '<div class="notice notice-' . esc_attr( $type ) . ' is-dismissible citex-action-notice"><p><strong>Citex:</strong> ' . esc_html( $notice['message'] ) . '</p></div>';
+	}
+
+	/**
+	 * Carries "these post IDs need a real-Update force-refresh" across the
+	 * redirect from a "Generate & Publish" submission to the Generate page's
+	 * own next load — a real requested feature: DragDrop questions should
+	 * be automatically force-updated (see admin/js/citex-force-update.js's
+	 * own docblock on why a real Update click, not just re-running the same
+	 * save functions, was needed) the moment they are published, without
+	 * the admin having to visit the Questions page and run it by hand.
+	 * Mirrors set_notice()/render_notice()'s own transient-per-user
+	 * pattern exactly, since a plain PHP variable cannot survive a
+	 * redirect and this is exactly the same kind of "small state for the
+	 * very next page load" problem.
+	 */
+	public static function set_pending_force_update_ids( array $post_ids ) {
+		$post_ids = array_values( array_unique( array_filter( array_map( 'absint', $post_ids ) ) ) );
+		if ( empty( $post_ids ) ) {
+			return;
+		}
+		set_transient( self::FORCE_UPDATE_IDS_TRANSIENT_PREFIX . get_current_user_id(), $post_ids, 300 );
+	}
+
+	/**
+	 * Reads and clears the post IDs queued by set_pending_force_update_ids() —
+	 * called once, from Citex_Generator::render(), so the SAME batch of IDs
+	 * is never force-updated twice (e.g. on a later, unrelated page load).
+	 *
+	 * @return int[]
+	 */
+	public static function get_and_clear_pending_force_update_ids() {
+		$key = self::FORCE_UPDATE_IDS_TRANSIENT_PREFIX . get_current_user_id();
+		$ids = get_transient( $key );
+		if ( ! is_array( $ids ) ) {
+			return array();
+		}
+		delete_transient( $key );
+		return array_values( array_map( 'absint', $ids ) );
 	}
 
 	/**

@@ -45,6 +45,18 @@ class Citex_Generator {
 		$pending_questions  = self::get_pending_questions();
 		$ai_configured      = '' !== Citex_AI_V2::get_api_key();
 
+		// DragDrop questions from the "Generate & Publish" submission that
+		// just redirected here (if any) — queued by handle_mixed_generation()
+		// via Citex_Admin::set_pending_force_update_ids(), read and cleared
+		// exactly once so the SAME batch is never force-updated twice. The
+		// view turns this into an automatic, no-click-needed run of the
+		// same "click the real Update button" automation the Questions
+		// page's own "Bulk Force Real Update" panel uses — see
+		// admin/js/citex-force-update.js's own docblock for why a real
+		// Update click, not just re-running the same save functions, was
+		// needed for DragDrop specifically.
+		$auto_force_update_post_ids = Citex_Admin::get_and_clear_pending_force_update_ids();
+
 		// Published-question counts shown in brackets next to each
 		// Referencing Style/Category option (e.g. "Harvard (50)") — a real
 		// requested feature so the admin can see how much of each is
@@ -374,12 +386,22 @@ class Citex_Generator {
 			wp_send_json_error( array( 'message' => $output->get_error_message() ) );
 		}
 
+		$created = is_array( $output['populate']['created'] ?? null ) ? $output['populate']['created'] : array();
+
 		wp_send_json_success( array(
-			'generatedCount' => count( $output['generated'] ),
-			'passedCount'    => is_array( $output['passed'] ) ? count( $output['passed'] ) : 0,
-			'createdCount'   => is_array( $output['populate']['created'] ?? null ) ? count( $output['populate']['created'] ) : 0,
-			'failedCount'    => is_array( $output['populate']['failed'] ?? null ) ? count( $output['populate']['failed'] ) : 0,
-			'warnings'       => array_slice( $output['warnings'], 0, 3 ),
+			'generatedCount'         => count( $output['generated'] ),
+			'passedCount'            => is_array( $output['passed'] ) ? count( $output['passed'] ) : 0,
+			'createdCount'           => count( $created ),
+			'failedCount'            => is_array( $output['populate']['failed'] ?? null ) ? count( $output['populate']['failed'] ) : 0,
+			'warnings'               => array_slice( $output['warnings'], 0, 3 ),
+			// DragDrop questions from THIS batch only — a real requested
+			// feature: automatically force-update them (a real Update
+			// click, never just MCQ — see extract_dragdrop_post_ids()'s
+			// own docblock) the moment they're published, so the JS
+			// Auto-Generate loop can run the same automation
+			// admin/js/citex-force-update.js provides after every batch
+			// without the admin visiting the Questions page.
+			'dragdropCreatedPostIds' => self::extract_dragdrop_post_ids( $created ),
 		) );
 	}
 
@@ -607,7 +629,37 @@ class Citex_Generator {
 			count( $result )
 		) . ' ' . $population_message;
 		Citex_Admin::set_notice( $message, empty( $populate_result['failed'] ) ? 'success' : 'warning' );
+		// A real requested feature: DragDrop questions should be
+		// automatically force-updated (a real Update click — see
+		// admin/js/citex-force-update.js's own docblock on why re-running
+		// the same save functions in code was not enough) the moment
+		// they're published, without the admin visiting the Questions page
+		// and running it by hand. MCQ is deliberately excluded — the
+		// reported problem, and every prior investigation, was DragDrop
+		// only. Queued here (survives the redirect below) and picked up by
+		// render() on the Generate page's next load.
+		Citex_Admin::set_pending_force_update_ids( self::extract_dragdrop_post_ids( $populate_result['created'] ) );
 		$this->redirect_back();
+	}
+
+	/**
+	 * Every real WordPress post ID from a populate_questions()/populate_one()
+	 * 'created' array whose question type is DragDrop — shared by
+	 * handle_mixed_generation() (the classic Generate & Publish form) and
+	 * auto_generate_batch_body() (the Auto-Generate AJAX loop) so both
+	 * queue the exact same set for automatic force-update, never MCQ.
+	 *
+	 * @param array[] $created populate_questions()'s own 'created' array.
+	 * @return int[]
+	 */
+	private static function extract_dragdrop_post_ids( array $created ) {
+		$post_ids = array();
+		foreach ( $created as $item ) {
+			if ( 'DragDrop' === ( $item['type'] ?? '' ) ) {
+				$post_ids[] = (int) ( $item['postId'] ?? 0 );
+			}
+		}
+		return array_values( array_filter( $post_ids ) );
 	}
 
 	/**

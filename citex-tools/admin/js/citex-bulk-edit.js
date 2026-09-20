@@ -336,7 +336,7 @@
 		 */
 		function wireForceRealUpdate() {
 			var panel = document.getElementById( 'citex-bulk-real-update' );
-			if ( ! panel || ! window.citexTools || ! citexTools.adminUrl ) {
+			if ( ! panel || ! window.citexTools || ! citexTools.adminUrl || ! window.CitexForceUpdate ) {
 				return;
 			}
 
@@ -372,29 +372,21 @@
 
 				button.disabled = true;
 				scope.disabled = true;
-				var succeeded = 0;
-				var failed = [];
 
-				for ( var i = 0; i < ids.length; i++ ) {
-					setRealUpdateProgress( 'Updating ' + ( i + 1 ) + ' of ' + ids.length + ' (post #' + ids[ i ] + ')…' );
-					try {
-						await forceRealUpdate( ids[ i ] );
-						succeeded++;
-					} catch ( error ) {
-						failed.push( { postId: ids[ i ], reason: error.message } );
-					}
-				}
+				var summary = await CitexForceUpdate.forceRealUpdateBatch( ids, function ( index, total, postId ) {
+					setRealUpdateProgress( 'Updating ' + ( index + 1 ) + ' of ' + total + ' (post #' + postId + ')…' );
+				} );
 
-				if ( failed.length ) {
-					var sample = failed.slice( 0, 3 ).map( function ( item ) {
+				if ( summary.failed.length ) {
+					var sample = summary.failed.slice( 0, 3 ).map( function ( item ) {
 						return '#' + item.postId + ': ' + item.reason;
 					} ).join( ' | ' );
 					setRealUpdateProgress(
-						'Done. Force-updated ' + succeeded + ' of ' + ids.length + '. Failed: ' + failed.length + '. ' + sample +
-						( failed.length === ids.length ? ' If every one failed immediately, a security plugin (e.g. Wordfence) may be blocking the background page loads this relies on.' : '' )
+						'Done. Force-updated ' + summary.succeeded + ' of ' + ids.length + '. Failed: ' + summary.failed.length + '. ' + sample +
+						( summary.failed.length === ids.length ? ' If every one failed immediately, a security plugin (e.g. Wordfence) may be blocking the background page loads this relies on.' : '' )
 					);
 				} else {
-					setRealUpdateProgress( 'Done. Force-updated ' + succeeded + ' of ' + ids.length + '. Check the student app to confirm they now show up.' );
+					setRealUpdateProgress( 'Done. Force-updated ' + summary.succeeded + ' of ' + ids.length + '. Check the student app to confirm they now show up.' );
 				}
 
 				button.disabled = false;
@@ -406,82 +398,6 @@
 					progress.textContent = message;
 				}
 			}
-		}
-
-		/**
-		 * Loads one post's real wp-admin edit screen in a hidden iframe and
-		 * clicks its real "Update"/"Publish" submit button (WordPress core's
-		 * own, stable `#publish` — the classic editor's Publish metabox,
-		 * unchanged since WordPress 2.7) — never a synthetic form post built
-		 * by hand, so the browser goes through the exact same request
-		 * WordPress itself renders and expects. Resolves once the resulting
-		 * save has fully loaded (the second navigation inside the iframe,
-		 * after WordPress's own POST-redirect-GET); rejects with a specific
-		 * reason otherwise (can't load the screen, can't find the button,
-		 * or a timeout) rather than hanging forever on one bad post.
-		 *
-		 * @param {number} postId
-		 * @return {Promise<void>}
-		 */
-		function forceRealUpdate( postId ) {
-			return new Promise( function ( resolve, reject ) {
-				var TIMEOUT_MS = 20000;
-				var loadCount = 0;
-				var timeoutId = null;
-				var iframe = document.createElement( 'iframe' );
-				iframe.style.display = 'none';
-
-				function cleanup() {
-					if ( timeoutId ) {
-						window.clearTimeout( timeoutId );
-					}
-					iframe.removeEventListener( 'load', onLoad );
-					if ( iframe.parentNode ) {
-						iframe.parentNode.removeChild( iframe );
-					}
-				}
-
-				function armTimeout( message ) {
-					timeoutId = window.setTimeout( function () {
-						cleanup();
-						reject( new Error( message ) );
-					}, TIMEOUT_MS );
-				}
-
-				function onLoad() {
-					loadCount++;
-					if ( timeoutId ) {
-						window.clearTimeout( timeoutId );
-					}
-
-					if ( 1 === loadCount ) {
-						var doc;
-						try {
-							doc = iframe.contentDocument || ( iframe.contentWindow && iframe.contentWindow.document );
-						} catch ( error ) {
-							cleanup();
-							reject( new Error( 'Could not access the edit screen (blocked by browser security, or the page failed to load).' ) );
-							return;
-						}
-						var updateButton = doc && doc.getElementById( 'publish' );
-						if ( ! updateButton ) {
-							cleanup();
-							reject( new Error( 'Could not find the real Update button on the edit screen — this post may not exist, you may not have permission to edit it, or the edit screen\'s layout is not what this expects.' ) );
-							return;
-						}
-						armTimeout( 'Timed out waiting for the Update click to finish saving.' );
-						updateButton.click();
-					} else {
-						cleanup();
-						resolve();
-					}
-				}
-
-				iframe.addEventListener( 'load', onLoad );
-				armTimeout( 'Timed out loading the edit screen.' );
-				iframe.src = citexTools.adminUrl + 'post.php?post=' + postId + '&action=edit';
-				document.body.appendChild( iframe );
-			} );
 		}
 
 		function submitServerSync() {
