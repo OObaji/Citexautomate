@@ -132,6 +132,24 @@ $wp_status_labels = array(
 		<p id="citex-bulk-status-progress" aria-live="polite"></p>
 	</div>
 
+	<div id="citex-bulk-real-update" class="citex-scan-panel" data-filtered-post-ids="<?php echo esc_attr( wp_json_encode( $filtered_post_ids ) ); ?>">
+		<h2><?php esc_html_e( 'Bulk Force Real Update', 'citex-tools' ); ?></h2>
+		<p class="description">
+			<?php esc_html_e( 'For questions that only show up in the student app after manually opening them in WordPress and clicking "Update" — this does that automatically, in the background, for many at once. It opens each question\'s real edit screen and clicks its real Update button, exactly as if you had done it by hand; no content, status, or field is changed. This is different from "Finalise" on each row below, which only re-runs the same WordPress save functions in code — use this if Finalise did not make a question show up.', 'citex-tools' ); ?>
+		</p>
+		<p class="description">
+			<?php esc_html_e( 'This can take a while for a large batch (each one is a real page load), and needs this browser tab to stay open until it finishes. If every question fails immediately, a security plugin (e.g. Wordfence) may be blocking the background page loads this relies on.', 'citex-tools' ); ?>
+		</p>
+
+		<select id="citex-real-update-scope">
+			<option value="filtered"><?php printf( esc_html__( 'All filtered questions (%s)', 'citex-tools' ), esc_html( number_format_i18n( count( $filtered_post_ids ) ) ) ); ?></option>
+			<option value="selected"><?php esc_html_e( 'Selected on this page', 'citex-tools' ); ?></option>
+		</select>
+
+		<button type="button" id="citex-apply-real-update" class="button button-primary" <?php disabled( empty( $filtered_post_ids ) ); ?>><?php esc_html_e( 'Force Real Update', 'citex-tools' ); ?></button>
+		<p id="citex-real-update-progress" aria-live="polite"></p>
+	</div>
+
 	<div id="citex-clear-question-bank-panel" class="citex-scan-panel" data-all-post-ids="<?php echo esc_attr( wp_json_encode( $all_indexed_post_ids ) ); ?>" style="border-color:#d63638;">
 		<h2><?php esc_html_e( 'Clear Question Bank', 'citex-tools' ); ?></h2>
 		<p class="description">

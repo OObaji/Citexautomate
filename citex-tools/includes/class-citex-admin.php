@@ -113,6 +113,7 @@ class Citex_Admin {
 
 		wp_localize_script( 'citex-admin', 'citexTools', array(
 			'ajaxUrl'            => admin_url( 'admin-ajax.php' ),
+			'adminUrl'           => admin_url(),
 			'nonce'              => wp_create_nonce( Citex_Scanner::NONCE_ACTION ),
 			'questionListUrl'    => Citex_Scanner::get_question_list_url(),
 			'citationsListUrl'   => Citex_Scanner::get_question_list_url( 'citations' ),

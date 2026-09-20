@@ -29,6 +29,7 @@
 		}
 
 		wireClearQuestionBank();
+		wireForceRealUpdate();
 
 		if ( ! button || ! scope || ! statusSelect ) {
 			return;
@@ -306,6 +307,181 @@
 					clearProgress.textContent = message;
 				}
 			}
+		}
+
+		/**
+		 * "Bulk Force Real Update" — a real reported problem: a freshly
+		 * populated question does not show up in the site's separate
+		 * student app until an admin manually opens it in wp-admin and
+		 * clicks the real "Update" button, and re-running the same
+		 * WordPress/ACF save functions in code (Citex_Populator::finalize_question(),
+		 * the per-row "Finalise" button) was CONFIRMED not to fix it — the
+		 * live investigation behind that (see class-citex-populator.php's
+		 * own class docblock) showed the app's real trigger is neither
+		 * wp_update_post() nor acf/save_post, both of which finalize_question()
+		 * already fires. Since the true mechanism is still unidentified,
+		 * this instead automates the ACTUAL manual fix: load each
+		 * question's real edit screen in a hidden iframe and click its
+		 * real "Update" submit button, exactly as a human would, so
+		 * whatever the app actually keys off of — however undocumented —
+		 * happens for real, for many questions in a row, without anyone
+		 * opening each one by hand.
+		 *
+		 * Never touches any field: the iframe just submits the SAME edit
+		 * form WordPress already renders, unmodified, so this changes
+		 * nothing content-wise, only re-triggers the save. One question at
+		 * a time (never in parallel), since each is a full page load in the
+		 * browser, not a lightweight API call — a large batch takes real
+		 * time and needs this tab to stay open.
+		 */
+		function wireForceRealUpdate() {
+			var panel = document.getElementById( 'citex-bulk-real-update' );
+			if ( ! panel || ! window.citexTools || ! citexTools.adminUrl ) {
+				return;
+			}
+
+			var button = document.getElementById( 'citex-apply-real-update' );
+			var scope = document.getElementById( 'citex-real-update-scope' );
+			var progress = document.getElementById( 'citex-real-update-progress' );
+			var filteredIds = [];
+
+			try {
+				filteredIds = JSON.parse( panel.getAttribute( 'data-filtered-post-ids' ) || '[]' );
+			} catch ( error ) {
+				filteredIds = [];
+			}
+
+			if ( ! button || ! scope ) {
+				return;
+			}
+
+			button.addEventListener( 'click', async function () {
+				var ids = 'selected' === scope.value ? selectedPostIds() : filteredIds.slice();
+				ids = uniquePositiveIntegers( ids );
+				if ( ! ids.length ) {
+					setRealUpdateProgress( 'Select at least one question, or switch scope to "All filtered".' );
+					return;
+				}
+				if ( ! window.confirm(
+					'Open and re-save ' + ids.length + ' question(s) in the background by automatically clicking each one\'s real "Update" button? ' +
+					'This does not change any content, status, or field — it only repeats the exact save WordPress already runs when you click Update by hand. ' +
+					'This can take a while for a large batch and needs this browser tab to stay open until it finishes.'
+				) ) {
+					return;
+				}
+
+				button.disabled = true;
+				scope.disabled = true;
+				var succeeded = 0;
+				var failed = [];
+
+				for ( var i = 0; i < ids.length; i++ ) {
+					setRealUpdateProgress( 'Updating ' + ( i + 1 ) + ' of ' + ids.length + ' (post #' + ids[ i ] + ')…' );
+					try {
+						await forceRealUpdate( ids[ i ] );
+						succeeded++;
+					} catch ( error ) {
+						failed.push( { postId: ids[ i ], reason: error.message } );
+					}
+				}
+
+				if ( failed.length ) {
+					var sample = failed.slice( 0, 3 ).map( function ( item ) {
+						return '#' + item.postId + ': ' + item.reason;
+					} ).join( ' | ' );
+					setRealUpdateProgress(
+						'Done. Force-updated ' + succeeded + ' of ' + ids.length + '. Failed: ' + failed.length + '. ' + sample +
+						( failed.length === ids.length ? ' If every one failed immediately, a security plugin (e.g. Wordfence) may be blocking the background page loads this relies on.' : '' )
+					);
+				} else {
+					setRealUpdateProgress( 'Done. Force-updated ' + succeeded + ' of ' + ids.length + '. Check the student app to confirm they now show up.' );
+				}
+
+				button.disabled = false;
+				scope.disabled = false;
+			} );
+
+			function setRealUpdateProgress( message ) {
+				if ( progress ) {
+					progress.textContent = message;
+				}
+			}
+		}
+
+		/**
+		 * Loads one post's real wp-admin edit screen in a hidden iframe and
+		 * clicks its real "Update"/"Publish" submit button (WordPress core's
+		 * own, stable `#publish` — the classic editor's Publish metabox,
+		 * unchanged since WordPress 2.7) — never a synthetic form post built
+		 * by hand, so the browser goes through the exact same request
+		 * WordPress itself renders and expects. Resolves once the resulting
+		 * save has fully loaded (the second navigation inside the iframe,
+		 * after WordPress's own POST-redirect-GET); rejects with a specific
+		 * reason otherwise (can't load the screen, can't find the button,
+		 * or a timeout) rather than hanging forever on one bad post.
+		 *
+		 * @param {number} postId
+		 * @return {Promise<void>}
+		 */
+		function forceRealUpdate( postId ) {
+			return new Promise( function ( resolve, reject ) {
+				var TIMEOUT_MS = 20000;
+				var loadCount = 0;
+				var timeoutId = null;
+				var iframe = document.createElement( 'iframe' );
+				iframe.style.display = 'none';
+
+				function cleanup() {
+					if ( timeoutId ) {
+						window.clearTimeout( timeoutId );
+					}
+					iframe.removeEventListener( 'load', onLoad );
+					if ( iframe.parentNode ) {
+						iframe.parentNode.removeChild( iframe );
+					}
+				}
+
+				function armTimeout( message ) {
+					timeoutId = window.setTimeout( function () {
+						cleanup();
+						reject( new Error( message ) );
+					}, TIMEOUT_MS );
+				}
+
+				function onLoad() {
+					loadCount++;
+					if ( timeoutId ) {
+						window.clearTimeout( timeoutId );
+					}
+
+					if ( 1 === loadCount ) {
+						var doc;
+						try {
+							doc = iframe.contentDocument || ( iframe.contentWindow && iframe.contentWindow.document );
+						} catch ( error ) {
+							cleanup();
+							reject( new Error( 'Could not access the edit screen (blocked by browser security, or the page failed to load).' ) );
+							return;
+						}
+						var updateButton = doc && doc.getElementById( 'publish' );
+						if ( ! updateButton ) {
+							cleanup();
+							reject( new Error( 'Could not find the real Update button on the edit screen — this post may not exist, you may not have permission to edit it, or the edit screen\'s layout is not what this expects.' ) );
+							return;
+						}
+						armTimeout( 'Timed out waiting for the Update click to finish saving.' );
+						updateButton.click();
+					} else {
+						cleanup();
+						resolve();
+					}
+				}
+
+				iframe.addEventListener( 'load', onLoad );
+				armTimeout( 'Timed out loading the edit screen.' );
+				iframe.src = citexTools.adminUrl + 'post.php?post=' + postId + '&action=edit';
+				document.body.appendChild( iframe );
+			} );
 		}
 
 		function submitServerSync() {
