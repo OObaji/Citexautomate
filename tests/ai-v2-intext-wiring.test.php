@@ -177,6 +177,13 @@ foreach ( $categories as $category ) {
 				check( "[1] $label: exactly 4 options (3 wrong + 1 blank slot for the correct answer)", count( $c['options'] ?? array() ), 4 );
 				check( "[1] $label: mcqPattern is intext_mcq_variant", $c['mcqPattern'] ?? null, 'intext_mcq_variant' );
 			}
+			// Root-cause regression: a direct-quote DragDrop question asks
+			// the student to drag in a page number, but before this fix the
+			// visible scenario text never said what page to use — see
+			// intext_dragdrop_stem()'s own docblock.
+			if ( 'parenthetical_quote' === $form && 'DragDrop' === $type ) {
+				check( "[1] $label: scenario states the page number the student must drag in", false !== strpos( $c['scenario'] ?? '', (string) $item['page'] ), true );
+			}
 		}
 	}
 }

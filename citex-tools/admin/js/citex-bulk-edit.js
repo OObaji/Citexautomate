@@ -29,6 +29,7 @@
 		}
 
 		wireClearQuestionBank();
+		wireTrashBrokenIntextPage();
 		wireForceRealUpdate();
 
 		if ( ! button || ! scope || ! statusSelect ) {
@@ -305,6 +306,74 @@
 			function setClearProgress( message ) {
 				if ( clearProgress ) {
 					clearProgress.textContent = message;
+				}
+			}
+		}
+
+		/**
+		 * "Broken In-Text Citation Questions — missing page reference" ->
+		 * "Move All to Bin". A real reported bug: some already-published
+		 * In-Text Citation DragDrop questions ask the student to drag in a
+		 * page number that their own scenario text never states (fixed for
+		 * all newly generated questions server-side — see
+		 * Citex_Scanner::is_intext_dragdrop_missing_page()'s own docblock).
+		 * This trashes the already-detected broken posts so the user can
+		 * re-run Generate/Auto-Generate to populate corrected replacements.
+		 * Reuses the same authenticated server batching
+		 * (runServerBatches/postServerBatch) as "Clear Question Bank" and
+		 * the "Move to Bin" status option, rather than duplicating it.
+		 */
+		function wireTrashBrokenIntextPage() {
+			var trashButton = document.getElementById( 'citex-trash-broken-intext-page' );
+			var trashPanel = document.getElementById( 'citex-broken-intext-page-panel' );
+			var trashProgress = document.getElementById( 'citex-trash-broken-intext-page-progress' );
+			if ( ! trashButton || ! trashPanel ) {
+				return;
+			}
+
+			var allIds = [];
+			try {
+				allIds = JSON.parse( trashPanel.getAttribute( 'data-all-post-ids' ) || '[]' );
+			} catch ( error ) {
+				allIds = [];
+			}
+
+			trashButton.addEventListener( 'click', async function () {
+				var ids = uniquePositiveIntegers( allIds );
+				if ( ! ids.length ) {
+					setTrashProgress( 'No broken questions to move.' );
+					return;
+				}
+				if ( ! window.confirm( 'Move ' + ids.length + ' broken In-Text Citation question(s) to the WordPress Bin? They can still be restored from Bin afterwards — re-run Generate/Auto-Generate for the same style, category and In-Text Citation focus afterwards to populate corrected replacements.' ) ) {
+					return;
+				}
+
+				trashButton.disabled = true;
+				try {
+					setTrashProgress( 'Moving broken In-Text Citation questions to Bin…' );
+					var summary = await runServerBatches( ids, 'trash' );
+					if ( summary.failed.length ) {
+						var sample = summary.failed.slice( 0, 3 ).map( function ( item ) {
+							return '#' + item.postId + ': ' + item.reason;
+						} ).join( ' | ' );
+						setTrashProgress(
+							'WordPress moved ' + summary.updated + ' of ' + ids.length +
+							'. Failed: ' + summary.failed.length + '. ' + sample +
+							' Synchronising Citex from WordPress…'
+						);
+					} else {
+						setTrashProgress( 'WordPress moved ' + summary.updated + ' of ' + ids.length + '. Synchronising Citex from WordPress…' );
+					}
+					window.setTimeout( submitServerSync, 350 );
+				} catch ( error ) {
+					setTrashProgress( citexBulkEdit.strings.failed + ' ' + error.message );
+					trashButton.disabled = false;
+				}
+			} );
+
+			function setTrashProgress( message ) {
+				if ( trashProgress ) {
+					trashProgress.textContent = message;
 				}
 			}
 		}

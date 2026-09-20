@@ -76,7 +76,13 @@ class Citex_Bulk_Editor {
 			wp_send_json_error( array( 'message' => __( 'Too many posts in one batch.', 'citex-tools' ) ), 400 );
 		}
 
-		$scan        = Citex_Scanner::get_last_scan();
+		// A real reported bug: this defaulted to get_last_scan()'s own
+		// 'reference' target only, so any Citations post type record (every
+		// In-Text Citation question) always failed as 'not_indexed' — bulk
+		// status changes, including "Move to Bin", silently could never work
+		// on them. Merge both targets' scans, exactly matching
+		// Citex_Questions::render()'s own existing merge pattern.
+		$scan        = Citex_Scanner::merge_scans( array( Citex_Scanner::get_last_scan( 'reference' ), Citex_Scanner::get_last_scan( 'citations' ) ) );
 		$indexed_ids = array();
 		foreach ( ( $scan['questions'] ?? array() ) as $question ) {
 			$id = absint( $question['wpPostId'] ?? 0 );

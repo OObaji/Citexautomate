@@ -165,6 +165,47 @@ $wp_status_labels = array(
 		<p id="citex-clear-question-bank-progress" aria-live="polite"></p>
 	</div>
 
+	<?php if ( ! empty( $broken_page_questions ) ) : ?>
+	<div id="citex-broken-intext-page-panel" class="citex-scan-panel" data-all-post-ids="<?php echo esc_attr( wp_json_encode( $broken_page_post_ids ) ); ?>" style="border-color:#d63638;">
+		<h2><?php esc_html_e( 'Broken In-Text Citation Questions — missing page reference', 'citex-tools' ); ?></h2>
+		<p class="description">
+			<?php
+			printf(
+				/* translators: %s: number of broken questions */
+				esc_html__( 'These %s already-published In-Text Citation questions ask the student to drag in a page number, but their scenario text never states it — a bug in an earlier version that has since been fixed for all newly generated questions. Move these to the Bin, then re-run Generate/Auto-Generate for the same style, category and In-Text Citation focus to populate corrected replacements.', 'citex-tools' ),
+				esc_html( number_format_i18n( count( $broken_page_questions ) ) )
+			);
+			?>
+		</p>
+		<table class="wp-list-table widefat fixed striped citex-table">
+			<thead>
+				<tr>
+					<th><?php esc_html_e( 'Question ID', 'citex-tools' ); ?></th>
+					<th><?php esc_html_e( 'Style', 'citex-tools' ); ?></th>
+					<th><?php esc_html_e( 'Category', 'citex-tools' ); ?></th>
+					<th><?php esc_html_e( 'Missing Page', 'citex-tools' ); ?></th>
+					<th><?php esc_html_e( 'Scenario', 'citex-tools' ); ?></th>
+					<th><?php esc_html_e( 'Edit', 'citex-tools' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $broken_page_questions as $broken ) : ?>
+					<tr>
+						<td><?php echo esc_html( $broken['questionId'] ); ?></td>
+						<td><?php echo esc_html( $broken['source'] ); ?></td>
+						<td><?php echo esc_html( $broken['category'] ); ?></td>
+						<td><?php echo esc_html( $broken['page'] ); ?></td>
+						<td><?php echo esc_html( $broken['scenario'] ); ?></td>
+						<td><?php if ( ! empty( $broken['editUrl'] ) ) : ?><a href="<?php echo esc_url( $broken['editUrl'] ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Edit', 'citex-tools' ); ?></a><?php endif; ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<button type="button" id="citex-trash-broken-intext-page" class="button" style="color:#d63638;border-color:#d63638;" <?php disabled( empty( $broken_page_post_ids ) ); ?>><?php esc_html_e( 'Move All to Bin', 'citex-tools' ); ?></button>
+		<p id="citex-trash-broken-intext-page-progress" aria-live="polite"></p>
+	</div>
+	<?php endif; ?>
+
 	<table class="wp-list-table widefat fixed striped citex-table">
 		<thead>
 			<tr>

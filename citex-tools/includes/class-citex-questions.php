@@ -77,6 +77,9 @@ class Citex_Questions {
 		$reference_scan     = Citex_Scanner::get_last_scan( 'reference' );
 		$citations_scan      = Citex_Scanner::get_last_scan( 'citations' );
 		$scan               = Citex_Scanner::merge_scans( array( $reference_scan, $citations_scan ) );
+		$citations_post_type = (string) ( $citations_scan['postType'] ?? '' );
+		$broken_page_questions = self::find_broken_intext_page_questions( $scan['questions'] ?? array(), $citations_post_type );
+		$broken_page_post_ids  = wp_list_pluck( $broken_page_questions, 'postId' );
 		$question_list_url = Citex_Scanner::get_question_list_url();
 		// Enables the Sync button whenever EITHER destination has a URL
 		// configured — a site that has only set up Citations so far must
@@ -118,6 +121,73 @@ class Citex_Questions {
 		$wordpress_statuses = Citex_Bulk_Editor::status_choices();
 
 		require CITEX_TOOLS_PATH . 'admin/views/questions.php';
+	}
+
+	/**
+	 * Finds already-published In-Text Citation DragDrop posts whose visible
+	 * scenario text never mentions the page number the student is asked to
+	 * drag in — see Citex_Scanner::is_intext_dragdrop_missing_page()'s own
+	 * docblock for the root cause (fixed for all newly generated questions
+	 * in Citex_AI_V2::intext_dragdrop_stem(), but pre-existing published
+	 * posts still carry the bug). Reads each candidate's own real, stored
+	 * content via Citex_Populator's read-only shape/read helpers — never a
+	 * template guess. A candidate this can't read (e.g. the field shape
+	 * can't be resolved) is silently skipped rather than failing the whole
+	 * page, since this is a diagnostic aid, not a required part of the
+	 * listing.
+	 *
+	 * @param array[] $questions            Every merged, indexed question.
+	 * @param string  $citations_post_type  The real Citations post type
+	 *                                       slug, or '' if not configured.
+	 * @return array[] {postId, editUrl, source, category, questionId, scenario, page}
+	 */
+	private static function find_broken_intext_page_questions( $questions, $citations_post_type ) {
+		if ( '' === $citations_post_type ) {
+			return array();
+		}
+
+		$candidates = array_filter(
+			$questions,
+			function ( $question ) {
+				return 'InTextCitation' === ( $question['group'] ?? '' ) && 'DragDrop' === ( $question['type'] ?? '' ) && ! empty( $question['wpPostId'] );
+			}
+		);
+		if ( empty( $candidates ) ) {
+			return array();
+		}
+
+		$populator = new Citex_Populator();
+		$shape     = $populator->resolve_dragdrop_read_shape( $citations_post_type );
+		if ( is_wp_error( $shape ) ) {
+			return array();
+		}
+
+		$broken = array();
+		foreach ( $candidates as $question ) {
+			$post_id = absint( $question['wpPostId'] );
+			$content = $populator->read_dragdrop_content( $post_id, $shape );
+
+			$is_broken = Citex_Scanner::is_intext_dragdrop_missing_page(
+				$content['fixedText'] ?? '',
+				$content['scenario'] ?? '',
+				$content['questionParts'] ?? array()
+			);
+			if ( ! $is_broken ) {
+				continue;
+			}
+
+			$parts = $content['questionParts'] ?? array();
+			$broken[] = array(
+				'postId'     => $post_id,
+				'editUrl'    => $question['editUrl'] ?? get_edit_post_link( $post_id, 'raw' ),
+				'source'     => $question['source'] ?? '',
+				'category'   => $question['category'] ?? '',
+				'questionId' => $question['questionId'] ?? '',
+				'scenario'   => $content['scenario'] ?? '',
+				'page'       => ! empty( $parts ) ? (string) end( $parts ) : '',
+			);
+		}
+		return $broken;
 	}
 
 	/**

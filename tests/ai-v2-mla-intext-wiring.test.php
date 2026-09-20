@@ -189,6 +189,14 @@ foreach ( $categories as $category ) {
 			if ( 'parenthetical_quote' === $form ) {
 				check( "[1] $label: quote form has no comma before the page", false !== strpos( $c['reconstructedReference'] ?? '', ', ' . ( $item['page'] ?? '' ) ), false );
 			}
+			// Root-cause regression: any DragDrop question with a "page"
+			// draggable blank (the quote form for any category, and MLA's
+			// own narrative-with-page shape) must have its page number
+			// actually stated in the visible scenario text — before this
+			// fix it never was. See intext_dragdrop_stem()'s own docblock.
+			if ( 'DragDrop' === $type && isset( $item['page'] ) && ( 'parenthetical_quote' === $form || 'narrative' === $form ) ) {
+				check( "[1] $label: scenario states the page number the student must drag in", false !== strpos( $c['scenario'] ?? '', (string) $item['page'] ), true );
+			}
 		}
 	}
 }

@@ -2684,12 +2684,23 @@ class Citex_AI_V2 {
 	 * the facts naturally; the student applies the FORMATTING rule to
 	 * them). $year is null/empty for MLA (which never shows a year at
 	 * all, so stating one in the stem would be misleading).
+	 *
+	 * A real reported bug: $page used to be silently dropped from the
+	 * stem entirely, even though a direct quotation (any style) and
+	 * MLA's own "narrative with a page" shape both have a "page" DRAGGABLE
+	 * BLANK the student must fill — with nowhere in the visible question
+	 * ever stating what page to use, that blank was ungraspable, not just
+	 * hard. $page is empty/null for every other in-text shape (Website
+	 * has no page concept at all; a plain narrative/parenthetical
+	 * paraphrase for Harvard/APA/Chicago/MHRA never carries one either),
+	 * so the clause is only ever added when it is actually needed.
 	 */
-	private static function intext_dragdrop_stem( $form, $category_noun, $title, $who_display, $year ) {
+	private static function intext_dragdrop_stem( $form, $category_noun, $title, $who_display, $year, $page = null ) {
 		$kind = Citex_Intext_Citation_Rules::FORM_PARENTHETICAL_QUOTE === $form ? 'direct quotation' : 'paraphrase';
 		$form_label = Citex_Intext_Citation_Rules::FORM_NARRATIVE === $form ? 'narrative' : 'parenthetical';
 		$published = ( null !== $year && '' !== trim( (string) $year ) ) ? sprintf( ', published in %s', $year ) : '';
-		return sprintf( 'Complete the %1$s in-text citation for a %2$s from the %3$s %4$s by %5$s%6$s.', $form_label, $kind, $category_noun, $title, $who_display, $published );
+		$paged     = ( null !== $page && '' !== trim( (string) $page ) ) ? sprintf( ', found on page %s', $page ) : '';
+		return sprintf( 'Complete the %1$s in-text citation for a %2$s from the %3$s %4$s by %5$s%6$s%7$s.', $form_label, $kind, $category_noun, $title, $who_display, $published, $paged );
 	}
 
 	/**
@@ -2842,7 +2853,7 @@ class Citex_AI_V2 {
 				$ctx['scenario'] = Citex_Intext_Citation_Rules::mcq_question_stem( $form );
 			}
 		} else {
-			$ctx['scenario'] = self::intext_dragdrop_stem( $form, $category_noun, $ctx['title'], $ctx['who_display'], $is_mla ? null : $ctx['year'] );
+			$ctx['scenario'] = self::intext_dragdrop_stem( $form, $category_noun, $ctx['title'], $ctx['who_display'], $is_mla ? null : $ctx['year'], $ctx['page'] );
 		}
 
 		if ( 'MCQ' === $type ) {

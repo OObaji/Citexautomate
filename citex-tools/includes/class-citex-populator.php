@@ -873,6 +873,74 @@ class Citex_Populator {
 		);
 	}
 
+	/**
+	 * Resolves the DragDrop field map (fixedText/questionParts/scenario) and
+	 * the questionParts repeater's own text-subfield shape for a post type,
+	 * ONCE — reusable across every post of that type in one scan. Read-only
+	 * counterpart to resolve_population_fields_without_template() +
+	 * write_repeater_rows()'s own shape-discovery, built for
+	 * find_broken_intext_page_questions()'s own detection scan rather than
+	 * for writing.
+	 *
+	 * @return array{fieldMap: array, partsShape: array}|WP_Error
+	 */
+	public function resolve_dragdrop_read_shape( $post_type ) {
+		$field_map = $this->resolve_population_fields_without_template( $post_type, 'DragDrop' );
+		if ( is_wp_error( $field_map ) ) {
+			return $field_map;
+		}
+
+		$parts_shape = array( 'textSubfieldKey' => '', 'typeSubfieldKey' => '', 'textChoiceValue' => '' );
+		$field       = function_exists( 'acf_get_field' ) ? acf_get_field( $field_map['questionParts'] ) : null;
+		if ( is_array( $field ) && 'repeater' === ( $field['type'] ?? '' ) && ! empty( $field['sub_fields'] ) ) {
+			$shape = $this->resolve_repeater_text_row_shape( $field['sub_fields'] );
+			if ( is_wp_error( $shape ) ) {
+				return $shape;
+			}
+			$parts_shape = $shape;
+		}
+
+		return array(
+			'fieldMap'   => $field_map,
+			'partsShape' => $parts_shape,
+		);
+	}
+
+	/**
+	 * Reads one post's real, already-stored DragDrop content using a shape
+	 * previously resolved by resolve_dragdrop_read_shape() — never writes
+	 * anything.
+	 *
+	 * @return array{fixedText: string, scenario: string, questionParts: string[]}
+	 */
+	public function read_dragdrop_content( $post_id, array $shape ) {
+		$field_map   = is_array( $shape['fieldMap'] ?? null ) ? $shape['fieldMap'] : array();
+		$parts_shape = is_array( $shape['partsShape'] ?? null ) ? $shape['partsShape'] : array();
+
+		$fixed_text = function_exists( 'get_field' ) ? get_field( $field_map['fixedText'] ?? '', $post_id, false ) : '';
+		$scenario   = function_exists( 'get_field' ) ? get_field( $field_map['scenario'] ?? '', $post_id, false ) : '';
+		$raw_parts  = function_exists( 'get_field' ) ? get_field( $field_map['questionParts'] ?? '', $post_id, false ) : array();
+		$raw_parts  = is_array( $raw_parts ) ? $raw_parts : array();
+
+		$text_key = (string) ( $parts_shape['textSubfieldKey'] ?? '' );
+		$parts    = array();
+		foreach ( $raw_parts as $row ) {
+			if ( '' !== $text_key && is_array( $row ) && array_key_exists( $text_key, $row ) ) {
+				$parts[] = trim( (string) $row[ $text_key ] );
+			} elseif ( is_scalar( $row ) ) {
+				$parts[] = trim( (string) $row );
+			} else {
+				$parts[] = '';
+			}
+		}
+
+		return array(
+			'fixedText'     => (string) $fixed_text,
+			'scenario'      => (string) $scenario,
+			'questionParts' => $parts,
+		);
+	}
+
 	private function assert_known_acf_fields_registered( $type = 'DragDrop' ) {
 		$required = 'MCQ' === $type
 			? array( self::FIELD_OPTION_1, self::FIELD_OPTION_2, self::FIELD_OPTION_3, self::FIELD_OPTION_4, self::FIELD_ANSWER, self::FIELD_HINT, self::FIELD_QUESTION_CLASS )

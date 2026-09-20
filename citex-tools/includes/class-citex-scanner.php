@@ -375,6 +375,65 @@ class Citex_Scanner {
 	}
 
 	/**
+	 * Detects an already-published In-Text Citation DragDrop question whose
+	 * visible scenario text never mentions the page number the student is
+	 * asked to drag in. A real, pre-existing bug (fixed in
+	 * Citex_AI_V2::intext_dragdrop_stem() for all NEWLY generated
+	 * questions) meant the scenario sentence never said what page to use —
+	 * this detects posts that were published before that fix, from their
+	 * own already-stored real content, so they can be found and re-made.
+	 *
+	 * A DragDrop in-text question has a "page" blank in exactly two shapes,
+	 * both confirmed against every style's own Dragdrop_Parts::build_tokens()
+	 * (traced token-by-token, not assumed):
+	 *  (a) the parenthetical_quote form, for any style — its fixedText
+	 *      always opens with a literal double-quote character;
+	 *  (b) MLA's own narrative-form-with-a-page shape (Book/Edited
+	 *      Book/Journal Article only, never Website, and never any other
+	 *      style) — its "page" blank sits alone directly inside parentheses
+	 *      at the very end of the sentence, with nothing else there, so
+	 *      fixedText ends in a literal `(` immediately followed by the
+	 *      blank marker(s) and then `).` — e.g. `|Sentence text (||).`.
+	 *      MLA's OWN parenthetical form (no page at all — just "who" inside
+	 *      parentheses, e.g. `Sentence (||).`) ends in the exact same
+	 *      literal shape but has only ONE blank (who); requiring at least 2
+	 *      entries in questionParts rules that case out, since a genuine
+	 *      page-bearing sentence always has "who" AND "page".
+	 * In both shapes "page" is always the LAST entry in questionParts. A
+	 * question is broken exactly when that page value never appears
+	 * anywhere in the scenario text shown to the student.
+	 *
+	 * @param string $fixed_text     The post's own fixedText field.
+	 * @param string $scenario       The post's own scenario field.
+	 * @param array  $question_parts The post's own questionParts field
+	 *                                (ordered list of blank values).
+	 * @return bool
+	 */
+	public static function is_intext_dragdrop_missing_page( $fixed_text, $scenario, array $question_parts ) {
+		$fixed_text = (string) $fixed_text;
+
+		$is_quote_form              = false !== strpos( $fixed_text, '"' );
+		$is_mla_narrative_with_page = ! $is_quote_form
+			&& count( $question_parts ) >= 2
+			&& 1 === preg_match( '/\(\|{1,2}\)\.$/', $fixed_text );
+
+		if ( ! $is_quote_form && ! $is_mla_narrative_with_page ) {
+			return false;
+		}
+
+		if ( empty( $question_parts ) ) {
+			return false;
+		}
+
+		$page_value = trim( (string) end( $question_parts ) );
+		if ( '' === $page_value ) {
+			return false;
+		}
+
+		return false === strpos( (string) $scenario, $page_value );
+	}
+
+	/**
 	 * The Source/Group/Category/Type/PostStatus/Combination breakdown shape
 	 * shared by sync_from_wordpress() and merge_scans() (and, for a single
 	 * referencing style's own slice, Citex_Dashboard) — factored out so both
