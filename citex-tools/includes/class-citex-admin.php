@@ -157,7 +157,7 @@ class Citex_Admin {
 				'strings'              => array(
 					'alreadyAtTarget' => __( 'Already at or above the target — nothing to do.', 'citex-tools' ),
 					'batchDone'       => __( 'Batch {batch}: +{created} published ({total}/{target}).', 'citex-tools' ),
-					'targetReached'   => __( 'Target reached — {total}/{target} published.', 'citex-tools' ),
+					'targetReached'   => __( '✓ Done — target reached, {total}/{target} published.', 'citex-tools' ),
 					'stopped'         => __( 'Stopped by you at {total}/{target} published.', 'citex-tools' ),
 					'noProgress'      => __( 'Stopped — 3 batches in a row published nothing new. Check Pending for validation failures.', 'citex-tools' ),
 					'batchLimit'      => __( 'Stopped after {batches} batches as a safety limit — {total}/{target} published. Start again to continue.', 'citex-tools' ),
@@ -202,7 +202,15 @@ class Citex_Admin {
 		}
 		delete_transient( $key );
 		$type = isset( $notice['type'] ) && in_array( $notice['type'], array( 'success', 'error', 'warning', 'info' ), true ) ? $notice['type'] : 'info';
-		echo '<div class="notice notice-' . esc_attr( $type ) . ' is-dismissible citex-action-notice"><p><strong>Citex:</strong> ' . esc_html( $notice['message'] ) . '</p></div>';
+		// A real requested feature: a small visual tick on a genuinely
+		// successful action (e.g. "Generate & Publish" completing) so the
+		// admin has an unambiguous "this finished" signal at a glance —
+		// not just the notice's own colour, which is easy to miss after
+		// switching tabs while a batch runs. Never added to a
+		// warning/error/info notice, which already read as "needs your
+		// attention" without one.
+		$prefix = 'success' === $type ? '✓ ' : '';
+		echo '<div class="notice notice-' . esc_attr( $type ) . ' is-dismissible citex-action-notice"><p><strong>Citex:</strong> ' . esc_html( $prefix . $notice['message'] ) . '</p></div>';
 	}
 
 	/**

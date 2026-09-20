@@ -157,20 +157,18 @@
 	}
 
 	/**
-	 * Play a short chime the moment the page comes back with a Citex
-	 * action notice (see wireActionToast() above) — in particular
-	 * Generate/Generate & Publish, which can take long enough for an admin
-	 * to switch tabs while it runs. Best-effort only: some browsers block
-	 * audio that isn't tied to a very recent user gesture (form submission
-	 * itself usually counts, but not always), so this is wrapped so a
-	 * blocked/unsupported play() never affects the rest of the page — the
-	 * visual toast still shows either way.
+	 * A short two-tone chime — factored out so both a fresh page load (see
+	 * playActionToneIfNeeded() below, for classic Generate/Generate &
+	 * Publish form submissions) and the Auto-Generate AJAX loop (see
+	 * wireAutoGenerate()'s own finish(), which never reloads the page and
+	 * so never gets a .citex-action-notice to trigger off) can play the
+	 * exact same completion sound rather than each defining their own.
+	 * Best-effort only: some browsers block audio that isn't tied to a
+	 * very recent user gesture, so this is wrapped so a blocked/unsupported
+	 * play() never affects the rest of the page — the visual status text
+	 * still shows either way.
 	 */
-	function playActionToneIfNeeded() {
-		if ( ! document.querySelector( '.citex-action-notice' ) ) {
-			return;
-		}
-
+	function playCitexChime() {
 		try {
 			var AudioContextClass = window.AudioContext || window.webkitAudioContext;
 			if ( ! AudioContextClass ) {
@@ -194,6 +192,19 @@
 		} catch ( e ) {
 			// Autoplay blocked or Web Audio unsupported — nothing to do.
 		}
+	}
+
+	/**
+	 * Play playCitexChime() the moment the page comes back with a Citex
+	 * action notice (see wireActionToast() above) — in particular
+	 * Generate/Generate & Publish, which can take long enough for an admin
+	 * to switch tabs while it runs.
+	 */
+	function playActionToneIfNeeded() {
+		if ( ! document.querySelector( '.citex-action-notice' ) ) {
+			return;
+		}
+		playCitexChime();
 	}
 
 	function wireSelectAll() {
@@ -620,11 +631,22 @@
 			log.scrollTop = log.scrollHeight;
 		}
 
+		// A real requested feature: Auto-Generate should tell the admin
+		// when it's done, the same way classic Generate & Publish already
+		// does (see playActionToneIfNeeded() above) — Auto-Generate can run
+		// many batches back to back (each one now also force-updating its
+		// own DragDrop questions — see wireAutoGenerate()'s own docblock),
+		// long enough that an admin will realistically switch tabs while
+		// it runs. finish() is the loop's ONLY exit point (target reached,
+		// safety limit, no-progress stall, user-clicked Stop, or a batch
+		// failure), so playing the chime here covers every way the run can
+		// end, not just the successful one.
 		function finish( message ) {
 			running = false;
 			startButton.disabled = false;
 			stopButton.style.display = 'none';
 			setText( status, message );
+			playCitexChime();
 		}
 
 		function runNextBatch() {
