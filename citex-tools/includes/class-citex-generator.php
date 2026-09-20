@@ -86,45 +86,64 @@ class Citex_Generator {
 		}
 		$published_scan       = Citex_Scanner::merge_scans( array( $reference_scan_fresh, $citations_scan_fresh ) );
 		$published_questions  = $published_scan['questions'] ?? array();
-		$style_counts         = array();
-		foreach ( $referencing_styles as $style_key => $style_label ) {
-			$style_counts[ $style_key ] = count( Citex_Scanner::filter_by_style( $published_questions, $style_label ) );
-		}
 
-		// The COMBINED Style+Category published count (e.g. "MLA Book:
-		// 60"), keyed style_key => category_key => count. A real reported
-		// bug: the Category dropdown's own bracketed count used to be a
-		// single total across EVERY style combined (e.g. "Book (200)" even
-		// with MLA selected, mixing in Harvard/APA/Chicago/MHRA's own Book
-		// counts too) — genuinely misleading once more than one style has
-		// real coverage. $combined_counts drives BOTH the Category
-		// dropdown (re-labelled client-side whenever Referencing Style
-		// changes — see admin/js/citex-admin.js's own wireCategoryStyleCounts())
-		// and the Auto-Generate feature's own baseline (see
-		// admin/views/generate.php's own "Auto-Generate" section: "I want
-		// about 100 questions total for THIS combination" needs to know
-		// how many already exist for that specific combination, not a
-		// style-only/category-only total that mixes in every other one).
-		// Computed the same way $style_counts is, then broken down by
-		// category on top — from the same freshly-synced $published_questions
-		// above.
+		// The literal `group` field value each Question Focus option
+		// corresponds to (see class-citex-scanner.php's own parse_title()
+		// and Citex_Populator's own group-routing) — the only two strings
+		// this codebase ever writes there.
+		$group_field_values = array( 'referencelist' => 'ReferenceList', 'intext' => 'InTextCitation' );
+
+		// $style_counts and $combined_counts are BOTH now scoped per
+		// Question Focus as well as per Referencing Style — a real
+		// reported bug: "Harvard (400)" used to mean Reference List and
+		// In-Text Citation combined into one number, so selecting In-Text
+		// Citation with genuinely zero In-Text questions still showed
+		// Reference List's own large total, and Auto-Generate's "already
+		// at target" check compared its target against that same
+		// cross-group total and refused to run even though the SELECTED
+		// group had nothing published yet. Every count below is filtered
+		// to one style AND one group before being counted, mirroring how
+		// the Dashboard already scopes its own per-style breakdown via
+		// filter_by_style() — Citex_Scanner::filter_by_group() is the new
+		// equivalent for Question Focus.
+		//
+		// $style_counts: style_key => group_key => count — drives the
+		// Referencing Style dropdown's own bracketed count.
+		// $combined_counts: style_key => group_key => category_key => count
+		// — drives BOTH the Category dropdown (re-labelled client-side
+		// whenever Referencing Style OR Question Focus changes — see
+		// admin/js/citex-admin.js's own wireCategoryStyleCounts()) and the
+		// Auto-Generate feature's own baseline (admin/views/generate.php's
+		// own "Auto-Generate" section: "I want about 100 questions total
+		// for THIS combination" needs to know how many already exist for
+		// that specific Style + Question Focus + Category combination).
+		$style_counts    = array();
 		$combined_counts = array();
 		foreach ( $referencing_styles as $style_key => $style_label ) {
 			$style_questions = Citex_Scanner::filter_by_style( $published_questions, $style_label );
-			$style_category_counts_by_name = array();
-			foreach ( Citex_Scanner::compute_breakdowns( $style_questions )['categories'] as $row ) {
-				$style_category_counts_by_name[ $row['name'] ?? '' ] = (int) ( $row['count'] ?? 0 );
-			}
+			$style_counts[ $style_key ]    = array();
 			$combined_counts[ $style_key ] = array();
-			foreach ( $categories as $category_key => $category_label ) {
-				$combined_counts[ $style_key ][ $category_key ] = $style_category_counts_by_name[ $category_label ] ?? 0;
+			foreach ( $question_groups as $group_key => $group_label ) {
+				$group_questions = Citex_Scanner::filter_by_group( $style_questions, $group_field_values[ $group_key ] );
+				$style_counts[ $style_key ][ $group_key ] = count( $group_questions );
+
+				$group_category_counts_by_name = array();
+				foreach ( Citex_Scanner::compute_breakdowns( $group_questions )['categories'] as $row ) {
+					$group_category_counts_by_name[ $row['name'] ?? '' ] = (int) ( $row['count'] ?? 0 );
+				}
+				$combined_counts[ $style_key ][ $group_key ] = array();
+				foreach ( $categories as $category_key => $category_label ) {
+					$combined_counts[ $style_key ][ $group_key ][ $category_key ] = $group_category_counts_by_name[ $category_label ] ?? 0;
+				}
 			}
 		}
-		// The Category dropdown's own INITIAL server-rendered counts (before
-		// any JS re-labelling on a style change) must match whichever style
-		// option the browser shows selected by default — the first one,
-		// with no explicit `selected` attribute on any option below.
+		// The Category/Referencing Style dropdowns' own INITIAL
+		// server-rendered counts (before any JS re-labelling on a style or
+		// group change) must match whichever option the browser shows
+		// selected by default — the first one, with no explicit `selected`
+		// attribute on any option below.
 		$default_style_key = array_key_first( $referencing_styles );
+		$default_group_key = array_key_first( $question_groups );
 
 		require CITEX_TOOLS_PATH . 'admin/views/generate.php';
 	}

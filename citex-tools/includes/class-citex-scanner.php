@@ -341,6 +341,40 @@ class Citex_Scanner {
 	}
 
 	/**
+	 * The subset of $questions whose `group` field is EXACTLY $group_value
+	 * (case-insensitive) — 'ReferenceList' or 'InTextCitation', the only two
+	 * literal values this codebase ever writes (see parse_title()'s own
+	 * `$parts[1]` and Citex_Populator's own group-routing). Unlike
+	 * filter_by_style()'s substring match (a source label can legitimately
+	 * carry extra text), a question's group is always one of these two exact
+	 * strings, so an exact match is correct and never under- or
+	 * over-matches.
+	 *
+	 * Added for the Generate page's own published-count brackets: a real
+	 * reported bug had "Harvard (400)" mean Reference List + In-Text
+	 * Citation combined, so selecting In-Text Citation with zero In-Text
+	 * questions still showed Reference List's own large total and made
+	 * Auto-Generate think its target was already exceeded. Counts must be
+	 * scoped to the Question Focus actually selected, exactly like the
+	 * Dashboard's own per-style breakdown already scopes by style via
+	 * filter_by_style() — see Citex_Generator::render()'s own docblock.
+	 *
+	 * @param array[] $questions
+	 * @param string  $group_value
+	 * @return array[]
+	 */
+	public static function filter_by_group( $questions, $group_value ) {
+		return array_values(
+			array_filter(
+				$questions,
+				function ( $question ) use ( $group_value ) {
+					return 0 === strcasecmp( (string) ( $question['group'] ?? '' ), (string) $group_value );
+				}
+			)
+		);
+	}
+
+	/**
 	 * The Source/Group/Category/Type/PostStatus/Combination breakdown shape
 	 * shared by sync_from_wordpress() and merge_scans() (and, for a single
 	 * referencing style's own slice, Citex_Dashboard) — factored out so both

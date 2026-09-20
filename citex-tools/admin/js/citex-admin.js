@@ -48,41 +48,87 @@
 	}
 
 	/**
-	 * A real reported bug: the Category dropdown's own bracketed count
-	 * used to be a single total across EVERY Referencing Style combined
-	 * (e.g. "Book (200)" even with MLA selected, mixing in every other
-	 * style's own Book count too) — genuinely misleading once more than
-	 * one style has real coverage. Re-labels each Category option to that
-	 * SPECIFIC style's own count instead, the moment Referencing Style is
+	 * The Style-only published-count map (style_key => group_key => count)
+	 * server-rendered onto .citex-auto-generate's own data-style-counts
+	 * attribute (see Citex_Generator::render()'s own docblock on
+	 * $style_counts) — used to re-label the Referencing Style dropdown's
+	 * own bracketed count whenever Question Focus changes, mirroring
+	 * readPublishedCounts()'s own shape/behaviour for the Category
+	 * dropdown's $combined_counts.
+	 */
+	function readStyleCounts() {
+		var container = document.querySelector( '.citex-auto-generate' );
+		if ( ! container ) {
+			return {};
+		}
+		try {
+			return JSON.parse( container.getAttribute( 'data-style-counts' ) || '{}' ) || {};
+		} catch ( e ) {
+			return {};
+		}
+	}
+
+	/**
+	 * A real reported bug (fixed twice): the Category dropdown's own
+	 * bracketed count used to be a single total across EVERY Referencing
+	 * Style combined (e.g. "Book (200)" even with MLA selected, mixing in
+	 * every other style's own Book count too) — fixed by scoping to the
+	 * selected style. Later reported again: both the Category AND
+	 * Referencing Style counts were still combining Reference List and
+	 * In-Text Citation into one number (e.g. "Harvard (400)" meant both
+	 * combined, so switching Question Focus to In-Text Citation with
+	 * genuinely zero In-Text questions still showed Reference List's own
+	 * large total). Re-labels every Category option AND every Referencing
+	 * Style option to the SPECIFIC style+Question-Focus combination's own
+	 * count, the moment either Referencing Style or Question Focus is
 	 * changed (and once on page load, since the server already rendered
-	 * the initial options against the default-selected style — see
-	 * Citex_Generator::render()'s own $default_style_key).
+	 * the initial options against the default-selected style/group — see
+	 * Citex_Generator::render()'s own $default_style_key/$default_group_key).
 	 */
 	function wireCategoryStyleCounts() {
 		var styleSelect    = document.getElementById( 'citex_referencing_style' );
 		var categorySelect = document.getElementById( 'citex_category' );
+		var groupSelect    = document.getElementById( 'citex_question_group' );
 		if ( ! styleSelect || ! categorySelect ) {
 			return;
 		}
 
 		var publishedCounts = readPublishedCounts();
+		var styleCounts     = readStyleCounts();
 
 		// Each option's own base label (without a trailing " (N)") is
 		// captured once up front, so re-labelling repeatedly on every
-		// style change never compounds onto an already-relabelled string.
-		var baseLabels = Array.prototype.map.call( categorySelect.options, function ( opt ) {
+		// style/group change never compounds onto an already-relabelled
+		// string.
+		var categoryBaseLabels = Array.prototype.map.call( categorySelect.options, function ( opt ) {
+			return opt.textContent.replace( /\s*\([\d,]+\)\s*$/, '' );
+		} );
+		var styleBaseLabels = Array.prototype.map.call( styleSelect.options, function ( opt ) {
 			return opt.textContent.replace( /\s*\([\d,]+\)\s*$/, '' );
 		} );
 
+		function currentGroup() {
+			return groupSelect ? groupSelect.value : 'referencelist';
+		}
+
 		function sync() {
-			var counts = publishedCounts[ styleSelect.value ] || {};
+			var group           = currentGroup();
+			var categoryCounts  = ( publishedCounts[ styleSelect.value ] && publishedCounts[ styleSelect.value ][ group ] ) || {};
 			Array.prototype.forEach.call( categorySelect.options, function ( opt, index ) {
-				var count = counts[ opt.value ] || 0;
-				opt.textContent = baseLabels[ index ] + ' (' + count.toLocaleString() + ')';
+				var count = categoryCounts[ opt.value ] || 0;
+				opt.textContent = categoryBaseLabels[ index ] + ' (' + count.toLocaleString() + ')';
+			} );
+
+			Array.prototype.forEach.call( styleSelect.options, function ( opt, index ) {
+				var count = ( styleCounts[ opt.value ] && styleCounts[ opt.value ][ group ] ) || 0;
+				opt.textContent = styleBaseLabels[ index ] + ' (' + count.toLocaleString() + ')';
 			} );
 		}
 
 		styleSelect.addEventListener( 'change', sync );
+		if ( groupSelect ) {
+			groupSelect.addEventListener( 'change', sync );
+		}
 		sync();
 	}
 
@@ -512,9 +558,16 @@
 	 * batches stays published, and Start can just be clicked again.
 	 *
 	 * The baseline (how many are already published for the selected
-	 * Style + Category) comes from data-published-counts, server-rendered
-	 * from the last scan (see Citex_Generator::render()'s own docblock on
-	 * $combined_counts) — not a live re-query before/after every batch.
+	 * Style + Question Focus + Category) comes from data-published-counts,
+	 * server-rendered from the last scan (see Citex_Generator::render()'s
+	 * own docblock on $combined_counts) — not a live re-query before/after
+	 * every batch. A real reported bug: the baseline used to ignore
+	 * Question Focus entirely, so a style/category with, say, 400
+	 * Reference List questions and 0 In-Text ones would immediately claim
+	 * "already at target" the instant In-Text Citation was selected with a
+	 * target below 400 — $combined_counts is now keyed one level deeper
+	 * (style_key => group_key => category_key), so the lookup below must
+	 * include groupKey too.
 	 */
 	function wireAutoGenerate() {
 		var container = document.querySelector( '.citex-auto-generate' );
@@ -656,7 +709,8 @@
 		startButton.addEventListener( 'click', function () {
 			var styleKey    = styleSelect.value;
 			var categoryKey = categorySelect.value;
-			baseline = ( publishedCounts[ styleKey ] && publishedCounts[ styleKey ][ categoryKey ] ) || 0;
+			var groupKey    = groupSelect ? groupSelect.value : 'referencelist';
+			baseline = ( publishedCounts[ styleKey ] && publishedCounts[ styleKey ][ groupKey ] && publishedCounts[ styleKey ][ groupKey ][ categoryKey ] ) || 0;
 			target   = parseInt( targetInput.value, 10 ) || 0;
 
 			if ( target <= baseline ) {
