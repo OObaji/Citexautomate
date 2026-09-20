@@ -78,7 +78,12 @@ check( '[shared] the module is exposed as window.CitexForceUpdate for other scri
 // ---------------------------------------------------------------------
 $admin_class_source = file_get_contents( __DIR__ . '/../citex-tools/includes/class-citex-admin.php' );
 check( '[wiring] citexTools is localized with the real admin URL (adminUrl)', false !== strpos( $admin_class_source, "'adminUrl'           => admin_url()," ), true );
-check( '[wiring] citex-force-update.js is enqueued as a dependency of both citex-admin.js and citex-bulk-edit.js', 2 === substr_count( $admin_class_source, "array( 'citex-scanner', 'citex-validator-site-adapter', 'citex-force-update' )" ) + substr_count( $admin_class_source, "array( 'citex-admin', 'citex-force-update' )" ), true );
+check(
+	'[wiring] citex-force-update.js is enqueued as a dependency of both citex-admin.js and citex-bulk-edit.js',
+	false !== strpos( $admin_class_source, "wp_enqueue_script( 'citex-admin', CITEX_TOOLS_URL . 'admin/js/citex-admin.js', array( 'citex-scanner', 'citex-validator-site-adapter', 'citex-force-update' )" )
+		&& false !== strpos( $admin_class_source, "wp_enqueue_script( 'citex-bulk-edit', CITEX_TOOLS_URL . 'admin/js/citex-bulk-edit.js', array( 'citex-admin', 'citex-force-update' )" ),
+	true
+);
 
 // ---------------------------------------------------------------------
 // Manual path: the Question Bank page renders a dedicated "Bulk Force

@@ -59,6 +59,23 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<ul id="citex-auto-generate-log" style="max-height:220px;overflow:auto;margin:8px 0 0 18px;"></ul>
 	</div>
 
+	<?php /* TEMPORARY — see admin/js/citex-multi-style-batch.js's own docblock. Delete this whole <div>, that file, and its enqueue line in class-citex-admin.php once the admin has finished backfilling Chicago/MHRA. */ ?>
+	<hr />
+	<div class="citex-multi-style-batch" style="border:2px dashed #d63638;padding:12px;">
+		<h2><?php esc_html_e( 'Multi-Style Batch Populate (Temporary)', 'citex-tools' ); ?></h2>
+		<p class="description"><?php esc_html_e( 'A temporary tool for filling several Referencing Styles at once — tick the styles you need (e.g. Chicago and MHRA), set a target per category, and start it before you go to bed. Repeats Auto-Generate\'s own 20-question batches for every Book/Edited Book/Journal Article/Website combination of the ticked styles, one combination at a time, until EACH ONE reaches the target — e.g. 2 styles × 4 categories × a target of 100 queues up 8 combinations. Always uses Reference List (Chicago/MHRA don\'t support In-Text Citation yet), and the Difficulty/Question Type selected above. If one combination stalls or fails, it is logged and skipped so the rest can still finish overnight. Remove this section once you\'re done with it.', 'citex-tools' ); ?></p>
+		<div id="citex-multi-style-batch-styles" style="display:flex;gap:14px;flex-wrap:wrap;margin:8px 0;"></div>
+		<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+			<label><strong><?php esc_html_e( 'Target per category:', 'citex-tools' ); ?></strong>
+				<input type="number" id="citex_multi_style_batch_target" min="1" value="100" class="small-text" />
+			</label>
+			<button type="button" id="citex-multi-style-batch-start" class="button button-primary" <?php disabled( ! $ai_configured ); ?>><?php esc_html_e( 'Start Batch Populate', 'citex-tools' ); ?></button>
+			<button type="button" id="citex-multi-style-batch-stop" class="button" style="display:none;"><?php esc_html_e( 'Stop', 'citex-tools' ); ?></button>
+		</div>
+		<p id="citex-multi-style-batch-status" class="description"></p>
+		<ul id="citex-multi-style-batch-log" style="max-height:260px;overflow:auto;margin:8px 0 0 18px;"></ul>
+	</div>
+
 	<script>
 	( function () {
 		// "Generate & Publish" is capped lower server-side than plain

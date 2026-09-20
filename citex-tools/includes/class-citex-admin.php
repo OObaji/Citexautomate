@@ -117,6 +117,13 @@ class Citex_Admin {
 		wp_enqueue_script( 'citex-force-update', CITEX_TOOLS_URL . 'admin/js/citex-force-update.js', array(), self::asset_version( 'admin/js/citex-force-update.js' ), true );
 		wp_enqueue_script( 'citex-admin', CITEX_TOOLS_URL . 'admin/js/citex-admin.js', array( 'citex-scanner', 'citex-validator-site-adapter', 'citex-force-update' ), self::asset_version( 'admin/js/citex-admin.js' ), true );
 		wp_enqueue_script( 'citex-bulk-edit', CITEX_TOOLS_URL . 'admin/js/citex-bulk-edit.js', array( 'citex-admin', 'citex-force-update' ), self::asset_version( 'admin/js/citex-bulk-edit.js' ), true );
+		// TEMPORARY — see admin/js/citex-multi-style-batch.js's own
+		// docblock. Delete this line (and that file, and its own section
+		// in admin/views/generate.php) once the admin has finished
+		// backfilling Chicago/MHRA. Depends on citex-admin (for the
+		// citexTools.generator nonce/action already localized below) and
+		// citex-force-update (for window.CitexForceUpdate).
+		wp_enqueue_script( 'citex-multi-style-batch', CITEX_TOOLS_URL . 'admin/js/citex-multi-style-batch.js', array( 'citex-admin', 'citex-force-update' ), self::asset_version( 'admin/js/citex-multi-style-batch.js' ), true );
 
 		wp_localize_script( 'citex-admin', 'citexTools', array(
 			'ajaxUrl'            => admin_url( 'admin-ajax.php' ),
