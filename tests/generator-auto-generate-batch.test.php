@@ -194,10 +194,10 @@ check( '[1] mla + website + intext is valid (MLA covers all 4 categories + both 
 check( '[1] apa + edited_book + intext is valid', invoke_validate_generation_scope( 'apa', 'edited_book', 'intext' ), true );
 check( '[1] an unrecognised style is rejected', is_wp_error( invoke_validate_generation_scope( 'chicago-manual', 'book', 'referencelist' ) ), true );
 check( '[1] an unrecognised category is rejected', is_wp_error( invoke_validate_generation_scope( 'harvard', 'not_a_category', 'referencelist' ) ), true );
-check( '[1] chicago + referencelist is valid (Phase 1: Reference List only)', invoke_validate_generation_scope( 'chicago', 'book', 'referencelist' ), true );
-check( '[1] chicago + intext is rejected (In-Text Citation not yet supported)', is_wp_error( invoke_validate_generation_scope( 'chicago', 'book', 'intext' ) ), true );
-check( '[1] mhra + referencelist is valid (Phase 1: Reference List only)', invoke_validate_generation_scope( 'mhra', 'website', 'referencelist' ), true );
-check( '[1] mhra + intext is rejected (In-Text Citation not yet supported)', is_wp_error( invoke_validate_generation_scope( 'mhra', 'website', 'intext' ) ), true );
+check( '[1] chicago + referencelist is valid', invoke_validate_generation_scope( 'chicago', 'book', 'referencelist' ), true );
+check( '[1] chicago + intext is valid (Chicago now covers all 4 categories + both groups)', invoke_validate_generation_scope( 'chicago', 'book', 'intext' ), true );
+check( '[1] mhra + referencelist is valid', invoke_validate_generation_scope( 'mhra', 'website', 'referencelist' ), true );
+check( '[1] mhra + intext is valid (MHRA now covers all 4 categories + both groups)', invoke_validate_generation_scope( 'mhra', 'website', 'intext' ), true );
 
 // ---------------------------------------------------------------------
 // 2. run_generate_batch() with $publish_immediately = false — the plain

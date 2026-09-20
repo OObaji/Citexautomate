@@ -181,6 +181,12 @@ class Citex_Generated_Validator {
 			if ( 'apa_intext_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
 				return self::validate_apa_intext_mcq_variant( $question );
 			}
+			if ( 'chicago_intext_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_chicago_intext_mcq_variant( $question );
+			}
+			if ( 'mhra_intext_mcq_variant' === (string) ( $question['mcqPattern'] ?? '' ) ) {
+				return self::validate_mhra_intext_mcq_variant( $question );
+			}
 			return self::validate_mcq( $question );
 		}
 
@@ -3248,7 +3254,7 @@ class Citex_Generated_Validator {
 	 *         ok is false when the record's canonical person data is
 	 *         missing/malformed, in which case who/surnames are meaningless.
 	 */
-	private static function intext_who_and_surnames( $question, $is_mla, $is_apa = false, $form = '' ) {
+	private static function intext_who_and_surnames( $question, $is_mla, $is_apa = false, $form = '', $is_chicago = false, $is_mhra = false ) {
 		$category = (string) ( $question['category'] ?? '' );
 		if ( Citex_Reference_Rules::CATEGORY_WEBSITE === $category ) {
 			$author_type = (string) ( $question['authorType'] ?? '' );
@@ -3270,6 +3276,10 @@ class Citex_Generated_Validator {
 				$who = Citex_MLA_Intext_Citation_Rules::display_person_or_org( $author_record );
 			} elseif ( $is_apa ) {
 				$who = Citex_APA_Intext_Citation_Rules::display_person_or_org( $author_record );
+			} elseif ( $is_chicago ) {
+				$who = Citex_Chicago_Intext_Citation_Rules::display_person_or_org( $author_record );
+			} elseif ( $is_mhra ) {
+				$who = Citex_MHRA_Intext_Citation_Rules::display_person_or_org( $author_record );
 			} else {
 				$who = Citex_Intext_Citation_Rules::display_person_or_org( $author_record );
 			}
@@ -3288,6 +3298,10 @@ class Citex_Generated_Validator {
 			$who = Citex_MLA_Intext_Citation_Rules::join_people_intext( $people );
 		} elseif ( $is_apa ) {
 			$who = Citex_APA_Intext_Citation_Rules::join_people_intext( $people, Citex_APA_Intext_Citation_Rules::joiner_for_form( $form ) );
+		} elseif ( $is_chicago ) {
+			$who = Citex_Chicago_Intext_Citation_Rules::join_people_intext( $people );
+		} elseif ( $is_mhra ) {
+			$who = Citex_MHRA_Intext_Citation_Rules::join_people_intext( $people );
 		} else {
 			$who = Citex_Intext_Citation_Rules::join_people_intext( $people );
 		}
@@ -3324,6 +3338,26 @@ class Citex_Generated_Validator {
 		return Citex_MLA_Intext_Citation_Rules::parenthetical_quote_sentence( $who, $page, $quote );
 	}
 
+	private static function chicago_intext_full_sentence( $form, $who, $year, $clause, $page, $quote ) {
+		if ( Citex_Chicago_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			return Citex_Chicago_Intext_Citation_Rules::narrative_sentence( $who, $year, $clause );
+		}
+		if ( Citex_Chicago_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			return Citex_Chicago_Intext_Citation_Rules::parenthetical_sentence( $who, $year, $clause );
+		}
+		return Citex_Chicago_Intext_Citation_Rules::parenthetical_quote_sentence( $who, $year, $page, $quote );
+	}
+
+	private static function mhra_intext_full_sentence( $form, $who, $year, $clause, $page, $quote ) {
+		if ( Citex_MHRA_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			return Citex_MHRA_Intext_Citation_Rules::narrative_sentence( $who, $year, $clause );
+		}
+		if ( Citex_MHRA_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			return Citex_MHRA_Intext_Citation_Rules::parenthetical_sentence( $who, $year, $clause );
+		}
+		return Citex_MHRA_Intext_Citation_Rules::parenthetical_quote_sentence( $who, $year, $page, $quote );
+	}
+
 	/**
 	 * In-text citation DragDrop — mirrors every other DragDrop validator's
 	 * own "recompute from the record's own canonical fields via the SAME
@@ -3337,8 +3371,10 @@ class Citex_Generated_Validator {
 	private static function validate_intext_dragdrop( $question ) {
 		$errors = array();
 		$source = (string) ( $question['source'] ?? '' );
-		$is_mla = 'MLA' === $source;
-		$is_apa = 'APA' === $source;
+		$is_mla     = 'MLA' === $source;
+		$is_apa     = 'APA' === $source;
+		$is_chicago = 'Chicago' === $source;
+		$is_mhra    = 'MHRA' === $source;
 		$form   = (string) ( $question['citationForm'] ?? '' );
 
 		$fixed_text     = (string) ( $question['fixedText'] ?? '' );
@@ -3352,7 +3388,7 @@ class Citex_Generated_Validator {
 			$errors[] = self::error( 'QUESTION_PARTS_MISSING', 'Question Parts are missing.' );
 		}
 
-		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, $is_mla, $is_apa, $form );
+		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, $is_mla, $is_apa, $form, $is_chicago, $is_mhra );
 		if ( ! $people_ok ) {
 			$errors[] = self::error( 'INTEXT_PEOPLE_UNKNOWN', 'The in-text citation record is missing its author/editor/organisation data.' );
 			return self::result( 'failed', $errors, null );
@@ -3367,6 +3403,10 @@ class Citex_Generated_Validator {
 			$expected_build = Citex_MLA_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $clause, '' === $page ? null : $page, $quote );
 		} elseif ( $is_apa ) {
 			$expected_build = Citex_APA_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $year, $clause, $page, $quote );
+		} elseif ( $is_chicago ) {
+			$expected_build = Citex_Chicago_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $year, $clause, $page, $quote );
+		} elseif ( $is_mhra ) {
+			$expected_build = Citex_MHRA_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $year, $clause, $page, $quote );
 		} else {
 			$expected_build = Citex_Intext_Dragdrop_Parts::build( $form, $who, $surnames, $year, $clause, '' === $page ? null : $page, $quote );
 		}
@@ -3396,6 +3436,10 @@ class Citex_Generated_Validator {
 			$expected_reference = self::mla_intext_full_sentence( $form, $who, $clause, $page, $quote );
 		} elseif ( $is_apa ) {
 			$expected_reference = self::apa_intext_full_sentence( $form, $who, $year, $clause, $page, $quote );
+		} elseif ( $is_chicago ) {
+			$expected_reference = self::chicago_intext_full_sentence( $form, $who, $year, $clause, $page, $quote );
+		} elseif ( $is_mhra ) {
+			$expected_reference = self::mhra_intext_full_sentence( $form, $who, $year, $clause, $page, $quote );
 		} else {
 			$expected_reference = self::intext_full_sentence( $form, $who, $year, $clause, $page, $quote );
 		}
@@ -3690,6 +3734,201 @@ class Citex_Generated_Validator {
 			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
 			if ( $actual_option !== $expected_option ) {
 				$errors[] = self::error( 'APA_INTEXT_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * Chicago (Author-Date) in-text citation MCQ — mirrors
+	 * validate_apa_intext_mcq_variant()'s own exact-match rationale, via
+	 * Citex_Chicago_Intext_Mcq_Variants and intext_who_and_surnames()
+	 * instead.
+	 */
+	private static function validate_chicago_intext_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$form = (string) ( $question['citationForm'] ?? '' );
+		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, false, false, $form, true, false );
+		if ( ! $people_ok ) {
+			$errors[] = self::error( 'INTEXT_PEOPLE_UNKNOWN', 'The in-text citation record is missing its author/editor/organisation data.' );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		$variant = (string) ( $question['chicagoIntextMcqVariant'] ?? '' );
+		$fields  = array(
+			'form'     => $form,
+			'who'      => $who,
+			'surnames' => $surnames,
+			'year'     => (string) ( $question['year'] ?? '' ),
+			'clause'   => (string) ( $question['clause'] ?? '' ),
+			'page'     => (string) ( $question['page'] ?? '' ),
+			'quote'    => (string) ( $question['quote'] ?? '' ),
+		);
+		$expected = Citex_Chicago_Intext_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'CHICAGO_INTEXT_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised Chicago in-text MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'CHICAGO_INTEXT_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'CHICAGO_INTEXT_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'CHICAGO_INTEXT_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
+			}
+		}
+
+		if ( '' === trim( (string) ( $question['hint'] ?? '' ) ) ) {
+			$errors[] = self::error( 'MCQ_HINT_MISSING', 'Hint is missing.' );
+		} else {
+			$errors = array_merge( $errors, self::validate_mcq_hint_safety( $question, $correct_answer ) );
+		}
+
+		return self::result( empty( $errors ) ? 'passed' : 'failed', $errors, $correct_answer );
+	}
+
+	/**
+	 * MHRA in-text citation MCQ — mirrors validate_apa_intext_mcq_variant()'s
+	 * own exact-match rationale, via Citex_MHRA_Intext_Mcq_Variants and
+	 * intext_who_and_surnames() instead.
+	 */
+	private static function validate_mhra_intext_mcq_variant( $question ) {
+		$errors  = array();
+		$options = is_array( $question['options'] ?? null ) ? array_values( $question['options'] ) : array();
+
+		if ( 4 !== count( $options ) ) {
+			$errors[] = self::error( 'MCQ_OPTION_COUNT_MISMATCH', sprintf( 'Exactly 4 option slots are required (3 wrong options + 1 blank); %d were provided.', count( $options ) ) );
+			return self::result( 'failed', $errors, null );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			if ( '' === trim( (string) $options[ $i ] ) ) {
+				$errors[] = self::error( 'MCQ_OPTION_EMPTY', sprintf( 'Option %d is empty; the first 3 options must each hold a wrong option.', $i + 1 ) );
+			}
+		}
+		if ( '' !== trim( (string) $options[3] ) ) {
+			$errors[] = self::error( 'MCQ_FOURTH_OPTION_NOT_BLANK', 'Option 4 must be left blank — the correct answer belongs only in the Answer field, never duplicated into an option.' );
+		}
+
+		$seen = array();
+		foreach ( $options as $index => $option ) {
+			$normal = strtolower( trim( preg_replace( '/\s+/', ' ', (string) $option ) ) );
+			if ( '' === $normal ) {
+				continue;
+			}
+			if ( isset( $seen[ $normal ] ) ) {
+				$errors[] = self::error( 'MCQ_DUPLICATE_OPTION', sprintf( 'Option %d duplicates another option.', $index + 1 ) );
+			}
+			$seen[ $normal ] = true;
+		}
+
+		$correct_answer = trim( (string) ( $question['reconstructedReference'] ?? '' ) );
+		if ( '' === $correct_answer ) {
+			$errors[] = self::error( 'MCQ_ANSWER_MISSING', 'The correct answer (reconstructedReference) is missing.' );
+			return self::result( 'failed', $errors, null );
+		}
+		$correct_normal = strtolower( trim( preg_replace( '/\s+/', ' ', $correct_answer ) ) );
+		foreach ( $options as $index => $option ) {
+			$option_text = trim( (string) $option );
+			if ( '' === $option_text ) {
+				continue;
+			}
+			if ( strtolower( trim( preg_replace( '/\s+/', ' ', $option_text ) ) ) === $correct_normal ) {
+				$errors[] = self::error(
+					'MCQ_OPTION_MATCHES_ANSWER',
+					sprintf( 'Option %d duplicates the correct answer — it must appear ONLY in the Answer field, never as an option.', $index + 1 )
+				);
+			}
+		}
+
+		$form = (string) ( $question['citationForm'] ?? '' );
+		list( $who, $surnames, $people_ok ) = self::intext_who_and_surnames( $question, false, false, $form, false, true );
+		if ( ! $people_ok ) {
+			$errors[] = self::error( 'INTEXT_PEOPLE_UNKNOWN', 'The in-text citation record is missing its author/editor/organisation data.' );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		$variant = (string) ( $question['mhraIntextMcqVariant'] ?? '' );
+		$fields  = array(
+			'form'     => $form,
+			'who'      => $who,
+			'surnames' => $surnames,
+			'year'     => (string) ( $question['year'] ?? '' ),
+			'clause'   => (string) ( $question['clause'] ?? '' ),
+			'page'     => (string) ( $question['page'] ?? '' ),
+			'quote'    => (string) ( $question['quote'] ?? '' ),
+		);
+		$expected = Citex_MHRA_Intext_Mcq_Variants::build( $variant, $fields );
+		if ( null === $expected ) {
+			$errors[] = self::error( 'MHRA_INTEXT_MCQ_VARIANT_UNKNOWN', sprintf( 'Unrecognised MHRA in-text MCQ variant: "%s".', $variant ) );
+			return self::result( 'failed', $errors, $correct_answer );
+		}
+		if ( trim( (string) ( $question['scenario'] ?? '' ) ) !== $expected['stem'] ) {
+			$errors[] = self::error( 'MHRA_INTEXT_MCQ_VARIANT_STEM_MISMATCH', sprintf( 'The question text must be exactly: "%s".', $expected['stem'] ) );
+		}
+		if ( $correct_answer !== $expected['correctAnswer'] ) {
+			$errors[] = self::error( 'MHRA_INTEXT_MCQ_VARIANT_ANSWER_MISMATCH', sprintf( 'The Answer field must be exactly Citex\'s own answer for this variant: "%s".', $expected['correctAnswer'] ) );
+		}
+		for ( $i = 0; $i < 3; $i++ ) {
+			$actual_option   = trim( (string) ( $options[ $i ] ?? '' ) );
+			$expected_option = trim( (string) ( $expected['wrongOptions'][ $i ] ?? '' ) );
+			if ( $actual_option !== $expected_option ) {
+				$errors[] = self::error( 'MHRA_INTEXT_MCQ_VARIANT_OPTION_MISMATCH', sprintf( 'Option %1$d must be exactly Citex\'s own option for this variant: "%2$s".', $i + 1, $expected_option ) );
 			}
 		}
 

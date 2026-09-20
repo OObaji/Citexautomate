@@ -28,7 +28,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<table class="form-table" role="presentation">
 			<tr><th scope="row"><label for="citex_question_group"><?php esc_html_e( 'Question Focus', 'citex-tools' ); ?></label></th><td><select id="citex_question_group" name="citex_question_group"><?php foreach ( $question_groups as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select><p class="description"><?php esc_html_e( 'Reference List builds a full bibliography entry. In-Text Citation builds the short in-sentence/parenthetical citation instead — available for every category under both styles.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_referencing_style"><?php esc_html_e( 'Referencing Style', 'citex-tools' ); ?></label></th><td><select id="citex_referencing_style" name="citex_referencing_style"><?php foreach ( $referencing_styles as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?> (<?php echo esc_html( number_format_i18n( $style_counts[ $value ][ $default_group_key ] ?? 0 ) ); ?>)</option><?php endforeach; ?></select></td></tr>
-			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?> (<?php echo esc_html( number_format_i18n( $combined_counts[ $default_style_key ][ $default_group_key ][ $value ] ?? 0 ) ); ?>)</option><?php endforeach; ?></select><p id="citex_chicago_scope_note" class="description citex-chicago-scope-note" style="display:none;"><?php esc_html_e( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p><p id="citex_mhra_scope_note" class="description citex-mhra-scope-note" style="display:none;"><?php esc_html_e( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ); ?></p></td></tr>
+			<tr><th scope="row"><label for="citex_category"><?php esc_html_e( 'Category', 'citex-tools' ); ?></label></th><td><select id="citex_category" name="citex_category"><?php foreach ( $categories as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?> (<?php echo esc_html( number_format_i18n( $combined_counts[ $default_style_key ][ $default_group_key ][ $value ] ?? 0 ) ); ?>)</option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_difficulty"><?php esc_html_e( 'Difficulty', 'citex-tools' ); ?></label></th><td><select id="citex_difficulty" name="citex_difficulty"><?php foreach ( $difficulties as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>" <?php selected( 'hard', $value ); ?>><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select></td></tr>
 			<tr><th scope="row"><label for="citex_quantity"><?php esc_html_e( 'Quantity', 'citex-tools' ); ?></label></th><td><input type="number" id="citex_quantity" name="citex_quantity" value="20" min="1" max="100" class="small-text" /><p class="description"><?php esc_html_e( 'Generate up to 100 questions in one batch, split evenly across DragDrop/MCQ (and Citation Form, for In-Text Citation). "Generate & Publish" also populates every question that passes in the same request, so it is capped lower — 20 at a time — to avoid timing out. "Generate Real Questions with Gemini" alone still allows the full 100.', 'citex-tools' ); ?></p></td></tr>
 			<tr><th scope="row"><label for="citex_question_type"><?php esc_html_e( 'Question Type', 'citex-tools' ); ?></label></th><td><select id="citex_question_type" name="citex_question_type"><option value="mixed"><?php esc_html_e( 'Mixed — even DragDrop/MCQ split (recommended)', 'citex-tools' ); ?></option><option value="dragdrop"><?php esc_html_e( 'DragDrop only', 'citex-tools' ); ?></option><option value="mcq"><?php esc_html_e( 'MCQ only', 'citex-tools' ); ?></option></select><p class="description"><?php esc_html_e( 'For testing one question type in isolation. Leave this as Mixed for normal use — DragDrop only/MCQ only route the whole Quantity to one type, skipping the other half entirely.', 'citex-tools' ); ?></p></td></tr>
@@ -63,9 +63,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<hr />
 	<div class="citex-multi-style-batch" style="border:2px dashed #d63638;padding:12px;">
 		<h2><?php esc_html_e( 'Multi-Style Batch Populate (Temporary)', 'citex-tools' ); ?></h2>
-		<p class="description"><?php esc_html_e( 'A temporary tool for filling several Referencing Styles at once — tick the styles you need (e.g. Chicago and MHRA), set a target per category, and start it before you go to bed. Repeats Auto-Generate\'s own 20-question batches for every Book/Edited Book/Journal Article/Website combination of the ticked styles, one combination at a time, until EACH ONE reaches the target — e.g. 2 styles × 4 categories × a target of 100 queues up 8 combinations. Always uses Reference List (Chicago/MHRA don\'t support In-Text Citation yet), and the Difficulty/Question Type selected above. If one combination stalls or fails, it is logged and skipped so the rest can still finish overnight. Remove this section once you\'re done with it.', 'citex-tools' ); ?></p>
+		<p class="description"><?php esc_html_e( 'A temporary tool for filling several Referencing Styles at once — tick the styles you need (e.g. Chicago and MHRA), choose Reference List or In-Text Citation, set a target per category, and start it before you go to bed. Repeats Auto-Generate\'s own 20-question batches for every Book/Edited Book/Journal Article/Website combination of the ticked styles, one combination at a time, until EACH ONE reaches the target — e.g. 2 styles × 4 categories × a target of 100 queues up 8 combinations. Uses the chosen Question Focus for every combination, and the Difficulty/Question Type selected above. If one combination stalls or fails, it is logged and skipped so the rest can still finish overnight. Remove this section once you\'re done with it.', 'citex-tools' ); ?></p>
 		<div id="citex-multi-style-batch-styles" style="display:flex;gap:14px;flex-wrap:wrap;margin:8px 0;"></div>
 		<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+			<label><strong><?php esc_html_e( 'Question Focus:', 'citex-tools' ); ?></strong>
+				<select id="citex_multi_style_batch_group"><?php foreach ( $question_groups as $value => $label ) : ?><option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?></select>
+			</label>
 			<label><strong><?php esc_html_e( 'Target per category:', 'citex-tools' ); ?></strong>
 				<input type="number" id="citex_multi_style_batch_target" min="1" value="100" class="small-text" />
 			</label>
@@ -106,77 +109,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 				quantityInput.value = PUBLISH_CAP;
 			} );
 		}
-
-		var styleSelect = document.getElementById( 'citex_referencing_style' );
-		var groupSelect  = document.getElementById( 'citex_question_group' );
-
-		// Chicago (Author-Date) Reference List now covers all 4 categories
-		// (the same Phase 2 build-out APA/MLA already went through) — only
-		// Question Focus is still locked to "Reference List" whenever
-		// Chicago is selected (In-Text Citation is still a later phase),
-		// disabling every other option in that one dropdown so an
-		// unsupported combination can never be submitted, and shows a note
-		// explaining why. handle_generation() enforces the same restriction
-		// server-side regardless (see $chicago_scope_ok), so this is a UX
-		// convenience, not the only safeguard.
-		function syncChicagoScope() {
-			if ( ! styleSelect ) {
-				return;
-			}
-			var isChicago = 'chicago' === styleSelect.value;
-			if ( groupSelect ) {
-				Array.prototype.forEach.call( groupSelect.options, function ( opt ) {
-					opt.disabled = isChicago && 'referencelist' !== opt.value;
-				} );
-				if ( isChicago && 'referencelist' !== groupSelect.value ) {
-					groupSelect.value = 'referencelist';
-				}
-			}
-			var note = document.getElementById( 'citex_chicago_scope_note' );
-			if ( note ) {
-				note.style.display = isChicago ? '' : 'none';
-			}
-		}
-
-		// MHRA (11th edition) Reference List now covers all 4 categories
-		// (Book, Edited Book, Journal Article, Website) — the same Phase 2
-		// build-out APA/MLA/Chicago already went through. In-Text Citation
-		// is still a later phase, so only the Question Focus lock remains —
-		// mirrors syncChicagoScope() exactly, its own independent scope
-		// lock. Only one Referencing Style can ever be selected at once, so
-		// this and syncChicagoScope() each unconditionally set every
-		// option's `disabled` from scratch off their own single condition —
-		// calling both in sequence (either order) always leaves the options
-		// reflecting whichever style is actually selected, with no need to
-		// OR the two locks together.
-		function syncMhraScope() {
-			if ( ! styleSelect ) {
-				return;
-			}
-			var isMhra = 'mhra' === styleSelect.value;
-			if ( groupSelect ) {
-				Array.prototype.forEach.call( groupSelect.options, function ( opt ) {
-					opt.disabled = isMhra && 'referencelist' !== opt.value;
-				} );
-				if ( isMhra && 'referencelist' !== groupSelect.value ) {
-					groupSelect.value = 'referencelist';
-				}
-			}
-			var note = document.getElementById( 'citex_mhra_scope_note' );
-			if ( note ) {
-				note.style.display = isMhra ? '' : 'none';
-			}
-		}
-
-		if ( styleSelect ) {
-			styleSelect.addEventListener( 'change', function () {
-				syncChicagoScope();
-				syncMhraScope();
-			} );
-		}
-
-		syncChicagoScope();
-		syncMhraScope();
 	} )();
 	</script>
 

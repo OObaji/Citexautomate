@@ -131,11 +131,11 @@ class Citex_AI_V2 {
 		$verify = isset( $args['web_verify'] ) ? (bool) $args['web_verify'] : self::web_verification_enabled();
 		// 'mla', 'apa', 'chicago' and 'mhra' are the only other supported
 		// referencing styles — anything else (including the default) stays
-		// the original Harvard path. 'mla'/'apa' cover all 4 categories;
-		// 'chicago'/'mhra' are each Phase 1 (Book only — see
-		// Citex_Chicago_Reference_Rules's/Citex_MHRA_Reference_Rules's own
-		// docblocks), enforced by $chicago_scope_ok/$mhra_scope_ok in
-		// Citex_Generator rather than here.
+		// the original Harvard path. All 5 styles now cover all 4
+		// categories under both Reference List and In-Text Citation (see
+		// Citex_Generator::validate_generation_scope() — the one place
+		// that enforces the current support matrix, never duplicated
+		// here).
 		$style = sanitize_key( $args['style'] ?? 'harvard' );
 		if ( ! in_array( $style, array( 'harvard', 'mla', 'apa', 'chicago', 'mhra' ), true ) ) {
 			$style = 'harvard';
@@ -1598,8 +1598,18 @@ class Citex_AI_V2 {
 		return 'a PARENTHETICAL in-text citation of a DIRECT QUOTATION, which always needs a page reference';
 	}
 
+	private static function intext_style_label( $style ) {
+		$labels = array(
+			'mla'     => 'MLA',
+			'apa'     => 'APA',
+			'chicago' => 'Chicago',
+			'mhra'    => 'MHRA',
+		);
+		return $labels[ $style ] ?? 'Harvard';
+	}
+
 	private static function system_instruction_intext( $category, $style, $form, $type ) {
-		$style_label = 'mla' === $style ? 'MLA' : ( 'apa' === $style ? 'APA' : 'Harvard' );
+		$style_label = self::intext_style_label( $style );
 		return sprintf(
 			'You are Citex, an academic question-generation engine. Generate usable %1$s in-text citation %2$s questions about a %3$s, using %4$s. Invented-but-plausible sources are fine — this tool teaches in-text citation FORMATTING, not bibliographic research — as long as each record is internally consistent and no invented name belongs to a real, identifiable person. You are NOT asked for a scenario, question text, options, blanks, or a correct answer of any kind: Citex builds the ENTIRE question itself, deterministically, from the canonical record you provide, applying %1$s\'s own in-text citation rules (including its own "et al." threshold, and — for MLA — the complete absence of a publication year in-text at all). There is nothing for you to write beyond the canonical record itself, and nothing for you to leak an answer through. Before returning each record, perform a strict self-check: every field describes the same source with no contradictions, and any paraphrase clause or quotation names no author, year, or citation detail itself. Return only the requested JSON.',
 			$style_label,
@@ -1624,7 +1634,7 @@ class Citex_AI_V2 {
 		$is_mla     = 'mla' === $style;
 		$is_apa     = 'apa' === $style;
 		$is_quote   = Citex_Intext_Citation_Rules::FORM_PARENTHETICAL_QUOTE === $form;
-		$style_label = $is_mla ? 'MLA' : ( $is_apa ? 'APA' : 'Harvard' );
+		$style_label = self::intext_style_label( $style );
 		$noun        = self::intext_category_noun( $category );
 
 		$lines   = array();
@@ -2389,7 +2399,13 @@ class Citex_AI_V2 {
 			$required[]             = $title_field;
 		}
 
-		if ( 'harvard' === $style || 'apa' === $style ) {
+		if ( 'mla' !== $style ) {
+			// Every style except MLA carries a year in-text (MLA's own
+			// author-page convention has no year at all — see
+			// Citex_MLA_Intext_Citation_Rules's own docblock). Was
+			// previously a positive whitelist ('harvard'/'apa' only),
+			// which silently left the newer chicago/mhra styles without a
+			// `year` schema property at all.
 			$props['year'] = $s;
 			$required[]    = 'year';
 		}
@@ -2692,8 +2708,10 @@ class Citex_AI_V2 {
 	private static function normalise_intext_item( $item, $id, $category, $style, $form, $type, $exercise, $difficulty, $target_count ) {
 		$is_website = Citex_Reference_Rules::CATEGORY_WEBSITE === $category;
 		$is_edited_book = Citex_Reference_Rules::CATEGORY_EDITED_BOOK === $category;
-		$is_mla = 'mla' === $style;
-		$is_apa = 'apa' === $style;
+		$is_mla     = 'mla' === $style;
+		$is_apa     = 'apa' === $style;
+		$is_chicago = 'chicago' === $style;
+		$is_mhra    = 'mhra' === $style;
 		$derive = $is_mla ? 'derive_mla_author_parts' : 'derive_author_parts';
 
 		$ctx = array( 'category' => $category, 'form' => $form, 'author_record' => null );
@@ -2722,6 +2740,10 @@ class Citex_AI_V2 {
 				$ctx['who'] = Citex_MLA_Intext_Citation_Rules::display_person_or_org( $author_record );
 			} elseif ( $is_apa ) {
 				$ctx['who'] = Citex_APA_Intext_Citation_Rules::display_person_or_org( $author_record );
+			} elseif ( $is_chicago ) {
+				$ctx['who'] = Citex_Chicago_Intext_Citation_Rules::display_person_or_org( $author_record );
+			} elseif ( $is_mhra ) {
+				$ctx['who'] = Citex_MHRA_Intext_Citation_Rules::display_person_or_org( $author_record );
 			} else {
 				$ctx['who'] = Citex_Intext_Citation_Rules::display_person_or_org( $author_record );
 			}
@@ -2766,6 +2788,10 @@ class Citex_AI_V2 {
 				$ctx['who'] = Citex_MLA_Intext_Citation_Rules::join_people_intext( $people );
 			} elseif ( $is_apa ) {
 				$ctx['who'] = Citex_APA_Intext_Citation_Rules::join_people_intext( $people, Citex_APA_Intext_Citation_Rules::joiner_for_form( $form ) );
+			} elseif ( $is_chicago ) {
+				$ctx['who'] = Citex_Chicago_Intext_Citation_Rules::join_people_intext( $people );
+			} elseif ( $is_mhra ) {
+				$ctx['who'] = Citex_MHRA_Intext_Citation_Rules::join_people_intext( $people );
 			} else {
 				$ctx['who'] = Citex_Intext_Citation_Rules::join_people_intext( $people );
 			}
@@ -2808,6 +2834,10 @@ class Citex_AI_V2 {
 				$ctx['scenario'] = Citex_MLA_Intext_Citation_Rules::mcq_question_stem( $form );
 			} elseif ( $is_apa ) {
 				$ctx['scenario'] = Citex_APA_Intext_Citation_Rules::mcq_question_stem( $form );
+			} elseif ( $is_chicago ) {
+				$ctx['scenario'] = Citex_Chicago_Intext_Citation_Rules::mcq_question_stem( $form );
+			} elseif ( $is_mhra ) {
+				$ctx['scenario'] = Citex_MHRA_Intext_Citation_Rules::mcq_question_stem( $form );
 			} else {
 				$ctx['scenario'] = Citex_Intext_Citation_Rules::mcq_question_stem( $form );
 			}
@@ -2822,6 +2852,12 @@ class Citex_AI_V2 {
 			if ( $is_apa ) {
 				return self::normalise_apa_intext_mcq_item( $item, $id, $ctx, $exercise, $difficulty );
 			}
+			if ( $is_chicago ) {
+				return self::normalise_chicago_intext_mcq_item( $item, $id, $ctx, $exercise, $difficulty );
+			}
+			if ( $is_mhra ) {
+				return self::normalise_mhra_intext_mcq_item( $item, $id, $ctx, $exercise, $difficulty );
+			}
 			return self::normalise_intext_mcq_item( $item, $id, $ctx, $exercise, $difficulty );
 		}
 		if ( $is_mla ) {
@@ -2829,6 +2865,12 @@ class Citex_AI_V2 {
 		}
 		if ( $is_apa ) {
 			return self::normalise_apa_intext_dragdrop_item( $item, $id, $ctx, $exercise, $difficulty );
+		}
+		if ( $is_chicago ) {
+			return self::normalise_chicago_intext_dragdrop_item( $item, $id, $ctx, $exercise, $difficulty );
+		}
+		if ( $is_mhra ) {
+			return self::normalise_mhra_intext_dragdrop_item( $item, $id, $ctx, $exercise, $difficulty );
 		}
 		return self::normalise_intext_dragdrop_item( $item, $id, $ctx, $exercise, $difficulty );
 	}
@@ -3120,6 +3162,171 @@ class Citex_AI_V2 {
 		);
 	}
 
+	/**
+	 * Chicago (Author-Date) in-text citation DragDrop candidate — mirrors
+	 * normalise_intext_dragdrop_item() exactly, via
+	 * Citex_Chicago_Intext_Dragdrop_Parts/Citex_Chicago_Intext_Citation_Rules
+	 * instead (Chicago's own no-comma-before-year, no-"p."-prefix shape —
+	 * see that class's own docblock).
+	 */
+	private static function normalise_chicago_intext_dragdrop_item( $item, $id, array $ctx, $exercise, $difficulty ) {
+		$form = $ctx['form'];
+		$built = Citex_Chicago_Intext_Dragdrop_Parts::build( $form, $ctx['who'], $ctx['surnames'], $ctx['year'], $ctx['clause'], $ctx['page'], $ctx['quote'] );
+		if ( null === $built ) { return new WP_Error( 'citex_ai_intext_build_failed', sprintf( __( 'Question %s could not be built.', 'citex-tools' ), $id ) ); }
+
+		if ( Citex_Chicago_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			$reference = Citex_Chicago_Intext_Citation_Rules::narrative_sentence( $ctx['who'], $ctx['year'], $ctx['clause'] );
+		} elseif ( Citex_Chicago_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			$reference = Citex_Chicago_Intext_Citation_Rules::parenthetical_sentence( $ctx['who'], $ctx['year'], $ctx['clause'] );
+		} else {
+			$reference = Citex_Chicago_Intext_Citation_Rules::parenthetical_quote_sentence( $ctx['who'], $ctx['year'], $ctx['page'], $ctx['quote'] );
+		}
+
+		$tokens = Citex_Chicago_Intext_Dragdrop_Parts::build_tokens( $form, $ctx['who'], $ctx['year'], $ctx['clause'], $ctx['page'], $ctx['quote'] );
+		$part_kinds = array_values( array_filter( array_map( function ( $t ) { return $t['literal'] ? null : $t['kind']; }, $tokens ) ) );
+
+		return array_merge(
+			self::intext_common_fields( $id, $ctx, $exercise, $difficulty ),
+			array(
+				'key'        => wp_generate_uuid4(),
+				'questionId' => $id,
+				'title'      => sprintf( 'Chicago | InTextCitation | %s | DragDrop | %s', $ctx['category'], $id ),
+				'source'     => 'Chicago',
+				'group'      => 'InTextCitation',
+				'type'       => 'DragDrop',
+				'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $part_kinds ) ),
+				'fixedText'  => sanitize_text_field( $built['fixedText'] ),
+				'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ),
+				'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ),
+				'reconstructedReference' => sanitize_text_field( $reference ),
+			)
+		);
+	}
+
+	/**
+	 * Chicago in-text citation MCQ candidate — mirrors
+	 * normalise_intext_mcq_item() exactly, via Citex_Chicago_Intext_Mcq_Variants
+	 * instead.
+	 */
+	private static function normalise_chicago_intext_mcq_item( $item, $id, array $ctx, $exercise, $difficulty ) {
+		$form = $ctx['form'];
+		$fields = array(
+			'form'     => $form,
+			'who'      => $ctx['who'],
+			'surnames' => $ctx['surnames'],
+			'year'     => $ctx['year'],
+			'clause'   => $ctx['clause'],
+			'page'     => $ctx['page'],
+			'quote'    => $ctx['quote'],
+		);
+		$variant_seed = $id;
+		$author_count = count( $ctx['surnames'] );
+		$variant      = Citex_Chicago_Intext_Mcq_Variants::variant_for( $variant_seed, $form, $author_count );
+		$built        = Citex_Chicago_Intext_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) { return new WP_Error( 'citex_ai_intext_build_failed', sprintf( __( 'Question %s could not be built for variant "%2$s".', 'citex-tools' ), $id, $variant ) ); }
+
+		return array_merge(
+			self::intext_common_fields( $id, $ctx, $exercise, $difficulty ),
+			array(
+				'key'        => wp_generate_uuid4(),
+				'questionId' => $id,
+				'title'      => sprintf( 'Chicago | InTextCitation | %s | MCQ | %s', $ctx['category'], $id ),
+				'source'     => 'Chicago',
+				'group'      => 'InTextCitation',
+				'type'       => 'MCQ',
+				'mcqPattern' => 'chicago_intext_mcq_variant',
+				'chicagoIntextMcqVariant' => sanitize_key( $variant ),
+				'scenario'   => sanitize_textarea_field( $built['stem'] ),
+				'options'    => array_values( array_map( 'sanitize_text_field', array_merge( $built['wrongOptions'], array( '' ) ) ) ),
+				'hint'       => sanitize_textarea_field( Citex_Chicago_Intext_Citation_Rules::mcq_hint( $form ) ),
+				'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ),
+			)
+		);
+	}
+
+	/**
+	 * MHRA in-text citation DragDrop candidate — mirrors
+	 * normalise_intext_dragdrop_item() exactly, via
+	 * Citex_MHRA_Intext_Dragdrop_Parts/Citex_MHRA_Intext_Citation_Rules
+	 * instead (see that class's own docblock for why MHRA's In-Text
+	 * Citation deliberately targets the same Author-Date shape Harvard
+	 * already uses).
+	 */
+	private static function normalise_mhra_intext_dragdrop_item( $item, $id, array $ctx, $exercise, $difficulty ) {
+		$form = $ctx['form'];
+		$built = Citex_MHRA_Intext_Dragdrop_Parts::build( $form, $ctx['who'], $ctx['surnames'], $ctx['year'], $ctx['clause'], $ctx['page'], $ctx['quote'] );
+		if ( null === $built ) { return new WP_Error( 'citex_ai_intext_build_failed', sprintf( __( 'Question %s could not be built.', 'citex-tools' ), $id ) ); }
+
+		if ( Citex_MHRA_Intext_Citation_Rules::FORM_NARRATIVE === $form ) {
+			$reference = Citex_MHRA_Intext_Citation_Rules::narrative_sentence( $ctx['who'], $ctx['year'], $ctx['clause'] );
+		} elseif ( Citex_MHRA_Intext_Citation_Rules::FORM_PARENTHETICAL === $form ) {
+			$reference = Citex_MHRA_Intext_Citation_Rules::parenthetical_sentence( $ctx['who'], $ctx['year'], $ctx['clause'] );
+		} else {
+			$reference = Citex_MHRA_Intext_Citation_Rules::parenthetical_quote_sentence( $ctx['who'], $ctx['year'], $ctx['page'], $ctx['quote'] );
+		}
+
+		$tokens = Citex_MHRA_Intext_Dragdrop_Parts::build_tokens( $form, $ctx['who'], $ctx['year'], $ctx['clause'], $ctx['page'], $ctx['quote'] );
+		$part_kinds = array_values( array_filter( array_map( function ( $t ) { return $t['literal'] ? null : $t['kind']; }, $tokens ) ) );
+
+		return array_merge(
+			self::intext_common_fields( $id, $ctx, $exercise, $difficulty ),
+			array(
+				'key'        => wp_generate_uuid4(),
+				'questionId' => $id,
+				'title'      => sprintf( 'MHRA | InTextCitation | %s | DragDrop | %s', $ctx['category'], $id ),
+				'source'     => 'MHRA',
+				'group'      => 'InTextCitation',
+				'type'       => 'DragDrop',
+				'dragdropPartKeys' => array_values( array_map( 'sanitize_key', $part_kinds ) ),
+				'fixedText'  => sanitize_text_field( $built['fixedText'] ),
+				'questionParts' => array_values( array_map( 'sanitize_text_field', $built['parts'] ) ),
+				'confusingWords' => array_values( array_map( 'sanitize_text_field', $built['confusingWords'] ) ),
+				'reconstructedReference' => sanitize_text_field( $reference ),
+			)
+		);
+	}
+
+	/**
+	 * MHRA in-text citation MCQ candidate — mirrors
+	 * normalise_intext_mcq_item() exactly, via Citex_MHRA_Intext_Mcq_Variants
+	 * instead.
+	 */
+	private static function normalise_mhra_intext_mcq_item( $item, $id, array $ctx, $exercise, $difficulty ) {
+		$form = $ctx['form'];
+		$fields = array(
+			'form'     => $form,
+			'who'      => $ctx['who'],
+			'surnames' => $ctx['surnames'],
+			'year'     => $ctx['year'],
+			'clause'   => $ctx['clause'],
+			'page'     => $ctx['page'],
+			'quote'    => $ctx['quote'],
+		);
+		$variant_seed = $id;
+		$author_count = count( $ctx['surnames'] );
+		$variant      = Citex_MHRA_Intext_Mcq_Variants::variant_for( $variant_seed, $form, $author_count );
+		$built        = Citex_MHRA_Intext_Mcq_Variants::build( $variant, $fields );
+		if ( null === $built ) { return new WP_Error( 'citex_ai_intext_build_failed', sprintf( __( 'Question %s could not be built for variant "%2$s".', 'citex-tools' ), $id, $variant ) ); }
+
+		return array_merge(
+			self::intext_common_fields( $id, $ctx, $exercise, $difficulty ),
+			array(
+				'key'        => wp_generate_uuid4(),
+				'questionId' => $id,
+				'title'      => sprintf( 'MHRA | InTextCitation | %s | MCQ | %s', $ctx['category'], $id ),
+				'source'     => 'MHRA',
+				'group'      => 'InTextCitation',
+				'type'       => 'MCQ',
+				'mcqPattern' => 'mhra_intext_mcq_variant',
+				'mhraIntextMcqVariant' => sanitize_key( $variant ),
+				'scenario'   => sanitize_textarea_field( $built['stem'] ),
+				'options'    => array_values( array_map( 'sanitize_text_field', array_merge( $built['wrongOptions'], array( '' ) ) ) ),
+				'hint'       => sanitize_textarea_field( Citex_MHRA_Intext_Citation_Rules::mcq_hint( $form ) ),
+				'reconstructedReference' => sanitize_text_field( $built['correctAnswer'] ),
+			)
+		);
+	}
+
 	private static function normalise( $questions, $ids, $difficulty, $exercises = array(), $type = 'DragDrop', $category = null, $target_count = null, $scenario_id = '', $rule_tested = '', $exercise_design = 'full_reference', $style = 'harvard', $group = 'referencelist', $citation_form = '' ) {
 		$category = $category ?: Citex_Reference_Rules::CATEGORY_BOOK;
 		$out = array();
@@ -3202,16 +3409,13 @@ class Citex_AI_V2 {
 				$candidate = self::normalise_apa_item( $item, $id, $category, $type, $exercise, $difficulty, $target_count );
 			} elseif ( 'chicago' === $style ) {
 				// Same rationale as the MLA/APA branches above — dispatched
-				// before any Harvard-only scenario_id-based routing. Phase
-				// 1: Book only (Citex_Generator's own $chicago_scope_ok
-				// keeps $category at Book for this style at this phase).
+				// before any Harvard-only scenario_id-based routing. Covers
+				// all 4 categories, same as MLA/APA.
 				$candidate = self::normalise_chicago_item( $item, $id, $category, $type, $exercise, $difficulty, $target_count );
 			} elseif ( 'mhra' === $style ) {
 				// Same rationale as the MLA/APA/Chicago branches above —
 				// dispatched before any Harvard-only scenario_id-based
-				// routing. Phase 1: Book only (Citex_Generator's own
-				// $mhra_scope_ok keeps $category at Book for this style at
-				// this phase).
+				// routing. Covers all 4 categories, same as MLA/APA/Chicago.
 				$candidate = self::normalise_mhra_item( $item, $id, $category, $type, $exercise, $difficulty, $target_count );
 			} elseif ( 'MCQ' === $type && 0 === strpos( (string) $scenario_id, 'choose_treatment_' ) ) {
 				// "Choose the correct rule/treatment" needs none of the

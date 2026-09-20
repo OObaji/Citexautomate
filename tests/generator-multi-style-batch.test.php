@@ -41,9 +41,10 @@ $batch_js_source = file_get_contents( __DIR__ . '/../citex-tools/admin/js/citex-
 // ---------------------------------------------------------------------
 // Every batch it sends is still exactly what the existing Auto-Generate
 // feature sends — the same AJAX action/nonce, the same 20-question cap,
-// and it always publishes (citex_question_group is always
-// 'referencelist', since Chicago/MHRA — the whole reason for this tool —
-// don't support In-Text Citation yet).
+// and it always publishes. citex_question_group is now read from a
+// dedicated Question Focus select (a real requested feature: the admin
+// wanted to choose Reference List OR In-Text Citation, since every style
+// now supports both) rather than hardcoded to 'referencelist'.
 // ---------------------------------------------------------------------
 check(
 	'[1] batches are capped at 20 questions, matching the existing Auto-Generate/Generate & Publish cap',
@@ -56,8 +57,10 @@ check(
 	true
 );
 check(
-	'[1] every batch is always Reference List, never In-Text Citation',
-	false !== strpos( $batch_js_source, "var GROUP_KEY             = 'referencelist';" ) && false !== strpos( $batch_js_source, 'citex_question_group:     GROUP_KEY,' ),
+	'[1] the Question Focus (Reference List/In-Text Citation) is read from its own select and threaded through to every batch',
+	false !== strpos( $batch_js_source, "var groupSelect     = document.getElementById( 'citex_multi_style_batch_group' );" )
+		&& false !== strpos( $batch_js_source, 'var groupKey = groupSelect.value;' )
+		&& false !== strpos( $batch_js_source, 'citex_question_group:     groupKey,' ),
 	true
 );
 
@@ -74,7 +77,7 @@ check(
 );
 check(
 	'[2] runAll() awaits each combination in a for loop before starting the next — never Promise.all/parallel',
-	1 === preg_match( '/for \( var i = 0; i < combos\.length; i\+\+ \) \{[\s\S]*?await runCombo\( combo, target \)/', $batch_js_source ),
+	1 === preg_match( '/for \( var i = 0; i < combos\.length; i\+\+ \) \{[\s\S]*?await runCombo\( combo, target, groupKey \)/', $batch_js_source ),
 	true
 );
 

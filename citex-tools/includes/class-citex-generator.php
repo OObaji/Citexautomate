@@ -177,8 +177,32 @@ class Citex_Generator {
 			'Journal Article'  => 'AIJ',
 			'Website'          => 'AIW',
 		);
-		$map = 'mla' === $style ? $mla : ( 'apa' === $style ? $apa : $harvard );
-		return $map[ $category_label ] ?? ( 'mla' === $style ? 'MI' : ( 'apa' === $style ? 'AI' : 'I' ) );
+		$chicago = array(
+			'Book'             => 'CIB',
+			'Edited Book'      => 'CIE',
+			'Journal Article'  => 'CIJ',
+			'Website'          => 'CIW',
+		);
+		$mhra = array(
+			'Book'             => 'HIB',
+			'Edited Book'      => 'HIE',
+			'Journal Article'  => 'HIJ',
+			'Website'          => 'HIW',
+		);
+		$maps = array(
+			'mla'     => $mla,
+			'apa'     => $apa,
+			'chicago' => $chicago,
+			'mhra'    => $mhra,
+		);
+		$fallbacks = array(
+			'mla'     => 'MI',
+			'apa'     => 'AI',
+			'chicago' => 'CI',
+			'mhra'    => 'HI',
+		);
+		$map = $maps[ $style ] ?? $harvard;
+		return $map[ $category_label ] ?? ( $fallbacks[ $style ] ?? 'I' );
 	}
 
 	public static function get_pending_questions() {
@@ -523,14 +547,18 @@ class Citex_Generator {
 	/**
 	 * Validates a Referencing Style + Category + Question Focus (Question
 	 * Group) combination against the AI generator's own current support
-	 * matrix — Harvard/MLA/APA cover all 4 categories under both Reference
-	 * List and In-Text Citation; Chicago/MHRA are each Phase 1 (Reference
-	 * List only, all 4 categories — see Citex_Chicago_Reference_Rules's/
-	 * Citex_MHRA_Reference_Rules's own docblocks). Shared by
-	 * handle_generation() (the classic form, which turns a WP_Error here
-	 * into a notice + redirect) and ajax_auto_generate_batch() (which
-	 * turns it into a JSON error instead) so the rule can't drift between
-	 * the two entry points.
+	 * matrix — Harvard/MLA/APA/Chicago/MHRA all now cover all 4 categories
+	 * under BOTH Reference List and In-Text Citation. Chicago/MHRA's own
+	 * In-Text Citation was added after their own Reference-List-only Phase
+	 * 1 (see Citex_Chicago_Reference_Rules's/Citex_MHRA_Reference_Rules's
+	 * own docblocks for why each targets an Author-Date-shaped Reference
+	 * List; Citex_Chicago_Intext_Citation_Rules's/
+	 * Citex_MHRA_Intext_Citation_Rules's own docblocks explain their own
+	 * In-Text Citation shape) — no style/group restriction remains for
+	 * either style. Shared by handle_generation() (the classic form, which
+	 * turns a WP_Error here into a notice + redirect) and
+	 * ajax_auto_generate_batch() (which turns it into a JSON error
+	 * instead) so the rule can't drift between the two entry points.
 	 *
 	 * @return true|WP_Error
 	 */
@@ -539,12 +567,6 @@ class Citex_Generator {
 		$category_ok = isset( self::category_labels()[ $category ] );
 		if ( ! $style_ok || ! $category_ok ) {
 			return new WP_Error( 'citex_invalid_generation_scope', __( 'The current AI generator supports Reference List and In-Text Citation, Harvard, MLA, APA, Chicago or MHRA, for Book, Edited Book, Journal Article or Website.', 'citex-tools' ) );
-		}
-		if ( 'chicago' === $style && 'referencelist' !== $group ) {
-			return new WP_Error( 'citex_chicago_scope', __( 'Chicago (Author-Date) currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ) );
-		}
-		if ( 'mhra' === $style && 'referencelist' !== $group ) {
-			return new WP_Error( 'citex_mhra_scope', __( 'MHRA currently supports Reference List only — In-Text Citation is coming in a later update.', 'citex-tools' ) );
 		}
 		return true;
 	}

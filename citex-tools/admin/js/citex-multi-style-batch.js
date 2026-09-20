@@ -22,11 +22,10 @@
  * nothing else changes, and the tested Auto-Generate feature is never
  * touched by that removal.
  *
- * Always uses Reference List (never In-Text Citation) — Chicago and MHRA,
- * the actual motivating case, don't support In-Text Citation yet, and
- * this tool's whole point is Reference List backfill. Difficulty and
- * Question Type are read from the same fields the rest of the Generate
- * page uses, at the moment Start is clicked.
+ * A dedicated Question Focus select (Reference List / In-Text Citation)
+ * lets one run target either — every ticked style now supports both.
+ * Difficulty and Question Type are read from the same fields the rest of
+ * the Generate page uses, at the moment Start is clicked.
  *
  * Unlike the single-combination Auto-Generate loop (which fully stops the
  * instant 3 batches in a row publish nothing new), a stall, a safety-limit
@@ -125,12 +124,13 @@
 		}
 
 		var stylesContainer = document.getElementById( 'citex-multi-style-batch-styles' );
+		var groupSelect     = document.getElementById( 'citex_multi_style_batch_group' );
 		var targetInput     = document.getElementById( 'citex_multi_style_batch_target' );
 		var startButton     = document.getElementById( 'citex-multi-style-batch-start' );
 		var stopButton      = document.getElementById( 'citex-multi-style-batch-stop' );
 		var status          = document.getElementById( 'citex-multi-style-batch-status' );
 		var log             = document.getElementById( 'citex-multi-style-batch-log' );
-		if ( ! stylesContainer || ! targetInput || ! startButton || ! stopButton ) {
+		if ( ! stylesContainer || ! groupSelect || ! targetInput || ! startButton || ! stopButton ) {
 			return;
 		}
 
@@ -161,7 +161,6 @@
 		// questions generated AND published per batch, never more.
 		var BATCH_CAP             = 20;
 		var MAX_BATCHES_PER_COMBO = 50;
-		var GROUP_KEY             = 'referencelist';
 
 		var stopRequested = false;
 
@@ -179,10 +178,13 @@
 		// a-time batches — the same shape as citex-admin.js's own
 		// wireAutoGenerate()/runNextBatch(), just resolving a Promise
 		// instead of driving its own Start/Stop buttons, so runAll() below
-		// can await one combination before starting the next.
-		function runCombo( combo, target ) {
+		// can await one combination before starting the next. $groupKey is
+		// read once from the Question Focus select when Start is clicked
+		// (see startButton's own listener below) and applies to every
+		// combination in this run.
+		function runCombo( combo, target, groupKey ) {
 			var publishedCounts = readPublishedCounts();
-			var baseline = ( publishedCounts[ combo.styleKey ] && publishedCounts[ combo.styleKey ][ GROUP_KEY ] && publishedCounts[ combo.styleKey ][ GROUP_KEY ][ combo.categoryKey ] ) || 0;
+			var baseline = ( publishedCounts[ combo.styleKey ] && publishedCounts[ combo.styleKey ][ groupKey ] && publishedCounts[ combo.styleKey ][ groupKey ][ combo.categoryKey ] ) || 0;
 
 			return new Promise( function ( resolve ) {
 				var createdTotal     = 0;
@@ -215,7 +217,7 @@
 						citex_referencing_style:  combo.styleKey,
 						citex_category:           combo.categoryKey,
 						citex_difficulty:         difficultySelect ? difficultySelect.value : 'hard',
-						citex_question_group:     GROUP_KEY,
+						citex_question_group:     groupKey,
 						citex_question_type:      typeSelect ? typeSelect.value : 'mixed',
 						citex_quantity:           batchQuantity,
 					} )
@@ -269,7 +271,7 @@
 		// sequential batch runner), continuing past a stalled/failed/
 		// limit-hit combination rather than aborting the whole run, so one
 		// bad combination cannot block the rest while the admin is asleep.
-		async function runAll( combos, target ) {
+		async function runAll( combos, target, groupKey ) {
 			var completed = 0;
 			for ( var i = 0; i < combos.length; i++ ) {
 				if ( stopRequested ) {
@@ -278,7 +280,7 @@
 				}
 				var combo = combos[ i ];
 				logLine( '— Starting ' + combo.styleLabel + ' — ' + combo.categoryLabel + ' (target ' + target + ') —' );
-				var result = await runCombo( combo, target );
+				var result = await runCombo( combo, target, groupKey );
 				if ( 'reached' === result.outcome ) {
 					logLine( '✓ ' + combo.styleLabel + ' — ' + combo.categoryLabel + ' done: ' + result.total + '/' + target + ' published.' );
 					completed++;
@@ -317,6 +319,8 @@
 				return;
 			}
 
+			var groupKey = groupSelect.value;
+
 			var combos = [];
 			selectedStyles.forEach( function ( style ) {
 				categories.forEach( function ( category ) {
@@ -332,7 +336,7 @@
 			stopButton.style.display = '';
 			setText( status, 'Running ' + combos.length + ' combination(s) (' + selectedStyles.length + ' style(s) × ' + categories.length + ' categories), target ' + target + ' each…' );
 
-			runAll( combos, target ).then( function ( completed ) {
+			runAll( combos, target, groupKey ).then( function ( completed ) {
 				startButton.disabled     = false;
 				stopButton.style.display = 'none';
 				setText( status, '✓ Done — ' + completed + '/' + combos.length + ' combination(s) reached target ' + target + '.' );
